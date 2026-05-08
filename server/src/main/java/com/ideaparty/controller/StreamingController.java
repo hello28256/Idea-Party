@@ -29,7 +29,7 @@ public class StreamingController {
     }
 
     @GetMapping(value = "/stream/{roomId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<SseEmitter<Void>> streamAIResponse(
+    public ResponseEntity<SseEmitter> streamAIResponse(
             @PathVariable String roomId,
             @RequestParam String message) {
 
