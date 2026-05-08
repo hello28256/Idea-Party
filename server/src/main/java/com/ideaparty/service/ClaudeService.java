@@ -23,6 +23,11 @@ public class ClaudeService {
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String MODEL = "claude-sonnet-4-20250514";
 
+    /**
+     * AI response wrapper that carries character info with each chunk.
+     */
+    public record AIResponse(String chunk, String characterId, String characterName, boolean isComplete) {}
+
     public ClaudeService(CharacterRepository characterRepository) {
         this.characterRepository = characterRepository;
         this.objectMapper = new ObjectMapper();
@@ -31,6 +36,18 @@ public class ClaudeService {
             .defaultHeader("x-api-key", System.getenv("ANTHROPIC_API_KEY"))
             .defaultHeader("anthropic-version", "2023-06-01")
             .build();
+    }
+
+    /**
+     * Selects the responding character based on expertise matching and turn logic.
+     * Currently selects the first character; can be extended for smarter routing.
+     */
+    private Character selectRespondingCharacter(List<Character> characters, String userMessage) {
+        if (characters.isEmpty()) {
+            return null;
+        }
+        // TODO: Implement smarter routing based on expertise matching
+        return characters.get(0);
     }
 
     public String buildSystemPrompt(Character character) {
@@ -49,16 +66,13 @@ public class ClaudeService {
         return prompt.toString();
     }
 
-    public Flux<String> streamMessage(String roomId, List<Character> characters, String userMessage) {
-        if (characters.isEmpty()) {
-            return Flux.just("No characters available to respond.");
+    public Flux<AIResponse> streamMessage(String roomId, List<Character> characters, String userMessage) {
+        Character character = selectRespondingCharacter(characters, userMessage);
+        if (character == null) {
+            return Flux.just(new AIResponse("No characters available to respond.", null, null, true));
         }
 
-        // Pick a character based on some logic (for now, pick the first one)
-        Character character = characters.get(0);
         String systemPrompt = buildSystemPrompt(character);
-
-        // Build conversation context
         String conversationContext = buildConversationContext(characters, userMessage);
 
         Map<String, Object> requestBody = Map.of(
@@ -71,6 +85,9 @@ public class ClaudeService {
             )
         );
 
+        final String characterId = character.getId();
+        final String characterName = character.getName();
+
         return webClient.post()
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(requestBody)
@@ -79,7 +96,10 @@ public class ClaudeService {
             .filter(line -> line.startsWith("data: "))
             .map(line -> line.substring(6))
             .filter(data -> !data.equals("[DONE]"))
-            .map(this::extractTextFromEvent);
+            .map(this::extractTextFromEvent)
+            .filter(chunk -> !chunk.isEmpty())
+            .map(chunk -> new AIResponse(chunk, characterId, characterName, false))
+            .concatWith(Flux.just(new AIResponse("", characterId, characterName, true)));
     }
 
     private String buildConversationContext(List<Character> characters, String userMessage) {
