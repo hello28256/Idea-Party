@@ -1,29 +1,66 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onUnmounted, watch } from 'vue';
 import { useRoomStore } from '../../stores/room';
 import { useMessagesStore } from '../../stores/messages';
+import { useSocket } from '../../composables/useSocket';
+import type { Message } from '../../types';
 import MessageList from './MessageList.vue';
 import MessageInput from './MessageInput.vue';
 
 const roomStore = useRoomStore();
 const messagesStore = useMessagesStore();
+const { isConnected, joinRoom, leaveRoom, on } = useSocket();
+
 const isThinking = ref(false);
 
-onMounted(async () => {
+function handleNewMessage(data: unknown) {
+  const message = data as Message;
+  messagesStore.addMessage(message);
+}
+
+function handleAIThinking(data: unknown) {
+  isThinking.value = (data as { thinking: boolean }).thinking;
+}
+
+watch(
+  () => roomStore.currentRoom,
+  async (room) => {
+    if (room) {
+      await messagesStore.fetchMessages(room.id);
+      joinRoom(room.id);
+      on('chat message', handleNewMessage);
+      on('ai-thinking', handleAIThinking);
+    }
+  },
+  { immediate: true }
+);
+
+onUnmounted(() => {
   if (roomStore.currentRoom) {
-    await messagesStore.fetchMessages(roomStore.currentRoom.id);
+    leaveRoom(roomStore.currentRoom.id);
   }
 });
 
 async function handleSendMessage(content: string) {
   if (!roomStore.currentRoom) return;
 
-  isThinking.value = true;
   try {
-    await messagesStore.sendMessage(roomStore.currentRoom.id, content, 'user');
+    // Add message locally for immediate feedback
+    messagesStore.addMessage({
+      id: 'temp-' + Date.now(),
+      content,
+      role: 'user',
+      roomId: roomStore.currentRoom.id,
+      createdAt: new Date().toISOString(),
+    });
+
     // TODO: Trigger AI response via Socket.IO
-  } finally {
-    isThinking.value = false;
+    isThinking.value = true;
+    setTimeout(() => {
+      isThinking.value = false;
+    }, 1500);
+  } catch (e) {
+    console.error('Failed to send message:', e);
   }
 }
 </script>
@@ -31,6 +68,7 @@ async function handleSendMessage(content: string) {
 <template>
   <div class="chat-room">
     <div class="chat-header">
+      <div class="connection-status" :class="{ connected: isConnected }"></div>
       <h2>{{ roomStore.currentRoom?.name || 'Chat Room' }}</h2>
       <span v-if="roomStore.currentRoom?.theme" class="theme">
         {{ roomStore.currentRoom.theme }}
@@ -65,6 +103,17 @@ async function handleSendMessage(content: string) {
   padding: 1rem;
   background: #667eea;
   color: white;
+}
+
+.connection-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4444;
+}
+
+.connection-status.connected {
+  background: #44ff44;
 }
 
 .chat-header h2 {
