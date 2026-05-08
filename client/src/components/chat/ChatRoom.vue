@@ -2,16 +2,17 @@
 import { ref, onUnmounted, watch } from 'vue';
 import { useRoomStore } from '../../stores/room';
 import { useMessagesStore } from '../../stores/messages';
-import { useSocket } from '../../composables/useSocket';
+import { useSocket, type AIChunkData, type AICompleteData } from '../../composables/useSocket';
 import type { Message } from '../../types';
 import MessageList from './MessageList.vue';
 import MessageInput from './MessageInput.vue';
 
 const roomStore = useRoomStore();
 const messagesStore = useMessagesStore();
-const { isConnected, joinRoom, leaveRoom, on } = useSocket();
+const { isConnected, joinRoom, leaveRoom, on, emit, onAIChunk, onAIComplete } = useSocket();
 
 const isThinking = ref(false);
+const thinkingCharacterName = ref('');
 
 function handleNewMessage(data: unknown) {
   const message = data as Message;
@@ -22,6 +23,29 @@ function handleAIThinking(data: unknown) {
   isThinking.value = (data as { thinking: boolean }).thinking;
 }
 
+function handleAIChunk(data: unknown) {
+  const chunk = data as AIChunkData;
+  // Update thinking indicator with character name
+  thinkingCharacterName.value = chunk.characterName;
+  // The message will be streamed in via the complete event
+}
+
+function handleAIComplete(data: unknown) {
+  const complete = data as AICompleteData;
+  isThinking.value = false;
+  thinkingCharacterName.value = '';
+  // Add the complete AI message to the message list
+  messagesStore.addMessage({
+    id: complete.messageId,
+    content: complete.content,
+    role: 'character',
+    characterId: complete.characterId,
+    characterName: complete.characterName,
+    roomId: roomStore.currentRoom?.id || '',
+    createdAt: new Date().toISOString(),
+  });
+}
+
 watch(
   () => roomStore.currentRoom,
   async (room) => {
@@ -30,6 +54,8 @@ watch(
       joinRoom(room.id);
       on('chat message', handleNewMessage);
       on('ai-thinking', handleAIThinking);
+      onAIChunk(handleAIChunk);
+      onAIComplete(handleAIComplete);
     }
   },
   { immediate: true }
@@ -54,13 +80,17 @@ async function handleSendMessage(content: string) {
       createdAt: new Date().toISOString(),
     });
 
-    // TODO: Trigger AI response via Socket.IO
+    // Trigger AI response via Socket.IO
     isThinking.value = true;
-    setTimeout(() => {
-      isThinking.value = false;
-    }, 1500);
+    thinkingCharacterName.value = roomStore.currentRoom.characters?.[0]?.name || 'AI';
+    emit('trigger-ai', {
+      roomId: roomStore.currentRoom.id,
+      message: content,
+    });
   } catch (e) {
     console.error('Failed to send message:', e);
+    isThinking.value = false;
+    thinkingCharacterName.value = '';
   }
 }
 </script>
@@ -76,7 +106,7 @@ async function handleSendMessage(content: string) {
     </div>
 
     <div class="thinking-indicator" v-if="isThinking">
-      AI is thinking...
+      {{ thinkingCharacterName }} is thinking...
     </div>
 
     <MessageList
