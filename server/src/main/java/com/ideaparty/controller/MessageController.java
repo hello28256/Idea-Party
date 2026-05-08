@@ -4,7 +4,9 @@ import com.ideaparty.dto.MessageResponse;
 import com.ideaparty.dto.SendMessageRequest;
 import com.ideaparty.entity.Message;
 import com.ideaparty.service.MessageService;
+import com.ideaparty.service.ModerationService;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,9 +18,11 @@ import java.util.stream.Collectors;
 public class MessageController {
 
     private final MessageService messageService;
+    private final ModerationService moderationService;
 
-    public MessageController(MessageService messageService) {
+    public MessageController(MessageService messageService, ModerationService moderationService) {
         this.messageService = messageService;
+        this.moderationService = moderationService;
     }
 
     @GetMapping
@@ -41,9 +45,15 @@ public class MessageController {
     }
 
     @PostMapping
-    public ResponseEntity<MessageResponse> sendMessage(
+    public ResponseEntity<?> sendMessage(
             @PathVariable String roomId,
             @RequestBody SendMessageRequest request) {
+        ModerationService.ModerationResult result = moderationService.moderate(request.getContent());
+        if (!result.isAllowed()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(java.util.Map.of("error", result.getReason()));
+        }
+
         try {
             Message message = messageService.saveMessage(
                 roomId,

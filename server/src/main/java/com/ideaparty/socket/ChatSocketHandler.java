@@ -3,6 +3,7 @@ package com.ideaparty.socket;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ideaparty.service.MessageService;
+import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -21,9 +22,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MessageService messageService;
+    private final ModerationService moderationService;
 
-    public ChatSocketHandler(MessageService messageService) {
+    public ChatSocketHandler(MessageService messageService, ModerationService moderationService) {
         this.messageService = messageService;
+        this.moderationService = moderationService;
     }
 
     @Override
@@ -86,6 +89,18 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String characterId = data.has("characterId") && !data.get("characterId").isNull()
             ? data.get("characterId").asText()
             : null;
+
+        // Check moderation before processing
+        ModerationService.ModerationResult result = moderationService.moderate(content);
+        if (!result.isAllowed()) {
+            String errorMessage = "42[\"error\","
+                + objectMapper.writeValueAsString(Map.of(
+                    "message", result.getReason()
+                ))
+                + "]";
+            session.sendMessage(new TextMessage(errorMessage));
+            return;
+        }
 
         // Save message to database
         try {
