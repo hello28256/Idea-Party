@@ -2,6 +2,10 @@ package com.ideaparty.socket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ideaparty.entity.Character;
+import com.ideaparty.entity.Room;
+import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.service.ClaudeService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
@@ -10,6 +14,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
@@ -23,10 +28,15 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MessageService messageService;
     private final ModerationService moderationService;
+    private final RoomRepository roomRepository;
+    private final ClaudeService claudeService;
 
-    public ChatSocketHandler(MessageService messageService, ModerationService moderationService) {
+    public ChatSocketHandler(MessageService messageService, ModerationService moderationService,
+                             RoomRepository roomRepository, ClaudeService claudeService) {
         this.messageService = messageService;
         this.moderationService = moderationService;
+        this.roomRepository = roomRepository;
+        this.claudeService = claudeService;
     }
 
     @Override
@@ -66,6 +76,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     break;
                 case "chat message":
                     handleChatMessage(session, eventData);
+                    break;
+                case "trigger-ai":
+                    handleTriggerAI(session, eventData);
                     break;
             }
         }
@@ -119,6 +132,82 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             ))
             + "]";
         broadcastToRoom(roomId, broadcastMessage);
+    }
+
+    private void handleTriggerAI(WebSocketSession session, JsonNode data) throws Exception {
+        String roomId = data.get("roomId").asText();
+        String message = data.get("message").asText();
+
+        // Fetch room with characters from repository
+        Room room = roomRepository.findById(roomId).orElse(null);
+        if (room == null) {
+            String errorMessage = "42[\"error\","
+                + objectMapper.writeValueAsString(Map.of("message", "Room not found"))
+                + "]";
+            session.sendMessage(new TextMessage(errorMessage));
+            return;
+        }
+
+        List<Character> characters = room.getCharacters().stream().toList();
+        if (characters.isEmpty()) {
+            String errorMessage = "42[\"error\","
+                + objectMapper.writeValueAsString(Map.of("message", "No characters in room"))
+                + "]";
+            session.sendMessage(new TextMessage(errorMessage));
+            return;
+        }
+
+        // Subscribe to AI response stream
+        claudeService.streamMessage(roomId, characters, message)
+            .subscribe(
+                // onNext: broadcast each chunk
+                aiResponse -> {
+                    try {
+                        if (!aiResponse.chunk().isEmpty()) {
+                            String chunkMessage = "42[\"ai-chunk\","
+                                + objectMapper.writeValueAsString(Map.of(
+                                    "content", aiResponse.chunk(),
+                                    "characterId", aiResponse.characterId() != null ? aiResponse.characterId() : "",
+                                    "characterName", aiResponse.characterName() != null ? aiResponse.characterName() : ""
+                                ))
+                                + "]";
+                            broadcastToRoom(roomId, chunkMessage);
+                        }
+
+                        // onComplete: save message and broadcast final
+                        if (aiResponse.isComplete()) {
+                            String fullContent = aiResponse.chunk();
+                            if (fullContent != null && !fullContent.isEmpty()) {
+                                messageService.saveMessage(roomId, fullContent, "character", aiResponse.characterId());
+                                String completeMessage = "42[\"ai-complete\","
+                                    + objectMapper.writeValueAsString(Map.of(
+                                        "content", fullContent,
+                                        "characterId", aiResponse.characterId() != null ? aiResponse.characterId() : "",
+                                        "characterName", aiResponse.characterName() != null ? aiResponse.characterName() : "",
+                                        "messageId", "ai-" + System.currentTimeMillis()
+                                    ))
+                                    + "]";
+                                broadcastToRoom(roomId, completeMessage);
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Log but don't crash the stream
+                    }
+                },
+                // onError: broadcast error
+                error -> {
+                    try {
+                        String errorMessage = "42[\"error\","
+                            + objectMapper.writeValueAsString(Map.of(
+                                "message", "AI response failed: " + error.getMessage()
+                            ))
+                            + "]";
+                        broadcastToRoom(roomId, errorMessage);
+                    } catch (Exception ignored) {
+                        // Ignore serialization errors in error handler
+                    }
+                }
+            );
     }
 
     @Override
