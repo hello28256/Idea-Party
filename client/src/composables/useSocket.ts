@@ -3,6 +3,19 @@ import { io, Socket } from 'socket.io-client';
 
 const SOCKET_URL = 'http://localhost:8080';
 
+export interface AIChunkData {
+  content: string;
+  characterId: string;
+  characterName: string;
+}
+
+export interface AICompleteData {
+  content: string;
+  characterId: string;
+  characterName: string;
+  messageId: string;
+}
+
 export function useSocket() {
   const socket = ref<Socket | null>(null);
   const isConnected = ref(false);
@@ -102,5 +115,9 @@ export function useSocket() {
     joinRoom,
     leaveRoom,
     sendMessage,
+    onAIChunk: (callback: (data: AIChunkData) => void) => on('ai-chunk', callback as (data: unknown) => void),
+    onAIComplete: (callback: (data: AICompleteData) => void) => on('ai-complete', callback as (data: unknown) => void),
+    offAIChunk: (callback: (data: AIChunkData) => void) => off('ai-chunk', callback as (data: unknown) => void),
+    offAIComplete: (callback: (data: AICompleteData) => void) => off('ai-complete', callback as (data: unknown) => void),
   };
 }
