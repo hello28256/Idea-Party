@@ -7,6 +7,11 @@ import java.time.LocalDateTime;
 @Table(name = "messages")
 public class Message {
 
+    public enum SenderType {
+        USER,
+        CHARACTER
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
@@ -14,8 +19,9 @@ public class Message {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    @Column(nullable = false)
-    private String role; // 'user' | 'character' | 'system'
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sender_type", nullable = false)
+    private SenderType senderType;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "character_id")
@@ -41,8 +47,8 @@ public class Message {
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
 
-    public String getRole() { return role; }
-    public void setRole(String role) { this.role = role; }
+    public SenderType getSenderType() { return senderType; }
+    public void setSenderType(SenderType senderType) { this.senderType = senderType; }
 
     public Character getCharacter() { return character; }
     public void setCharacter(Character character) { this.character = character; }

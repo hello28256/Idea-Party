@@ -7,7 +7,7 @@ public class MessageResponse {
 
     private String id;
     private String content;
-    private String role;
+    private String senderType;
     private String characterId;
     private String characterName;
     private String characterAvatar;
@@ -20,14 +20,14 @@ public class MessageResponse {
         MessageResponse response = new MessageResponse();
         response.setId(message.getId());
         response.setContent(message.getContent());
-        response.setRole(message.getRole());
-        response.setRoomId(message.getRoom().getId());
+        response.setSenderType(message.getSenderType().name());
+        response.setRoomId(message.getRoom().getId().toString());
         response.setCreatedAt(message.getCreatedAt());
 
         if (message.getCharacter() != null) {
-            response.setCharacterId(message.getCharacter().getId());
+            response.setCharacterId(message.getCharacter().getId().toString());
             response.setCharacterName(message.getCharacter().getName());
-            response.setCharacterAvatar(message.getCharacter().getAvatar());
+            response.setCharacterAvatar(message.getCharacter().getAvatarUrl());
         }
 
         return response;
@@ -39,8 +39,8 @@ public class MessageResponse {
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
 
-    public String getRole() { return role; }
-    public void setRole(String role) { this.role = role; }
+    public String getSenderType() { return senderType; }
+    public void setSenderType(String senderType) { this.senderType = senderType; }
 
     public String getCharacterId() { return characterId; }
     public void setCharacterId(String characterId) { this.characterId = characterId; }

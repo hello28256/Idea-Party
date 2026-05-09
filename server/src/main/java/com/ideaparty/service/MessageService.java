@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -29,13 +30,13 @@ public class MessageService {
         this.characterRepository = characterRepository;
     }
 
-    public Message saveMessage(String roomId, String content, String role, String characterId) {
+    public Message saveMessage(String roomId, String content, Message.SenderType senderType, String characterId) {
         Room room = roomRepository.findById(roomId)
             .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
 
         Message message = new Message();
         message.setContent(content);
-        message.setRole(role);
+        message.setSenderType(senderType);
         message.setRoom(room);
 
         if (characterId != null) {

@@ -9,12 +9,15 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.UUID;
 
 @Repository
-public interface MessageRepository extends JpaRepository<Message, String> {
+public interface MessageRepository extends JpaRepository<Message, UUID> {
 
     @Query("SELECT m FROM Message m LEFT JOIN FETCH m.character WHERE m.room.id = :roomId ORDER BY m.createdAt ASC")
-    List<Message> findByRoomIdWithCharacter(@Param("roomId") String roomId);
+    List<Message> findByRoomIdWithCharacter(@Param("roomId") UUID roomId);
 
-    Page<Message> findByRoomIdOrderByCreatedAtDesc(String roomId, Pageable pageable);
+    List<Message> findByRoomIdOrderByCreatedAtAsc(UUID roomId);
+
+    Page<Message> findByRoomIdOrderByCreatedAtDesc(UUID roomId, Pageable pageable);
 }

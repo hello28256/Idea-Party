@@ -55,10 +55,11 @@ public class MessageController {
         }
 
         try {
+            Message.SenderType senderType = Message.SenderType.valueOf(request.getSenderType());
             Message message = messageService.saveMessage(
                 roomId,
                 request.getContent(),
-                request.getRole(),
+                senderType,
                 request.getCharacterId()
             );
             return ResponseEntity.ok(MessageResponse.fromEntity(message));

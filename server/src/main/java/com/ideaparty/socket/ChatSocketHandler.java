@@ -3,6 +3,7 @@ package com.ideaparty.socket;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.service.ClaudeService;
@@ -98,7 +99,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private void handleChatMessage(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String content = data.get("content").asText();
-        String role = data.has("role") ? data.get("role").asText() : "user";
+        String senderType = data.has("senderType") ? data.get("senderType").asText() : "USER";
         String characterId = data.has("characterId") && !data.get("characterId").isNull()
             ? data.get("characterId").asText()
             : null;
@@ -117,7 +118,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         // Save message to database
         try {
-            messageService.saveMessage(roomId, content, role, characterId);
+            Message.SenderType type = Message.SenderType.valueOf(senderType);
+            messageService.saveMessage(roomId, content, type, characterId);
         } catch (Exception e) {
             // Log error but continue broadcasting
         }
@@ -126,7 +128,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String broadcastMessage = "42[\"chat message\","
             + objectMapper.writeValueAsString(Map.of(
                 "content", content,
-                "role", role,
+                "senderType", senderType,
                 "characterId", characterId != null ? characterId : "",
                 "roomId", roomId
             ))
@@ -178,7 +180,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         if (aiResponse.isComplete()) {
                             String fullContent = aiResponse.chunk();
                             if (fullContent != null && !fullContent.isEmpty()) {
-                                messageService.saveMessage(roomId, fullContent, "character", aiResponse.characterId());
+                                messageService.saveMessage(roomId, fullContent, Message.SenderType.CHARACTER, aiResponse.characterId());
                                 String completeMessage = "42[\"ai-complete\","
                                     + objectMapper.writeValueAsString(Map.of(
                                         "content", fullContent,
