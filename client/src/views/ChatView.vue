@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSocket, type ChatMessage } from '@/composables/useSocket'
 import { useMessageStore } from '@/stores/message'
@@ -7,9 +7,8 @@ import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import MessageList from '@/components/chat/MessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
-import CharacterCard from '@/components/character/CharacterCard.vue'
+import CharacterSidebar from '@/components/character/CharacterSidebar.vue'
 import CharacterAddPanel from '@/components/character/CharacterAddPanel.vue'
-import RoomHeader from '@/components/room/RoomHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,7 +20,7 @@ const roomId = computed(() => route.params.roomId as string)
 
 // Local state
 const showCharacterPanel = ref(false)
-const showMobileSidebar = ref(false)
+const activeCharacterId = ref<string | null>(null)
 const { socket, isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
@@ -42,6 +41,28 @@ const currentRoom = computed(() => roomStore.currentRoom)
 const characters = computed(() => characterStore.characters)
 const messages = computed(() => messageStore.messages)
 const thinkingCharacterId = computed(() => messageStore.thinkingCharacterId)
+
+// Mobile sidebar state (drawer)
+const sidebarOpen = ref(false)
+
+function openSidebar() {
+  sidebarOpen.value = true
+}
+
+function closeSidebar() {
+  sidebarOpen.value = false
+}
+
+function handleCharacterSelected(character: any) {
+  if (character === null) {
+    // User wants to add a character
+    showCharacterPanel.value = true
+  } else {
+    activeCharacterId.value = character.id
+  }
+  // Close sidebar on mobile after selection
+  closeSidebar()
+}
 
 // Load data on mount
 onMounted(async () => {
@@ -108,255 +129,97 @@ async function handleCharacterAdded(characterId: string) {
     console.error('[DEBUG] Failed to add character:', error)
   }
 }
-
-// Toggle mobile sidebar
-function toggleMobileSidebar() {
-  showMobileSidebar.value = !showMobileSidebar.value
-}
 </script>
 
 <template>
-  <div class="chat-view">
-    <!-- Room Header -->
-    <RoomHeader v-if="currentRoom" :room="currentRoom">
-      <template #menu-items>
-        <button class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100">
-          房间设置
-        </button>
-        <button
-          class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 text-red-600"
-          @click="router.push('/rooms')"
+  <div class="chat-view h-screen flex flex-col bg-white overflow-hidden">
+    <!-- Room Header - Mobile: hamburger + title + character count -->
+    <header class="h-14 px-4 flex items-center border-b border-[#E5E7EB] bg-white shrink-0">
+      <!-- Mobile: hamburger menu -->
+      <button
+        class="lg:hidden p-2 -ml-2 rounded-md hover:bg-gray-100 text-[#6B7280]"
+        @click="openSidebar"
+        aria-label="打开角色列表"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
+      <!-- Room name -->
+      <div class="flex-1 flex items-center gap-2 min-w-0">
+        <h1 class="text-lg font-semibold text-[#1F2937] truncate">
+          {{ currentRoom?.name || '聊天室' }}
+        </h1>
+        <!-- Character count badge -->
+        <span
+          v-if="currentRoom?.characterCount && currentRoom.characterCount > 0"
+          class="hidden sm:inline-flex px-2 py-0.5 text-xs font-medium bg-[#F0FDF4] text-[#10B981] rounded-full shrink-0"
         >
-          退出房间
+          {{ currentRoom.characterCount }} 个角色
+        </span>
+      </div>
+
+      <!-- Desktop: menu slot -->
+      <div class="hidden lg:flex items-center gap-2">
+        <button class="p-2 rounded-md hover:bg-gray-100 text-text-secondary" @click="router.push('/rooms')">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
         </button>
-      </template>
-    </RoomHeader>
+        <button class="p-2 rounded-md hover:bg-gray-100 text-text-secondary">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+          </svg>
+        </button>
+      </div>
+    </header>
 
     <!-- Main content area -->
-    <div class="chat-content">
-      <!-- Left sidebar - Character list -->
-      <aside
-        class="character-sidebar"
-        :class="{ 'mobile-open': showMobileSidebar }"
-      >
-        <div class="sidebar-header">
-          <h2 class="sidebar-title">角色列表</h2>
-          <button
-            class="add-character-btn"
-            @click="showCharacterPanel = !showCharacterPanel"
-          >
-            添加角色
-          </button>
-        </div>
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Character sidebar - uses CharacterSidebar component -->
+      <CharacterSidebar
+        :show="sidebarOpen"
+        :characters="characters"
+        :active-character-id="thinkingCharacterId"
+        :is-thinking="!!thinkingCharacterId"
+        @close="closeSidebar"
+        @character-selected="handleCharacterSelected"
+      />
 
-        <div class="character-list">
-          <CharacterCard
-            v-for="char in characters"
-            :key="char.id"
-            :character="char"
-            :is-thinking="thinkingCharacterId === char.id"
+      <!-- Message area -->
+      <main class="flex-1 flex flex-col min-w-0">
+        <!-- Messages -->
+        <div class="flex-1 overflow-hidden">
+          <MessageList
+            :messages="messages"
+            :thinking-character-id="thinkingCharacterId"
+            :characters="characters"
           />
-
-          <div v-if="characters.length === 0" class="no-characters">
-            <p>还没有添加角色</p>
-            <button
-              class="text-[#10B981] text-sm"
-              @click="showCharacterPanel = true"
-            >
-              添加第一个角色
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <!-- Center - Message area -->
-      <main class="message-area">
-        <div class="mobile-header">
-          <button class="menu-button" @click="toggleMobileSidebar">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <h1 class="text-lg font-semibold">{{ currentRoom?.name || '聊天室' }}</h1>
         </div>
 
-        <MessageList
-          :messages="messages"
-          :thinking-character-id="thinkingCharacterId"
-          :characters="characters"
-        />
-
-        <ChatInput
-          :disabled="!isConnected"
-          @send="handleSend"
-        />
+        <!-- Chat input - fixed at bottom -->
+        <div class="shrink-0 border-t border-[#E5E7EB] bg-white">
+          <ChatInput
+            :disabled="!isConnected"
+            @send="handleSend"
+          />
+        </div>
       </main>
 
-      <!-- Right sidebar - Character add panel -->
-      <aside
-        v-if="showCharacterPanel"
-        class="character-panel"
-      >
-        <CharacterAddPanel
-          @character-added="handleCharacterAdded"
-          @close="showCharacterPanel = false"
-        />
-      </aside>
+      <!-- Character add panel -->
+      <CharacterAddPanel
+        :show="showCharacterPanel"
+        @close="showCharacterPanel = false"
+        @character-added="handleCharacterAdded"
+      />
     </div>
-
-    <!-- Mobile overlay -->
-    <div
-      v-if="showMobileSidebar"
-      class="mobile-overlay"
-      @click="showMobileSidebar = false"
-    ></div>
   </div>
 </template>
 
 <style scoped>
 .chat-view {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background-color: white;
-}
-
-.chat-content {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-/* Left sidebar - Character list */
-.character-sidebar {
-  width: 260px;
-  border-right: 1px solid #E5E7EB;
-  display: flex;
-  flex-direction: column;
-  background-color: #FAFAFA;
-}
-
-.sidebar-header {
-  padding: 1rem;
-  border-bottom: 1px solid #E5E7EB;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.sidebar-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #374151;
-  margin: 0;
-}
-
-.add-character-btn {
-  padding: 0.5rem 1rem;
-  background-color: #10B981;
-  color: white;
-  border: none;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.add-character-btn:hover {
-  background-color: #059669;
-}
-
-.character-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.no-characters {
-  text-align: center;
-  padding: 2rem 1rem;
-  color: #6B7280;
-}
-
-.no-characters p {
-  margin: 0 0 0.5rem 0;
-  font-size: 0.875rem;
-}
-
-/* Center - Message area */
-.message-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.mobile-header {
-  display: none;
-  padding: 0.75rem;
-  border-bottom: 1px solid #E5E7EB;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.menu-button {
-  padding: 0.5rem;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #6B7280;
-}
-
-/* Right sidebar - Character panel */
-.character-panel {
-  width: 320px;
-  border-left: 1px solid #E5E7EB;
-  overflow-y: auto;
-}
-
-/* Mobile overlay */
-.mobile-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  z-index: 40;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .character-sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 50;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-  }
-
-  .character-sidebar.mobile-open {
-    transform: translateX(0);
-  }
-
-  .mobile-header {
-    display: flex;
-  }
-
-  .mobile-overlay {
-    display: block;
-  }
-
-  .character-panel {
-    position: fixed;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 50;
-  }
+  /* Ensures proper mobile viewport handling */
+  contain: layout style;
 }
 </style>
