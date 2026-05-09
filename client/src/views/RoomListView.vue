@@ -46,16 +46,18 @@ function formatDate(dateString: string): string {
 <template>
   <div class="min-h-screen bg-white">
     <!-- Header -->
-    <header class="border-b border-border bg-white sticky top-0 z-10">
+    <header class="border-b border-[#E5E7EB] bg-white sticky top-0 z-10">
       <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-text-primary">我的聊天室</h1>
-          <p class="text-sm text-text-secondary mt-0.5">
+          <h1 class="text-2xl font-bold text-[#1F2937]">我的聊天室</h1>
+          <p class="text-sm text-[#6B7280] mt-0.5">
             {{ authStore.user?.name || '用户' }}
           </p>
         </div>
+        <!-- Desktop create button - hidden on mobile -->
         <Button
           variant="primary"
+          class="hidden lg:inline-flex"
           @click="showCreateModal = true"
         >
           <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -67,10 +69,10 @@ function formatDate(dateString: string): string {
     </header>
 
     <!-- Content -->
-    <main class="max-w-4xl mx-auto px-4 py-6">
+    <main class="max-w-4xl mx-auto px-4 py-6 pb-24 lg:pb-6">
       <!-- Loading State -->
       <div v-if="roomStore.loading && roomStore.rooms.length === 0" class="flex justify-center py-12">
-        <svg class="animate-spin h-8 w-8 text-accent" fill="none" viewBox="0 0 24 24">
+        <svg class="animate-spin h-8 w-8 text-[#10B981]" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
@@ -85,8 +87,8 @@ function formatDate(dateString: string): string {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
             d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        <h2 class="text-xl font-medium text-text-primary mb-2">还没有聊天室</h2>
-        <p class="text-text-secondary mb-6">创建你的第一个聊天室，开始与 AI 角色对话</p>
+        <h2 class="text-xl font-medium text-[#1F2937] mb-2">还没有聊天室</h2>
+        <p class="text-[#6B7280] mb-6">创建你的第一个聊天室，开始与 AI 角色对话</p>
         <Button variant="primary" @click="showCreateModal = true">
           创建第一个聊天室
         </Button>
@@ -97,17 +99,18 @@ function formatDate(dateString: string): string {
         <div
           v-for="room in roomStore.sortedRooms"
           :key="room.id"
-          class="border border-border rounded-lg p-4 hover:border-accent transition-colors bg-white"
+          class="border border-[#E5E7EB] rounded-lg p-4 hover:border-[#10B981] transition-colors bg-white cursor-pointer"
+          @click="router.push(`/chat/${room.id}`)"
         >
-          <div class="flex items-start justify-between">
+          <div class="flex items-start justify-between gap-3">
             <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-text-primary truncate">
+              <h3 class="text-lg font-semibold text-[#1F2937] truncate">
                 {{ room.name }}
               </h3>
-              <p v-if="room.topic" class="text-sm text-text-secondary mt-1 line-clamp-2">
+              <p v-if="room.topic" class="text-sm text-[#6B7280] mt-1 line-clamp-2">
                 {{ room.topic }}
               </p>
-              <div class="flex items-center gap-3 mt-2 text-xs text-text-secondary">
+              <div class="flex items-center gap-3 mt-2 text-xs text-[#6B7280]">
                 <span class="flex items-center gap-1">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -119,17 +122,12 @@ function formatDate(dateString: string): string {
               </div>
             </div>
 
-            <div class="flex gap-1 ml-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                @click="router.push(`/chat/${room.id}`)"
-              >
-                进入
-              </Button>
+            <!-- Action buttons with proper touch targets -->
+            <div class="flex gap-1 shrink-0" @click.stop>
               <Button
                 variant="destructive"
                 size="sm"
+                class="!min-w-[44px] !min-h-[44px] flex items-center justify-center"
                 @click="handleDelete(room.id, room.name)"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,6 +140,17 @@ function formatDate(dateString: string): string {
         </div>
       </div>
     </main>
+
+    <!-- Mobile FAB (Floating Action Button) - visible only on mobile -->
+    <button
+      class="lg:hidden fixed bottom-6 right-6 w-14 h-14 bg-[#10B981] text-white rounded-full shadow-lg flex items-center justify-center hover:bg-[#059669] transition-colors z-10"
+      @click="showCreateModal = true"
+      aria-label="创建聊天室"
+    >
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      </svg>
+    </button>
 
     <!-- Create Room Modal -->
     <CreateRoomModal
