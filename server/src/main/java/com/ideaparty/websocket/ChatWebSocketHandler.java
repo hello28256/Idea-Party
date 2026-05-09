@@ -19,6 +19,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -130,7 +131,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         // Get room with characters
-        Room room = roomRepository.findById(roomId).orElse(null);
+        Room room = roomRepository.findById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
             String errorMessage = "42[\"error\","
                 + objectMapper.writeValueAsString(Map.of("message", "Room not found"))

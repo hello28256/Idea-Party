@@ -56,7 +56,7 @@ function autoResize() {
         ref="textareaRef"
         v-model="content"
         :disabled="disabled"
-        placeholder="输入消息..."
+        placeholder="输入消息，让思想碰撞..."
         rows="1"
         @keydown="handleKeydown"
         @input="autoResize"
@@ -70,14 +70,14 @@ function autoResize() {
         <Send :size="18" />
       </button>
     </div>
+    <p class="input-hint">按 Enter 发送，Shift + Enter 换行</p>
   </div>
 </template>
 
 <style scoped>
 .chat-input {
-  padding: 0.75rem;
-  background-color: white;
-  border-top: 1px solid #E5E7EB;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
 }
 
 .chat-input.disabled {
@@ -87,16 +87,18 @@ function autoResize() {
 .input-wrapper {
   display: flex;
   align-items: flex-end;
-  gap: 0.5rem;
-  border: 1px solid #D1D5DB;
-  border-radius: 0.5rem;
-  padding: 0.5rem;
-  background-color: white;
+  gap: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  background: var(--color-cream);
+  transition: all 0.3s ease;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .input-wrapper:focus-within {
-  border-color: #10B981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(201, 169, 98, 0.15), inset 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 textarea {
@@ -105,38 +107,53 @@ textarea {
   outline: none;
   resize: none;
   font-size: 1rem;
-  line-height: 1.5;
-  padding: 0.25rem;
+  line-height: 1.6;
+  padding: 0.375rem 0;
   background: transparent;
   max-height: 96px;
   overflow-y: auto;
+  color: var(--color-text-primary);
 }
 
 textarea::placeholder {
-  color: #9CA3AF;
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .send-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: none;
-  border-radius: 0.375rem;
-  background-color: #10B981;
-  color: white;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
+  color: var(--color-gold);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.3s ease;
   flex-shrink: 0;
 }
 
 .send-button:hover:not(:disabled) {
-  background-color: #059669;
+  transform: scale(1.05);
+  box-shadow: 0 4px 15px rgba(30, 42, 58, 0.3);
+}
+
+.send-button:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .send-button:disabled {
-  background-color: #D1D5DB;
+  background: var(--color-parchment);
+  color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+.input-hint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.5rem;
 }
 </style>

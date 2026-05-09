@@ -6,7 +6,7 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
-import com.ideaparty.service.ClaudeService;
+import com.ideaparty.service.MockAiService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
@@ -16,6 +16,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
@@ -30,14 +31,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final MessageService messageService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
-    private final ClaudeService claudeService;
+    private final MockAiService mockAiService;
 
     public ChatSocketHandler(MessageService messageService, ModerationService moderationService,
-                             RoomRepository roomRepository, ClaudeService claudeService) {
+                             RoomRepository roomRepository, MockAiService mockAiService) {
         this.messageService = messageService;
         this.moderationService = moderationService;
         this.roomRepository = roomRepository;
-        this.claudeService = claudeService;
+        this.mockAiService = mockAiService;
     }
 
     @Override
@@ -119,7 +120,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         // Save message to database
         try {
             Message.SenderType type = Message.SenderType.valueOf(senderType);
-            messageService.saveMessage(roomId, content, type, characterId);
+            UUID roomUuid = UUID.fromString(roomId);
+            UUID characterUuid = characterId != null ? UUID.fromString(characterId) : null;
+            messageService.saveMessage(roomUuid, characterUuid, type, content);
         } catch (Exception e) {
             // Log error but continue broadcasting
         }
@@ -138,10 +141,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
     private void handleTriggerAI(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
-        String message = data.get("message").asText();
+        String userMessage = data.has("message") ? data.get("message").asText() : "";
 
         // Fetch room with characters from repository
-        Room room = roomRepository.findById(roomId).orElse(null);
+        Room room = roomRepository.findById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
             String errorMessage = "42[\"error\","
                 + objectMapper.writeValueAsString(Map.of("message", "Room not found"))
@@ -159,57 +162,32 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Subscribe to AI response stream
-        claudeService.streamMessage(roomId, characters, message)
-            .subscribe(
-                // onNext: broadcast each chunk
-                aiResponse -> {
-                    try {
-                        if (!aiResponse.chunk().isEmpty()) {
-                            String chunkMessage = "42[\"ai-chunk\","
-                                + objectMapper.writeValueAsString(Map.of(
-                                    "content", aiResponse.chunk(),
-                                    "characterId", aiResponse.characterId() != null ? aiResponse.characterId() : "",
-                                    "characterName", aiResponse.characterName() != null ? aiResponse.characterName() : ""
-                                ))
-                                + "]";
-                            broadcastToRoom(roomId, chunkMessage);
-                        }
+        // Use MockAiService for Phase 1 (round-robin mock responses)
+        for (Character character : characters) {
+            // Emit thinking event
+            String thinkingEvent = "42[\"character thinking\","
+                + objectMapper.writeValueAsString(Map.of("characterId", character.getId().toString()))
+                + "]";
+            broadcastToRoom(roomId, thinkingEvent);
 
-                        // onComplete: save message and broadcast final
-                        if (aiResponse.isComplete()) {
-                            String fullContent = aiResponse.chunk();
-                            if (fullContent != null && !fullContent.isEmpty()) {
-                                messageService.saveMessage(roomId, fullContent, Message.SenderType.CHARACTER, aiResponse.characterId());
-                                String completeMessage = "42[\"ai-complete\","
-                                    + objectMapper.writeValueAsString(Map.of(
-                                        "content", fullContent,
-                                        "characterId", aiResponse.characterId() != null ? aiResponse.characterId() : "",
-                                        "characterName", aiResponse.characterName() != null ? aiResponse.characterName() : "",
-                                        "messageId", "ai-" + System.currentTimeMillis()
-                                    ))
-                                    + "]";
-                                broadcastToRoom(roomId, completeMessage);
-                            }
-                        }
-                    } catch (Exception e) {
-                        // Log but don't crash the stream
-                    }
-                },
-                // onError: broadcast error
-                error -> {
-                    try {
-                        String errorMessage = "42[\"error\","
-                            + objectMapper.writeValueAsString(Map.of(
-                                "message", "AI response failed: " + error.getMessage()
-                            ))
-                            + "]";
-                        broadcastToRoom(roomId, errorMessage);
-                    } catch (Exception ignored) {
-                        // Ignore serialization errors in error handler
-                    }
+            // Generate response asynchronously
+            mockAiService.generateResponse(character, userMessage).thenAccept(response -> {
+                // Broadcast the AI response
+                try {
+                    String responseEvent = "42[\"chat message\","
+                        + objectMapper.writeValueAsString(Map.of(
+                            "content", response,
+                            "senderType", "CHARACTER",
+                            "characterId", character.getId().toString(),
+                            "roomId", roomId
+                        ))
+                        + "]";
+                    broadcastToRoom(roomId, responseEvent);
+                } catch (Exception e) {
+                    // Log error
                 }
-            );
+            });
+        }
     }
 
     @Override
@@ -239,7 +217,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
     public void broadcastToRoom(String roomId, String message) {
         Set<WebSocketSession> room = rooms.get(roomId);
-        if (room != null) {
+        if (room != null && message != null) {
             TextMessage textMessage = new TextMessage(message);
             for (WebSocketSession s : room) {
                 if (s.isOpen()) {

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -27,7 +28,7 @@ public class MessageController {
 
     @GetMapping
     public ResponseEntity<List<MessageResponse>> getMessages(@PathVariable String roomId) {
-        List<MessageResponse> messages = messageService.getMessagesByRoomId(roomId)
+        List<MessageResponse> messages = messageService.getMessagesByRoomId(UUID.fromString(roomId))
             .stream()
             .map(MessageResponse::fromEntity)
             .collect(Collectors.toList());
@@ -39,7 +40,7 @@ public class MessageController {
             @PathVariable String roomId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        Page<Message> messages = messageService.getMessagesPaginated(roomId, page, size);
+        Page<Message> messages = messageService.getMessagesPaginated(UUID.fromString(roomId), page, size);
         Page<MessageResponse> response = messages.map(MessageResponse::fromEntity);
         return ResponseEntity.ok(response);
     }
@@ -56,11 +57,13 @@ public class MessageController {
 
         try {
             Message.SenderType senderType = Message.SenderType.valueOf(request.getSenderType());
+            UUID roomUuid = UUID.fromString(roomId);
+            UUID characterUuid = request.getCharacterId() != null ? UUID.fromString(request.getCharacterId()) : null;
             Message message = messageService.saveMessage(
-                roomId,
-                request.getContent(),
+                roomUuid,
+                characterUuid,
                 senderType,
-                request.getCharacterId()
+                request.getContent()
             );
             return ResponseEntity.ok(MessageResponse.fromEntity(message));
         } catch (RuntimeException e) {

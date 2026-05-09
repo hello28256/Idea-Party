@@ -19,13 +19,13 @@ public class MessageDto {
     public static MessageDto fromEntity(Message message) {
         MessageDto dto = new MessageDto();
         dto.setId(message.getId());
-        dto.setRoomId(message.getRoom().getId());
+        dto.setRoomId(message.getRoom().getId().toString());
         dto.setSenderType(message.getSenderType().name());
 
         if (message.getCharacter() != null) {
-            dto.setCharacterId(message.getCharacter().getId());
+            dto.setCharacterId(message.getCharacter().getId().toString());
             dto.setCharacterName(message.getCharacter().getName());
-            dto.setAvatarUrl(message.getCharacter().getAvatar());
+            dto.setAvatarUrl(message.getCharacter().getAvatarUrl());
         }
 
         dto.setContent(message.getContent());

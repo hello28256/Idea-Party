@@ -30,7 +30,7 @@ public class MessageService {
         this.characterRepository = characterRepository;
     }
 
-    public Message saveMessage(String roomId, String content, Message.SenderType senderType, String characterId) {
+    public Message saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content) {
         Room room = roomRepository.findById(roomId)
             .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
 
@@ -48,18 +48,18 @@ public class MessageService {
         return messageRepository.save(message);
     }
 
-    public List<Message> getMessagesByRoomId(String roomId) {
+    public List<Message> getMessagesByRoomId(UUID roomId) {
         return messageRepository.findByRoomIdWithCharacter(roomId);
     }
 
-    public Page<Message> getMessagesPaginated(String roomId, int page, int size) {
+    public Page<Message> getMessagesPaginated(UUID roomId, int page, int size) {
         return messageRepository.findByRoomIdOrderByCreatedAtDesc(
             roomId,
             PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "createdAt"))
         );
     }
 
-    public Optional<Message> getMessageById(String id) {
+    public Optional<Message> getMessageById(UUID id) {
         return messageRepository.findById(id);
     }
 }

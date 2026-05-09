@@ -1,10 +1,18 @@
 <script setup lang="ts">
-defineProps<{
+interface Props {
   src?: string | null
   name: string
   size?: 'small' | 'medium' | 'large'
   isThinking?: boolean
-}>()
+  gradient?: string
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  src: null,
+  size: 'medium',
+  isThinking: false,
+  gradient: 'linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%)'
+})
 
 const sizeClasses = {
   small: 'avatar-small',
@@ -17,7 +25,7 @@ const sizeClasses = {
   <div class="avatar-wrapper" :class="{ 'is-thinking': isThinking }">
     <div class="avatar" :class="sizeClasses[size || 'medium']">
       <img v-if="src" :src="src" :alt="name" />
-      <div v-else class="avatar-placeholder">
+      <div v-else class="avatar-placeholder" :style="{ background: gradient }">
         {{ name.charAt(0) }}
       </div>
     </div>
@@ -29,12 +37,20 @@ const sizeClasses = {
 .avatar-wrapper {
   position: relative;
   display: inline-flex;
+  flex-shrink: 0;
 }
 
 .avatar {
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .avatar-small {
@@ -43,13 +59,13 @@ const sizeClasses = {
 }
 
 .avatar-medium {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
 }
 
 .avatar-large {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
 }
 
 .avatar img {
@@ -64,9 +80,10 @@ const sizeClasses = {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-weight: bold;
+  color: var(--color-gold-light);
+  font-family: 'Playfair Display', serif;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .avatar-small .avatar-placeholder {
@@ -78,15 +95,15 @@ const sizeClasses = {
 }
 
 .avatar-large .avatar-placeholder {
-  font-size: 1.25rem;
+  font-size: 1.375rem;
 }
 
-/* Thinking indicator - pulsing ring */
+/* Thinking indicator - elegant gold pulsing ring */
 .thinking-ring {
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 2px solid #10B981;
+  border: 2px solid var(--color-gold);
   animation: pulse-ring 1.5s ease-in-out infinite;
 }
 
@@ -94,14 +111,17 @@ const sizeClasses = {
   0% {
     opacity: 1;
     transform: scale(1);
+    border-color: var(--color-gold);
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.6;
     transform: scale(1.1);
+    border-color: var(--color-gold-light);
   }
   100% {
     opacity: 1;
     transform: scale(1);
+    border-color: var(--color-gold);
   }
 }
 </style>

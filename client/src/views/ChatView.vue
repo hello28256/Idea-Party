@@ -133,44 +133,54 @@ async function handleCharacterAdded(character: Character) {
 </script>
 
 <template>
-  <div class="chat-view h-screen flex flex-col bg-white overflow-hidden">
-    <!-- Room Header - Mobile: hamburger + title + character count -->
-    <header class="h-14 px-4 flex items-center border-b border-[#E5E7EB] bg-white shrink-0">
+  <div class="chat-view h-screen flex flex-col overflow-hidden">
+    <!-- Room Header -->
+    <header class="header">
       <!-- Mobile: hamburger menu -->
       <button
-        class="lg:hidden p-2 -ml-2 rounded-md hover:bg-gray-100 text-[#6B7280]"
+        class="lg:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
         @click="openSidebar"
         aria-label="打开角色列表"
       >
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       </button>
 
-      <!-- Room name -->
-      <div class="flex-1 flex items-center gap-2 min-w-0">
-        <h1 class="text-lg font-semibold text-[#1F2937] truncate">
-          {{ currentRoom?.name || '聊天室' }}
-        </h1>
+      <!-- Room name and info -->
+      <div class="flex-1 flex items-center gap-3 min-w-0">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-8 bg-gradient-to-b from-[var(--color-gold-dark)] to-[var(--color-gold)] rounded-full"></div>
+          <h1 class="text-lg font-semibold text-[var(--color-navy)] truncate font-['Playfair_Display']">
+            {{ currentRoom?.name || '聊天室' }}
+          </h1>
+        </div>
         <!-- Character count badge -->
         <span
           v-if="currentRoom?.characterCount && currentRoom.characterCount > 0"
-          class="hidden sm:inline-flex px-2 py-0.5 text-xs font-medium bg-[#F0FDF4] text-[#10B981] rounded-full shrink-0"
+          class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-[var(--color-parchment)] text-[var(--color-navy)] rounded-full border border-[var(--color-border)]"
         >
-          {{ currentRoom.characterCount }} 个角色
+          <svg class="w-3.5 h-3.5 text-[var(--color-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          {{ currentRoom.characterCount }} 位思想家
         </span>
       </div>
 
-      <!-- Desktop: menu slot -->
+      <!-- Desktop: back button and menu -->
       <div class="hidden lg:flex items-center gap-2">
-        <button class="p-2 rounded-md hover:bg-gray-100 text-text-secondary" @click="router.push('/rooms')">
+        <button
+          class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
+          @click="router.push('/rooms')"
+          title="返回房间列表"
+        >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </button>
-        <button class="p-2 rounded-md hover:bg-gray-100 text-text-secondary">
+        <button class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
           </svg>
         </button>
       </div>
@@ -178,7 +188,7 @@ async function handleCharacterAdded(character: Character) {
 
     <!-- Main content area -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Character sidebar - uses CharacterSidebar component -->
+      <!-- Character sidebar -->
       <CharacterSidebar
         :show="sidebarOpen"
         :characters="characters"
@@ -189,7 +199,7 @@ async function handleCharacterAdded(character: Character) {
       />
 
       <!-- Message area -->
-      <main class="flex-1 flex flex-col min-w-0">
+      <main class="flex-1 flex flex-col min-w-0 bg-[var(--color-cream)]">
         <!-- Messages -->
         <div class="flex-1 overflow-hidden">
           <MessageList
@@ -199,8 +209,8 @@ async function handleCharacterAdded(character: Character) {
           />
         </div>
 
-        <!-- Chat input - fixed at bottom -->
-        <div class="shrink-0 border-t border-[#E5E7EB] bg-white">
+        <!-- Chat input -->
+        <div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-ivory)]">
           <ChatInput
             :disabled="!isConnected"
             @send="handleSend"
@@ -220,7 +230,28 @@ async function handleCharacterAdded(character: Character) {
 
 <style scoped>
 .chat-view {
-  /* Ensures proper mobile viewport handling */
   contain: layout style;
+}
+
+.header {
+  height: 64px;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
+  border-bottom: 1px solid var(--color-border);
+  position: relative;
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
 }
 </style>

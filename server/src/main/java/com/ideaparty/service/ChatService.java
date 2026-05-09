@@ -93,7 +93,7 @@ public class ChatService {
         // Step 2: Round-robin AI responses
         for (Character character : characters) {
             // Emit thinking event
-            onThinking.accept(character.getId());
+            onThinking.accept(character.getId().toString());
 
             // Generate and save AI response
             CompletableFuture<String> futureResponse = mockAiService.generateResponse(character, content);
@@ -101,7 +101,7 @@ public class ChatService {
             // Note: In a real implementation, we would wait for each character's
             // response before moving to the next (sequential round-robin).
             // For streaming responses, we handle them as they complete.
-            final UUID charId = UUID.fromString(character.getId());
+            final UUID charId = character.getId();
             final UUID roomUuid = roomId;
 
             futureResponse.thenAccept(response -> {

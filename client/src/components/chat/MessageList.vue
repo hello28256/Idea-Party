@@ -40,10 +40,22 @@ const hasMessages = () => props.messages.length > 0
 
 <template>
   <div class="message-list" ref="messagesContainer">
+    <!-- Decorative header -->
+    <div class="messages-header">
+      <div class="header-flourish left"></div>
+      <span class="header-text">思想交流</span>
+      <div class="header-flourish right"></div>
+    </div>
+
     <!-- Empty state -->
     <div v-if="!hasMessages()" class="empty-state">
-      <h3 class="empty-title">还没有消息</h3>
-      <p class="empty-body">开始对话，让角色们展开讨论</p>
+      <div class="empty-icon">
+        <svg class="w-16 h-16 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+      </div>
+      <h3 class="empty-title">思想的火花等待点燃</h3>
+      <p class="empty-body">发送消息，开启与历史伟人的对话</p>
     </div>
 
     <!-- Messages -->
@@ -67,16 +79,47 @@ const hasMessages = () => props.messages.length > 0
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
+.messages-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.5rem 0 1rem;
+  opacity: 0.6;
+}
+
+.header-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--color-text-secondary);
+}
+
+.header-flourish {
+  width: 40px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+}
+
+.header-flourish.left {
+  background: linear-gradient(90deg, transparent, var(--color-gold));
+}
+
+.header-flourish.right {
+  background: linear-gradient(90deg, var(--color-gold), transparent);
+}
+
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .empty-state {
@@ -86,23 +129,39 @@ const hasMessages = () => props.messages.length > 0
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 2rem;
+  padding: 3rem 2rem;
+}
+
+.empty-icon {
+  margin-bottom: 1.5rem;
+  animation: float 3s ease-in-out infinite;
 }
 
 .empty-title {
+  font-family: 'Playfair Display', serif;
   font-size: 1.25rem;
-  font-weight: 600;
-  color: #374151;
-  margin: 0 0 0.5rem 0;
+  font-weight: 500;
+  color: var(--color-navy);
+  margin: 0 0 0.75rem 0;
 }
 
 .empty-body {
-  font-size: 0.875rem;
-  color: #6B7280;
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
   margin: 0;
+  max-width: 280px;
 }
 
 .thinking-area {
-  padding: 0.5rem 0;
+  padding: 0.75rem 0;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 </style>

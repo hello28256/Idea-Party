@@ -47,75 +47,108 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-white px-4">
+  <div class="min-h-screen flex items-center justify-center px-4 py-12">
     <div class="w-full max-w-md">
-      <!-- Logo/Title -->
-      <div class="text-center mb-8">
-        <h1 class="text-display text-text-primary">IdeaParty</h1>
-        <p class="text-text-secondary mt-2">AI 多角色聊天室</p>
+      <!-- Logo Area -->
+      <div class="text-center mb-12 animate-fade-in-up">
+        <div class="inline-flex items-center justify-center w-20 h-20 mb-6 rounded-full bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] shadow-lg">
+          <svg class="w-10 h-10 text-[var(--color-gold)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+          </svg>
+        </div>
+        <h1 class="text-display mb-3">IdeaParty</h1>
+        <p class="text-subheading text-[var(--color-text-secondary)] italic">开启你的智慧之旅</p>
+        <div class="flex items-center justify-center gap-2 mt-4">
+          <span class="w-12 h-px bg-gradient-to-r from-transparent to-[var(--color-gold)]"></span>
+          <span class="text-[var(--color-gold)] text-sm">✦</span>
+          <span class="w-12 h-px bg-gradient-to-l from-transparent to-[var(--color-gold)]"></span>
+        </div>
       </div>
 
       <!-- Register Card -->
-      <div class="card p-6">
-        <h2 class="text-heading mb-6 text-center">注册</h2>
+      <div class="card animate-fade-in-up stagger-2">
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-1 bg-gradient-to-r from-[var(--color-gold-dark)] via-[var(--color-gold)] to-[var(--color-gold-dark)] rounded-full"></div>
 
-        <form @submit.prevent="handleSubmit" class="space-y-4">
-          <Input
-            v-model="name"
-            type="text"
-            label="名称"
-            placeholder="请输入名称"
-            :disabled="loading"
-          />
+        <h2 class="text-heading text-center mb-8">创建账户</h2>
 
-          <Input
-            v-model="email"
-            type="email"
-            label="邮箱"
-            placeholder="请输入邮箱"
-            :disabled="loading"
-          />
+        <form @submit.prevent="handleSubmit" class="space-y-5">
+          <div class="animate-fade-in-up stagger-3">
+            <Input
+              v-model="name"
+              type="text"
+              label="名称"
+              placeholder="请输入名称"
+              :disabled="loading"
+            />
+          </div>
 
-          <Input
-            v-model="password"
-            type="password"
-            label="密码"
-            placeholder="请输入密码（至少6个字符）"
-            :disabled="loading"
-          />
+          <div class="animate-fade-in-up stagger-3">
+            <Input
+              v-model="email"
+              type="email"
+              label="邮箱地址"
+              placeholder="请输入邮箱"
+              :disabled="loading"
+            />
+          </div>
 
-          <Input
-            v-model="confirmPassword"
-            type="password"
-            label="确认密码"
-            placeholder="请再次输入密码"
-            :disabled="loading"
-          />
+          <div class="animate-fade-in-up stagger-4">
+            <Input
+              v-model="password"
+              type="password"
+              label="密码"
+              placeholder="请输入密码（至少6个字符）"
+              :disabled="loading"
+            />
+          </div>
+
+          <div class="animate-fade-in-up stagger-4">
+            <Input
+              v-model="confirmPassword"
+              type="password"
+              label="确认密码"
+              placeholder="请再次输入密码"
+              :disabled="loading"
+            />
+          </div>
 
           <div
             v-if="error"
-            class="text-sm text-destructive text-center"
+            class="text-sm text-[var(--color-destructive)] text-center py-2 px-3 bg-red-50 rounded-lg border border-red-100 animate-fade-in-up"
           >
             {{ error }}
           </div>
 
-          <Button
-            type="submit"
-            variant="primary"
-            :loading="loading"
-            class="w-full"
-          >
-            注册
-          </Button>
+          <div class="pt-2 animate-fade-in-up stagger-5">
+            <Button
+              type="submit"
+              variant="primary"
+              :loading="loading"
+              class="w-full"
+            >
+              <svg v-if="!loading" class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              创建账户
+            </Button>
+          </div>
         </form>
 
-        <p class="text-center text-label text-text-secondary mt-6">
-          已有账号？
+        <div class="flex items-center justify-center gap-3 mt-8">
+          <span class="w-16 h-px bg-[var(--color-border)]"></span>
+          <span class="text-[var(--color-text-muted)] text-sm">已有账户</span>
+          <span class="w-16 h-px bg-[var(--color-border)]"></span>
+        </div>
+
+        <p class="text-center mt-4">
           <router-link
             to="/login"
-            class="text-accent hover:text-accent-hover font-medium"
+            class="inline-flex items-center gap-1 text-[var(--color-navy)] hover:text-[var(--color-gold)] font-medium transition-colors"
           >
-            登录
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+            </svg>
+            <span>返回登录</span>
           </router-link>
         </p>
       </div>

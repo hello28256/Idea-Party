@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // Placeholder views - will be implemented in future plans
 const RoomListView = () => import('@/views/RoomListView.vue')
 const ChatView = () => import('@/views/ChatView.vue')
+const SettingsView = () => import('@/views/SettingsView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -29,6 +30,12 @@ const router = createRouter({
       path: '/chat/:roomId',
       name: 'chat',
       component: ChatView,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsView,
       meta: { requiresAuth: true }
     },
     {

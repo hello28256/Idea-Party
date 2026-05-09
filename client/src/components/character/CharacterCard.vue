@@ -24,10 +24,10 @@ function handleClick() {
 
 <template>
   <div
-    class="character-card flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200"
+    class="character-card flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-300"
     :class="{
-      'bg-[#F0FDF4]': !isActive,
-      'bg-[#F0FDF4] border-l-4 border-[#10B981]': isActive
+      'hover:bg-[var(--color-parchment)] hover:shadow-sm': !isActive,
+      'bg-gradient-to-r from-[var(--color-parchment)] to-[var(--color-ivory)] shadow-sm border-l-4 border-[var(--color-gold)]': isActive
     }"
     @click="handleClick"
   >
@@ -35,34 +35,38 @@ function handleClick() {
       :src="character.avatarUrl"
       :name="character.name"
       size="small"
-      :class="{ 'ring-2 ring-[#10B981]': isThinking }"
+      :is-thinking="isThinking"
     />
 
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-[#1F2937] truncate">
+        <span class="text-sm font-medium text-[var(--color-navy)] truncate">
           {{ character.name }}
         </span>
         <span
           v-if="character.isPreset"
-          class="text-xs px-1.5 py-0.5 rounded bg-[#10B981]/10 text-[#10B981]"
+          class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-gold)]/10 text-[var(--color-gold-dark)] border border-[var(--color-gold)]/20"
         >
-          预设
+          智库
         </span>
       </div>
       <p
         v-if="character.description"
-        class="text-xs text-[#6B7280] truncate mt-0.5"
+        class="text-xs text-[var(--color-text-muted)] truncate mt-0.5 leading-relaxed"
       >
         {{ character.description }}
       </p>
     </div>
 
     <div v-if="isThinking" class="flex gap-0.5">
-      <span class="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse"></span>
-      <span class="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse animation-delay-100"></span>
-      <span class="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse animation-delay-200"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-100"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-200"></span>
     </div>
+
+    <svg v-else class="w-4 h-4 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+    </svg>
   </div>
 </template>
 
