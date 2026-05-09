@@ -7,7 +7,7 @@ interface Props {
   gradient?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   src: null,
   size: 'medium',
   isThinking: false,
