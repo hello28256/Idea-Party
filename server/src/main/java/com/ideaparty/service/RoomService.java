@@ -1,62 +1,101 @@
 package com.ideaparty.service;
 
+import com.ideaparty.dto.CreateRoomRequest;
+import com.ideaparty.dto.RoomResponse;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Room;
+import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class RoomService {
 
     private final RoomRepository roomRepository;
+    private final UserRepository userRepository;
     private final CharacterRepository characterRepository;
 
-    public RoomService(RoomRepository roomRepository, CharacterRepository characterRepository) {
-        this.roomRepository = roomRepository;
-        this.characterRepository = characterRepository;
+    public RoomResponse create(UUID userId, CreateRoomRequest request) {
+        log.info("[DEBUG] Creating room for user: {}", userId);
+
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+        Room room = Room.builder()
+                .name(request.getName())
+                .topic(request.getTopic())
+                .owner(owner)
+                .build();
+
+        Room saved = roomRepository.save(room);
+        log.info("[DEBUG] Room created with id: {}", saved.getId());
+
+        return RoomResponse.fromEntity(saved);
     }
 
-    public Room createRoom(String name, String theme, List<String> characterIds) {
-        Room room = new Room();
-        room.setName(name);
-        room.setTheme(theme);
+    @Transactional(readOnly = true)
+    public List<RoomResponse> findByUserId(UUID userId) {
+        log.info("[DEBUG] Finding rooms for user: {}", userId);
 
-        if (characterIds != null) {
-            for (String characterId : characterIds) {
-                characterRepository.findById(characterId).ifPresent(character -> {
-                    room.addCharacter(character);
-                });
-            }
+        return roomRepository.findByOwnerId(userId).stream()
+                .map(RoomResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    public void deleteIfOwner(UUID roomId, UUID userId) {
+        log.info("[DEBUG] Deleting room {} for user {}", roomId, userId);
+
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+
+        if (!room.getOwner().getId().equals(userId)) {
+            log.warn("[DEBUG] User {} is not owner of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not the owner of this room");
         }
 
-        return roomRepository.save(room);
+        roomRepository.delete(room);
+        log.info("[DEBUG] Room {} deleted successfully", roomId);
     }
 
-    public Optional<Room> getRoomById(String id) {
-        return roomRepository.findWithCharactersById(id);
-    }
+    public RoomResponse addCharacterToRoom(UUID roomId, UUID characterId, UUID userId) {
+        log.info("[DEBUG] Adding character {} to room {} by user {}", characterId, roomId, userId);
 
-    public List<Room> getAllRooms() {
-        return roomRepository.findAll();
-    }
-
-    public List<Room> getRoomsByTheme(String theme) {
-        return roomRepository.findByThemeOrderByCreatedAtDesc(theme);
-    }
-
-    public Room addCharacterToRoom(String roomId, String characterId) {
         Room room = roomRepository.findById(roomId)
-            .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
-        Character character = characterRepository.findById(characterId)
-            .orElseThrow(() -> new RuntimeException("Character not found: " + characterId));
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        room.addCharacter(character);
-        return roomRepository.save(room);
+        if (!room.getOwner().getId().equals(userId)) {
+            log.warn("[DEBUG] User {} is not owner of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not the owner of this room");
+        }
+
+        Character character = characterRepository.findById(characterId)
+                .orElseThrow(() -> new IllegalArgumentException("Character not found: " + characterId));
+
+        room.getCharacters().add(character);
+        Room saved = roomRepository.save(room);
+
+        log.info("[DEBUG] Character {} added to room {}", characterId, roomId);
+
+        return RoomResponse.fromEntity(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public RoomResponse findById(UUID roomId) {
+        return roomRepository.findWithCharactersById(roomId)
+                .map(RoomResponse::fromEntity)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
     }
 }

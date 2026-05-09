@@ -1,31 +1,37 @@
 package com.ideaparty.entity;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.Instant;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Table(name = "rooms")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Room {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    private UUID id;
 
     @Column(nullable = false)
     private String name;
 
-    private String theme;
+    @Column(length = 500)
+    private String topic;
 
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
-
-    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("createdAt ASC")
-    private List<Message> messages = new ArrayList<>();
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false)
+    private User owner;
 
     @ManyToMany(cascade = { CascadeType.PERSIST, CascadeType.MERGE })
     @JoinTable(
@@ -33,40 +39,28 @@ public class Room {
         joinColumns = @JoinColumn(name = "room_id"),
         inverseJoinColumns = @JoinColumn(name = "character_id")
     )
+    @Builder.Default
     private Set<Character> characters = new HashSet<>();
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        Instant now = Instant.now();
+        createdAt = now;
+        updatedAt = now;
     }
 
-    public Room() {}
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getTheme() { return theme; }
-    public void setTheme(String theme) { this.theme = theme; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-
-    public List<Message> getMessages() { return messages; }
-    public void setMessages(List<Message> messages) { this.messages = messages; }
-
-    public Set<Character> getCharacters() { return characters; }
-    public void setCharacters(Set<Character> characters) { this.characters = characters; }
-
-    public void addCharacter(Character character) {
-        characters.add(character);
-        character.getRooms().add(this);
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = Instant.now();
     }
 
-    public void removeCharacter(Character character) {
-        characters.remove(character);
-        character.getRooms().remove(this);
+    public int getCharacterCount() {
+        return characters != null ? characters.size() : 0;
     }
 }

@@ -8,12 +8,17 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface RoomRepository extends JpaRepository<Room, String> {
+public interface RoomRepository extends JpaRepository<Room, UUID> {
 
-    List<Room> findByThemeOrderByCreatedAtDesc(String theme);
+    List<Room> findByOwnerId(UUID ownerId);
 
     @Query("SELECT r FROM Room r LEFT JOIN FETCH r.characters WHERE r.id = :id")
-    Optional<Room> findWithCharactersById(@Param("id") String id);
+    Optional<Room> findWithCharactersById(@Param("id") UUID id);
+
+    Optional<Room> findByIdAndOwnerId(UUID id, UUID ownerId);
+
+    boolean existsByIdAndOwnerId(UUID id, UUID ownerId);
 }
