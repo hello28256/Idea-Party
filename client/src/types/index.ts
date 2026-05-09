@@ -1,40 +1,33 @@
-export interface Character {
-  id: string;
-  name: string;
-  avatar: string;
-  description: string;
-  expertise: string[];
-  era: string;
-  speakingStyle: string;
+// User types for authentication
+export interface User {
+  id: string
+  email: string
+  name: string
 }
 
-export interface Room {
-  id: string;
-  name: string;
-  theme: string;
-  createdAt: string;
-  characters: Character[];
+// Authentication response from backend
+export interface AuthResponse {
+  accessToken: string
+  tokenType: string
+  expiresIn: number
+  user: User
 }
 
-export interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'character' | 'system';
-  characterId?: string;
-  characterName?: string;
-  characterAvatar?: string;
-  roomId: string;
-  createdAt: string;
+// Login request payload
+export interface LoginRequest {
+  email: string
+  password: string
 }
 
-export interface CreateRoomRequest {
-  name: string;
-  theme?: string;
-  characterIds: string[];
+// Register request payload
+export interface RegisterRequest {
+  email: string
+  password: string
+  name: string
 }
 
-export interface SendMessageRequest {
-  content: string;
-  role: 'user' | 'character';
-  characterId?: string;
+// API error response
+export interface ApiError {
+  message: string
+  status: number
 }
