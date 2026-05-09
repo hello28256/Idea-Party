@@ -1,54 +1,109 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import { api } from '../services/api';
-import type { Room } from '../types';
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { roomsApi } from '@/api/rooms'
+import type { Room, CreateRoomRequest } from '@/types'
 
 export const useRoomStore = defineStore('room', () => {
-  const currentRoom = ref<Room | null>(null);
-  const isLoading = ref(false);
-  const error = ref<string | null>(null);
+  // State
+  const rooms = ref<Room[]>([])
+  const currentRoom = ref<Room | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  async function createRoom(name: string, theme: string | undefined, characterIds: string[]) {
-    isLoading.value = true;
-    error.value = null;
+  // Computed
+  const sortedRooms = computed(() => {
+    return [...rooms.value].sort((a, b) => {
+      const dateA = new Date(a.updatedAt).getTime()
+      const dateB = new Date(b.updatedAt).getTime()
+      return dateB - dateA
+    })
+  })
+
+  // Actions
+  async function fetchRooms() {
+    loading.value = true
+    error.value = null
     try {
-      currentRoom.value = await api.createRoom({ name, theme, characterIds });
-      return currentRoom.value;
+      rooms.value = await roomsApi.list()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Unknown error';
-      throw e;
+      error.value = e instanceof Error ? e.message : 'Failed to fetch rooms'
+      throw e
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  async function fetchRoom(id: string) {
-    isLoading.value = true;
-    error.value = null;
+  async function createRoom(name: string, topic?: string): Promise<Room> {
+    loading.value = true
+    error.value = null
     try {
-      currentRoom.value = await api.getRoom(id);
+      const request: CreateRoomRequest = { name, topic }
+      const room = await roomsApi.create(request)
+      rooms.value.push(room)
+      return room
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Unknown error';
+      error.value = e instanceof Error ? e.message : 'Failed to create room'
+      throw e
     } finally {
-      isLoading.value = false;
+      loading.value = false
     }
   }
 
-  function setRoom(room: Room) {
-    currentRoom.value = room;
+  async function deleteRoom(id: string) {
+    loading.value = true
+    error.value = null
+    try {
+      await roomsApi.remove(id)
+      rooms.value = rooms.value.filter(r => r.id !== id)
+      if (currentRoom.value?.id === id) {
+        currentRoom.value = null
+      }
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to delete room'
+      throw e
+    } finally {
+      loading.value = false
+    }
   }
 
-  function clearRoom() {
-    currentRoom.value = null;
+  async function addCharacterToRoom(roomId: string, characterId: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const updatedRoom = await roomsApi.addCharacter(roomId, characterId)
+      const index = rooms.value.findIndex(r => r.id === roomId)
+      if (index !== -1) {
+        rooms.value[index] = updatedRoom
+      }
+      if (currentRoom.value?.id === roomId) {
+        currentRoom.value = updatedRoom
+      }
+      return updatedRoom
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to add character'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function setCurrentRoom(room: Room | null) {
+    currentRoom.value = room
   }
 
   return {
+    // State
+    rooms,
     currentRoom,
-    isLoading,
+    loading,
     error,
+    // Computed
+    sortedRooms,
+    // Actions
+    fetchRooms,
     createRoom,
-    fetchRoom,
-    setRoom,
-    clearRoom,
-  };
-});
+    deleteRoom,
+    addCharacterToRoom,
+    setCurrentRoom
+  }
+})

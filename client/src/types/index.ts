@@ -36,17 +36,17 @@ export interface ApiError {
 export interface Room {
   id: string
   name: string
-  theme?: string
+  topic?: string
   ownerId: string
-  characterIds: string[]
+  ownerName: string
+  characterCount: number
   createdAt: string
   updatedAt: string
 }
 
 export interface CreateRoomRequest {
   name: string
-  theme?: string
-  characterIds: string[]
+  topic?: string
 }
 
 // Character types
