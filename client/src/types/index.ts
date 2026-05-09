@@ -54,11 +54,19 @@ export interface Character {
   id: string
   name: string
   description: string
-  avatar?: string
+  avatarUrl?: string
   prompt?: string
-  isPreset: boolean
   ownerId?: string
+  isPreset: boolean
   createdAt: string
+  updatedAt: string
+}
+
+export interface CharacterRequest {
+  name: string
+  description?: string
+  avatarUrl?: string
+  prompt?: string
 }
 
 // Message types
