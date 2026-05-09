@@ -22,6 +22,7 @@ const roomId = computed(() => route.params.roomId as string)
 // Local state
 const showCharacterPanel = ref(false)
 const activeCharacterId = ref<string | null>(null)
+const characterError = ref<string | null>(null)
 const { isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
@@ -119,6 +120,7 @@ function handleSend(content: string) {
 
 // Handle adding a character to the room
 async function handleCharacterAdded(character: Character) {
+  characterError.value = null
   try {
     await roomStore.addCharacterToRoom(roomId.value, character.id)
     // Refresh room data
@@ -127,6 +129,8 @@ async function handleCharacterAdded(character: Character) {
       roomStore.setCurrentRoom(room)
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : '添加角色失败'
+    characterError.value = message
     console.error('[DEBUG] Failed to add character:', error)
   }
 }
@@ -185,6 +189,12 @@ async function handleCharacterAdded(character: Character) {
         </button>
       </div>
     </header>
+
+    <!-- Character error banner -->
+    <div v-if="characterError" class="px-4 py-2 bg-red-50 border-b border-red-200 text-red-600 text-sm">
+      {{ characterError }}
+      <button @click="characterError = null" class="ml-2 underline">关闭</button>
+    </div>
 
     <!-- Main content area -->
     <div class="flex-1 flex overflow-hidden">
