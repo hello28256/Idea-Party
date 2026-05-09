@@ -1,17 +1,21 @@
 package com.ideaparty.dto;
 
 import com.ideaparty.entity.Character;
-import java.util.List;
+
+import java.time.Instant;
+import java.util.UUID;
 
 public class CharacterResponse {
 
-    private String id;
+    private UUID id;
     private String name;
-    private String avatar;
     private String description;
-    private List<String> expertise;
-    private String era;
-    private String speakingStyle;
+    private String avatarUrl;
+    private String prompt;
+    private UUID ownerId;
+    private boolean isPreset;
+    private Instant createdAt;
+    private Instant updatedAt;
 
     public CharacterResponse() {}
 
@@ -19,32 +23,42 @@ public class CharacterResponse {
         CharacterResponse response = new CharacterResponse();
         response.setId(character.getId());
         response.setName(character.getName());
-        response.setAvatar(character.getAvatar());
         response.setDescription(character.getDescription());
-        response.setExpertise(character.getExpertise());
-        response.setEra(character.getEra());
-        response.setSpeakingStyle(character.getSpeakingStyle());
+        response.setAvatarUrl(character.getAvatarUrl());
+        response.setPrompt(character.getPrompt());
+        response.setPreset(character.isPreset());
+        response.setCreatedAt(character.getCreatedAt());
+        response.setUpdatedAt(character.getUpdatedAt());
+        if (character.getOwner() != null) {
+            response.setOwnerId(character.getOwner().getId());
+        }
         return response;
     }
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
-    public String getAvatar() { return avatar; }
-    public void setAvatar(String avatar) { this.avatar = avatar; }
-
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
 
-    public List<String> getExpertise() { return expertise; }
-    public void setExpertise(List<String> expertise) { this.expertise = expertise; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 
-    public String getEra() { return era; }
-    public void setEra(String era) { this.era = era; }
+    public String getPrompt() { return prompt; }
+    public void setPrompt(String prompt) { this.prompt = prompt; }
 
-    public String getSpeakingStyle() { return speakingStyle; }
-    public void setSpeakingStyle(String speakingStyle) { this.speakingStyle = speakingStyle; }
+    public UUID getOwnerId() { return ownerId; }
+    public void setOwnerId(UUID ownerId) { this.ownerId = ownerId; }
+
+    public boolean isPreset() { return isPreset; }
+    public void setPreset(boolean preset) { isPreset = preset; }
+
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }
