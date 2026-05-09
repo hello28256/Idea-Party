@@ -40,6 +40,7 @@ export interface Room {
   ownerId: string
   ownerName: string
   characterCount: number
+  characters?: Character[]
   createdAt: string
   updatedAt: string
 }
@@ -57,7 +58,8 @@ export interface Character {
   avatarUrl?: string
   prompt?: string
   ownerId?: string
-  isPreset: boolean
+  isPreset?: boolean
+  preset?: boolean
   createdAt: string
   updatedAt: string
 }

@@ -70,7 +70,7 @@ function handleClose() {
               {{ char.name }}
             </span>
             <span
-              v-if="char.isPreset"
+              v-if="char.isPreset || char.preset"
               class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-gold)]/10 text-[var(--color-gold-dark)] border border-[var(--color-gold)]/20"
             >
               智库
@@ -173,7 +173,7 @@ function handleClose() {
                     {{ char.name }}
                   </span>
                   <span
-                    v-if="char.isPreset"
+                    v-if="char.isPreset || char.preset"
                     class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-gold)]/10 text-[var(--color-gold-dark)] border border-[var(--color-gold)]/20"
                   >
                     智库

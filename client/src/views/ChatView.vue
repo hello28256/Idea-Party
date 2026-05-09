@@ -191,7 +191,7 @@ async function handleCharacterAdded(character: Character) {
       <!-- Character sidebar -->
       <CharacterSidebar
         :show="sidebarOpen"
-        :characters="characters"
+        :characters="currentRoom?.characters || []"
         :active-character-id="thinkingCharacterId"
         :is-thinking="!!thinkingCharacterId"
         @close="closeSidebar"
