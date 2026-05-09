@@ -9,14 +9,14 @@ interface Props {
   isThinking?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   activeCharacterId: null,
   isThinking: false
 })
 
 const emit = defineEmits<{
   close: []
-  characterSelected: [character: Character]
+  characterSelected: [character: Character | null]
 }>()
 
 function handleCharacterClick(character: Character) {

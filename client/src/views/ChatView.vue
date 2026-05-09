@@ -5,6 +5,7 @@ import { useSocket, type ChatMessage } from '@/composables/useSocket'
 import { useMessageStore } from '@/stores/message'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
+import type { Character } from '@/types'
 import MessageList from '@/components/chat/MessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import CharacterSidebar from '@/components/character/CharacterSidebar.vue'
@@ -21,7 +22,7 @@ const roomId = computed(() => route.params.roomId as string)
 // Local state
 const showCharacterPanel = ref(false)
 const activeCharacterId = ref<string | null>(null)
-const { socket, isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
+const { isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
   },
@@ -117,9 +118,9 @@ function handleSend(content: string) {
 }
 
 // Handle adding a character to the room
-async function handleCharacterAdded(characterId: string) {
+async function handleCharacterAdded(character: Character) {
   try {
-    await roomStore.addCharacterToRoom(roomId.value, characterId)
+    await roomStore.addCharacterToRoom(roomId.value, character.id)
     // Refresh room data
     const room = roomStore.rooms.find(r => r.id === roomId.value)
     if (room) {
