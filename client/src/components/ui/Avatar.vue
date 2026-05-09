@@ -1,27 +1,36 @@
 <script setup lang="ts">
 defineProps<{
-  src?: string | null;
-  name: string;
-  size?: 'small' | 'medium' | 'large';
-}>();
+  src?: string | null
+  name: string
+  size?: 'small' | 'medium' | 'large'
+  isThinking?: boolean
+}>()
 
 const sizeClasses = {
   small: 'avatar-small',
   medium: 'avatar-medium',
   large: 'avatar-large',
-};
+}
 </script>
 
 <template>
-  <div class="avatar" :class="sizeClasses[size || 'medium']">
-    <img v-if="src" :src="src" :alt="name" />
-    <div v-else class="avatar-placeholder">
-      {{ name.charAt(0) }}
+  <div class="avatar-wrapper" :class="{ 'is-thinking': isThinking }">
+    <div class="avatar" :class="sizeClasses[size || 'medium']">
+      <img v-if="src" :src="src" :alt="name" />
+      <div v-else class="avatar-placeholder">
+        {{ name.charAt(0) }}
+      </div>
     </div>
+    <div v-if="isThinking" class="thinking-ring"></div>
   </div>
 </template>
 
 <style scoped>
+.avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
 .avatar {
   border-radius: 50%;
   overflow: hidden;
@@ -34,13 +43,13 @@ const sizeClasses = {
 }
 
 .avatar-medium {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
 }
 
 .avatar-large {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
 }
 
 .avatar img {
@@ -65,10 +74,34 @@ const sizeClasses = {
 }
 
 .avatar-medium .avatar-placeholder {
-  font-size: 1.25rem;
+  font-size: 1.125rem;
 }
 
 .avatar-large .avatar-placeholder {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
+}
+
+/* Thinking indicator - pulsing ring */
+.thinking-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid #10B981;
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>

@@ -1,37 +1,60 @@
 <script setup lang="ts">
-import type { Message } from '../../types';
+import { computed } from 'vue'
+import Avatar from '@/components/ui/Avatar.vue'
+import type { ChatMessage } from '@/composables/useSocket'
 
 const props = defineProps<{
-  message: Message;
-}>();
+  message: ChatMessage
+  isOwn?: boolean
+}>()
 
-function getDisplayName(): string {
-  if (props.message.role === 'user') {
-    return 'You';
+const formattedTime = computed(() => {
+  if (!props.message.createdAt) return ''
+  const date = new Date(props.message.createdAt)
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+})
+
+const displayName = computed(() => {
+  if (props.message.senderType === 'USER') {
+    return '你'
   }
-  return props.message.characterName || 'Unknown';
-}
+  return props.message.characterName || '未知角色'
+})
 
-function getAvatar(): string | null {
-  return props.message.characterAvatar || null;
-}
+const isStreaming = computed(() => {
+  return props.message.content.endsWith('...')
+})
 </script>
 
 <template>
-  <div class="message-bubble" :class="{ user: message.role === 'user' }">
-    <div class="avatar">
-      <img v-if="getAvatar()" :src="getAvatar()!" :alt="getDisplayName()" />
-      <div v-else class="avatar-placeholder">
-        {{ getDisplayName().charAt(0) }}
+  <div class="message-bubble" :class="{ 'own': isOwn }">
+    <Avatar
+      v-if="!isOwn"
+      :src="message.avatarUrl"
+      :name="displayName"
+      size="medium"
+    />
+
+    <div class="message-content">
+      <div class="message-header">
+        <span class="sender-name">{{ displayName }}</span>
       </div>
-    </div>
-    <div class="content">
-      <div class="meta">
-        <span class="name">{{ getDisplayName() }}</span>
-        <span class="time">{{ new Date(message.createdAt).toLocaleTimeString() }}</span>
+      <div class="message-body">
+        <span class="message-text">{{ message.content }}</span>
+        <span v-if="isStreaming" class="streaming-dots">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </span>
       </div>
-      <p class="text">{{ message.content }}</p>
+      <div class="message-time">{{ formattedTime }}</div>
     </div>
+
+    <Avatar
+      v-if="isOwn"
+      :name="displayName"
+      size="medium"
+    />
   </div>
 </template>
 
@@ -40,70 +63,82 @@ function getAvatar(): string | null {
   display: flex;
   gap: 0.75rem;
   padding: 0.75rem;
-  border-radius: 8px;
-  background: #f5f5f5;
-  margin-bottom: 0.5rem;
+  background-color: #F0FDF4;
+  border-radius: 0.75rem;
+  max-width: 80%;
 }
 
-.message-bubble.user {
-  background: #e3f2fd;
+.message-bubble.own {
+  background-color: rgba(16, 185, 129, 0.1);
+  margin-left: auto;
   flex-direction: row-reverse;
 }
 
-.avatar {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  overflow: hidden;
-}
-
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-placeholder {
-  width: 100%;
-  height: 100%;
+.message-content {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-weight: bold;
-}
-
-.content {
-  flex: 1;
+  flex-direction: column;
+  gap: 0.25rem;
   min-width: 0;
 }
 
-.meta {
+.message-header {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 0.25rem;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.name {
-  font-weight: 600;
-  color: #333;
+.sender-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
 }
 
-.time {
-  font-size: 0.75rem;
-  color: #999;
+.message-body {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
-.text {
-  margin: 0;
-  white-space: pre-wrap;
+.message-text {
+  font-size: 1rem;
+  color: #1F2937;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
-.message-bubble.user .meta {
-  flex-direction: row-reverse;
+.message-time {
+  font-size: 0.75rem;
+  color: #6B7280;
+}
+
+/* Streaming dots animation */
+.streaming-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.streaming-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: #10B981;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.streaming-dots .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.streaming-dots .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%, 60%, 100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
 }
 </style>
