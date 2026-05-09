@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from 'axios'
-import type { AuthResponse, LoginRequest, RegisterRequest, ApiError } from '@/types'
+import type { AuthResponse, LoginRequest, RegisterRequest } from '@/types'
 
 // Base axios instance with configuration
 const api: AxiosInstance = axios.create({

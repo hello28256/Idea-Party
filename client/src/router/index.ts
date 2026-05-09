@@ -43,7 +43,7 @@ const router = createRouter({
 })
 
 // Auth guard - redirect to login if accessing protected route without token
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   const publicPaths = ['/login', '/register']
   const isAuthenticated = !!localStorage.getItem('accessToken')
 
