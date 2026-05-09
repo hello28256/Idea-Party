@@ -23,6 +23,7 @@ const roomId = computed(() => route.params.roomId as string)
 const showCharacterPanel = ref(false)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
+const connectionError = ref<string | null>(null)
 const { isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
@@ -34,6 +35,7 @@ const { isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
     messageStore.updateStreamingMessage(data.characterId, data.chunk)
   },
   onError: (error: string) => {
+    connectionError.value = error
     console.error('[DEBUG] Socket error:', error)
   }
 })
@@ -210,6 +212,13 @@ async function handleCharacterAdded(character: Character) {
 
       <!-- Message area -->
       <main class="flex-1 flex flex-col min-w-0 bg-[var(--color-cream)]">
+        <!-- Connection warning -->
+        <div v-if="!isConnected" class="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          连接中... 消息暂存本地
+        </div>
         <!-- Messages -->
         <div class="flex-1 overflow-hidden">
           <MessageList
@@ -222,7 +231,7 @@ async function handleCharacterAdded(character: Character) {
         <!-- Chat input -->
         <div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-ivory)]">
           <ChatInput
-            :disabled="!isConnected"
+            :disabled="false"
             @send="handleSend"
           />
         </div>
