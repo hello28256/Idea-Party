@@ -38,6 +38,9 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "api_key")
+    private String apiKey;
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();
