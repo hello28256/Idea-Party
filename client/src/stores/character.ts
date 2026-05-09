@@ -21,7 +21,7 @@ export const useCharacterStore = defineStore('character', () => {
       const response = await charactersApi.list()
       characters.value = response.data
     } catch (e: any) {
-      error.value = e.message || 'Failed to fetch characters'
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to fetch characters'
       console.error('[DEBUG] fetchCharacters failed:', e)
     } finally {
       loading.value = false
@@ -35,7 +35,7 @@ export const useCharacterStore = defineStore('character', () => {
       const response = await charactersApi.getPresets()
       presets.value = response.data
     } catch (e: any) {
-      error.value = e.message || 'Failed to fetch presets'
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to fetch presets'
       console.error('[DEBUG] fetchPresets failed:', e)
     } finally {
       loading.value = false
@@ -50,7 +50,7 @@ export const useCharacterStore = defineStore('character', () => {
       characters.value.push(response.data)
       return response.data
     } catch (e: any) {
-      error.value = e.message || 'Failed to create character'
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to create character'
       console.error('[DEBUG] createCharacter failed:', e)
       return null
     } finally {
@@ -69,7 +69,7 @@ export const useCharacterStore = defineStore('character', () => {
       }
       return response.data
     } catch (e: any) {
-      error.value = e.message || 'Failed to update character'
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to update character'
       console.error('[DEBUG] updateCharacter failed:', e)
       return null
     } finally {
@@ -85,7 +85,7 @@ export const useCharacterStore = defineStore('character', () => {
       characters.value = characters.value.filter(c => c.id !== id)
       return true
     } catch (e: any) {
-      error.value = e.message || 'Failed to delete character'
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to delete character'
       console.error('[DEBUG] deleteCharacter failed:', e)
       return false
     } finally {
