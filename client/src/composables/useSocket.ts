@@ -1,123 +1,93 @@
-import { ref, onMounted, onUnmounted } from 'vue';
-import { io, Socket } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client'
+import { ref, onUnmounted } from 'vue'
 
-const SOCKET_URL = 'http://localhost:8080';
-
-export interface AIChunkData {
-  content: string;
-  characterId: string;
-  characterName: string;
+export interface ChatMessage {
+  id: string
+  roomId: string
+  characterId: string | null
+  characterName: string | null
+  senderType: 'USER' | 'CHARACTER'
+  content: string
+  avatarUrl: string | null
+  createdAt: string
 }
 
-export interface AICompleteData {
-  content: string;
-  characterId: string;
-  characterName: string;
-  messageId: string;
+export interface UseSocketOptions {
+  onMessage?: (message: ChatMessage) => void
+  onThinking?: (characterId: string | null) => void
+  onStream?: (data: { characterId: string; chunk: string }) => void
+  onError?: (error: string) => void
 }
 
-export function useSocket() {
-  const socket = ref<Socket | null>(null);
-  const isConnected = ref(false);
-  const error = ref<string | null>(null);
+const DEFAULT_SERVER_URL = 'http://localhost:8080'
 
-  const listeners = new Map<string, Set<(data: unknown) => void>>();
+export function useSocket(roomId: string, options: UseSocketOptions = {}) {
+  const {
+    onMessage,
+    onThinking,
+    onStream,
+    onError
+  } = options
 
-  function connect() {
-    if (socket.value?.connected) return;
+  const socket = io(DEFAULT_SERVER_URL, {
+    transports: ['websocket', 'polling'],
+    autoConnect: true,
+    path: '/ws'
+  })
 
-    socket.value = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-    });
+  const isConnected = ref(false)
 
-    socket.value.on('connect', () => {
-      isConnected.value = true;
-      error.value = null;
-    });
+  socket.on('connect', () => {
+    isConnected.value = true
+    socket.emit('join room', { roomId })
+  })
 
-    socket.value.on('disconnect', () => {
-      isConnected.value = false;
-    });
+  socket.on('disconnect', () => {
+    isConnected.value = false
+  })
 
-    socket.value.on('connect_error', (err) => {
-      error.value = err.message;
-      isConnected.value = false;
-    });
+  // Handle incoming messages
+  socket.on('message', (data: ChatMessage) => {
+    onMessage?.(data)
+  })
 
-    // Re-emit registered listeners
-    listeners.forEach((callbacks, event) => {
-      callbacks.forEach((callback) => {
-        socket.value?.on(event, callback);
-      });
-    });
+  // Handle character thinking indicator
+  socket.on('character thinking', (data: { characterId: string }) => {
+    onThinking?.(data.characterId)
+  })
+
+  // Handle streaming chunks
+  socket.on('message stream', (data: { characterId: string; chunk: string }) => {
+    onStream?.(data)
+  })
+
+  // Handle errors
+  socket.on('error', (data: { message: string }) => {
+    onError?.(data.message)
+  })
+
+  // Handle room joined confirmation
+  socket.on('room-joined', (data: { roomId: string }) => {
+    console.log('[DEBUG] Joined room:', data.roomId)
+  })
+
+  function sendMessage(content: string) {
+    socket.emit('chat message', { roomId, content })
   }
 
-  function disconnect() {
-    if (socket.value) {
-      socket.value.disconnect();
-      socket.value = null;
-      isConnected.value = false;
-    }
+  function leaveRoom() {
+    socket.emit('leave room', { roomId })
+    socket.disconnect()
   }
-
-  function emit(event: string, data: unknown) {
-    if (socket.value?.connected) {
-      socket.value.emit(event, data);
-    }
-  }
-
-  function on(event: string, callback: (data: unknown) => void) {
-    if (!listeners.has(event)) {
-      listeners.set(event, new Set());
-    }
-    listeners.get(event)!.add(callback);
-
-    if (socket.value) {
-      socket.value.on(event, callback);
-    }
-  }
-
-  function off(event: string, callback: (data: unknown) => void) {
-    listeners.get(event)?.delete(callback);
-    socket.value?.off(event, callback);
-  }
-
-  function joinRoom(roomId: string) {
-    emit('join-room', { roomId });
-  }
-
-  function leaveRoom(roomId: string) {
-    emit('leave-room', { roomId });
-  }
-
-  function sendMessage(roomId: string, message: { content: string; role: string; characterId?: string }) {
-    emit('chat message', { roomId, ...message });
-  }
-
-  onMounted(() => {
-    connect();
-  });
 
   onUnmounted(() => {
-    disconnect();
-  });
+    leaveRoom()
+  })
 
   return {
     socket,
     isConnected,
-    error,
-    connect,
-    disconnect,
-    emit,
-    on,
-    off,
-    joinRoom,
-    leaveRoom,
     sendMessage,
-    onAIChunk: (callback: (data: AIChunkData) => void) => on('ai-chunk', callback as (data: unknown) => void),
-    onAIComplete: (callback: (data: AICompleteData) => void) => on('ai-complete', callback as (data: unknown) => void),
-    offAIChunk: (callback: (data: AIChunkData) => void) => off('ai-chunk', callback as (data: unknown) => void),
-    offAIComplete: (callback: (data: AICompleteData) => void) => off('ai-complete', callback as (data: unknown) => void),
-  };
+    leaveRoom
+  }
 }
