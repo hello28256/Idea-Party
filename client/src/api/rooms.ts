@@ -9,12 +9,12 @@ export interface RoomApi {
 }
 
 export const roomsApi: RoomApi = {
-  list: () => api.get<Room[]>('/rooms'),
+  list: () => api.get<Room[]>('/rooms').then(res => res.data),
 
-  create: (data: CreateRoomRequest) => api.post<Room>('/rooms', data),
+  create: (data: CreateRoomRequest) => api.post<Room>('/rooms', data).then(res => res.data),
 
   remove: (id: string) => api.delete(`/rooms/${id}`),
 
   addCharacter: (roomId: string, characterId: string) =>
-    api.post<Room>(`/rooms/${roomId}/characters/${characterId}`)
+    api.post<Room>(`/rooms/${roomId}/characters/${characterId}`).then(res => res.data)
 }

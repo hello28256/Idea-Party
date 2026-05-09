@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import type { Character, CharacterRequest } from '@/types'
+import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
 import CharacterCard from './CharacterCard.vue'
 import Button from '@/components/ui/Button.vue'
@@ -23,8 +23,15 @@ const emit = defineEmits<{
 const characterStore = useCharacterStore()
 
 // Form state
+interface CharacterForm {
+  name: string
+  description: string
+  avatarUrl: string
+  prompt: string
+}
+
 const mode = ref<'create' | 'edit'>('create')
-const form = ref<CharacterRequest>({
+const form = ref<CharacterForm>({
   name: '',
   description: '',
   avatarUrl: '',
