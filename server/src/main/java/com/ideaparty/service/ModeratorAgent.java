@@ -3,6 +3,7 @@ package com.ideaparty.service;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.repository.MessageRepository;
+import com.ideaparty.service.FirecrawlService;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -26,6 +27,7 @@ public class ModeratorAgent {
 
     private final AIService aiService;
     private final MessageRepository messageRepository;
+    private final FirecrawlService firecrawlService;
 
     // Track the last speaking index for each character (by roomId)
     private final Map<String, Map<UUID, Integer>> characterLastSpokeIndex = new ConcurrentHashMap<>();
@@ -42,9 +44,10 @@ public class ModeratorAgent {
     // Maximum consecutive turns a character can speak
     private static final int MAX_CONSECUTIVE_TURNS = 2;
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
+        this.firecrawlService = firecrawlService;
     }
 
     /**
@@ -277,6 +280,13 @@ public class ModeratorAgent {
      */
     private String buildCharacterPrompt(Character character) {
         StringBuilder prompt = new StringBuilder();
+
+        // 首先联网检索角色信息
+        String webContext = firecrawlService.scrape(character.getName());
+        if (webContext != null && !webContext.isBlank()) {
+            prompt.append("Background information (from public sources): ").append(webContext).append("\n\n");
+        }
+
         prompt.append("You are playing the role of ").append(character.getName()).append(".\n\n");
 
         if (character.getEra() != null) {
