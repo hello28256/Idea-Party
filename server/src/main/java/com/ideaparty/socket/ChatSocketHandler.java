@@ -6,7 +6,7 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
-import com.ideaparty.service.MockAiService;
+import com.ideaparty.service.ModeratorAgent;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
@@ -31,14 +31,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final MessageService messageService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
-    private final MockAiService mockAiService;
+    private final ModeratorAgent moderatorAgent;
 
     public ChatSocketHandler(MessageService messageService, ModerationService moderationService,
-                             RoomRepository roomRepository, MockAiService mockAiService) {
+                             RoomRepository roomRepository, ModeratorAgent moderatorAgent) {
         this.messageService = messageService;
         this.moderationService = moderationService;
         this.roomRepository = roomRepository;
-        this.mockAiService = mockAiService;
+        this.moderatorAgent = moderatorAgent;
     }
 
     @Override
@@ -143,42 +143,40 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         String userMessage = data.has("message") ? data.get("message").asText() : "";
 
-        // Fetch room with characters from repository
         Room room = roomRepository.findById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
-            String errorMessage = "42[\"error\","
-                + objectMapper.writeValueAsString(Map.of("message", "Room not found"))
-                + "]";
-            session.sendMessage(new TextMessage(errorMessage));
+            session.sendMessage(new TextMessage("42[\"error\",{\"message\":\"Room not found\"}]"));
             return;
         }
 
         List<Character> characters = room.getCharacters().stream().toList();
         if (characters.isEmpty()) {
-            String errorMessage = "42[\"error\","
-                + objectMapper.writeValueAsString(Map.of("message", "No characters in room"))
-                + "]";
-            session.sendMessage(new TextMessage(errorMessage));
+            session.sendMessage(new TextMessage("42[\"error\",{\"message\":\"No characters in room\"}]"));
             return;
         }
 
-        // Use MockAiService for Phase 1 (round-robin mock responses)
-        for (Character character : characters) {
-            // Emit thinking event
-            String thinkingEvent = "42[\"character thinking\","
-                + objectMapper.writeValueAsString(Map.of("characterId", character.getId().toString()))
-                + "]";
-            broadcastToRoom(roomId, thinkingEvent);
-
-            // Generate response asynchronously
-            mockAiService.generateResponse(character, userMessage).thenAccept(response -> {
-                // Broadcast the AI response
+        // 使用 ModeratorAgent 进行智能发言编排和流式响应
+        moderatorAgent.processMessage(roomId, userMessage, characters,
+            // onThinking: 角色开始思考
+            characterName -> {
+                String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
+                broadcastToRoom(roomId, event);
+            },
+            // onResponse: 收到角色回复
+            fragment -> {
                 try {
+                    // 保存消息到数据库
+                    UUID characterUuid = UUID.fromString(fragment.getCharacterId());
+                    messageService.saveMessage(UUID.fromString(roomId), characterUuid,
+                        Message.SenderType.CHARACTER, fragment.getContent());
+
+                    // 广播到 WebSocket 房间
                     String responseEvent = "42[\"chat message\","
                         + objectMapper.writeValueAsString(Map.of(
-                            "content", response,
+                            "content", fragment.getContent(),
                             "senderType", "CHARACTER",
-                            "characterId", character.getId().toString(),
+                            "characterId", fragment.getCharacterId(),
+                            "characterName", fragment.getCharacterName(),
                             "roomId", roomId
                         ))
                         + "]";
@@ -186,8 +184,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 } catch (Exception e) {
                     // Log error
                 }
-            });
-        }
+            }
+        );
     }
 
     @Override
