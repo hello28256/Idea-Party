@@ -1,9 +1,14 @@
 package com.ideaparty.service;
 
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * AI Service for generating character responses.
@@ -19,11 +24,9 @@ public class AIService {
     private String model;
 
     private final SettingsService settingsService;
-    private final FirecrawlService firecrawlService;
 
-    public AIService(SettingsService settingsService, FirecrawlService firecrawlService) {
+    public AIService(SettingsService settingsService) {
         this.settingsService = settingsService;
-        this.firecrawlService = firecrawlService;
     }
 
     /**
@@ -35,6 +38,22 @@ public class AIService {
                 : System.getenv("DEEPSEEK_API_KEY");
 
         return OpenAiChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(apiKey != null ? apiKey : "sk-dummy-key-for-testing")
+                .modelName(model)
+                .temperature(0.8)
+                .build();
+    }
+
+    /**
+     * Create a streaming chat model for streaming responses.
+     */
+    private OpenAiStreamingChatModel createStreamingChatModel(String userApiKey) {
+        String apiKey = (userApiKey != null && !userApiKey.isBlank())
+                ? userApiKey
+                : System.getenv("DEEPSEEK_API_KEY");
+
+        return OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey != null ? apiKey : "sk-dummy-key-for-testing")
                 .modelName(model)
@@ -55,36 +74,43 @@ public class AIService {
     }
 
     /**
-     * Generate character information by fetching from web.
+     * Generate a streaming response for a character given the user message.
+     * Uses callbacks to deliver chunks as they arrive.
+     *
+     * @param characterPrompt The character's system prompt
+     * @param userMessage The user's message
+     * @param onChunk Callback for each text chunk as it arrives
+     * @param onComplete Callback when response is complete
+     * @param onError Callback for errors
      */
-    public String generateCharacterContext(String characterName) {
-        try {
-            String webContent = firecrawlService.scrape(characterName);
-            return buildCharacterPrompt(characterName, webContent);
-        } catch (Exception e) {
-            return buildDefaultCharacterPrompt(characterName);
-        }
-    }
+    public void generateResponseStream(String characterPrompt, String userMessage,
+                                       java.util.function.Consumer<String> onChunk,
+                                       java.util.function.Consumer<String> onComplete,
+                                       java.util.function.Consumer<Throwable> onError) {
+        String userApiKey = settingsService.getApiKey();
+        OpenAiStreamingChatModel streamingModel = createStreamingChatModel(userApiKey);
 
-    private String buildCharacterPrompt(String name, String webContent) {
-        return String.format("""
-            You are %s. %s
+        String fullPrompt = characterPrompt + "\n\nUser: " + userMessage + "\n\nResponse:";
 
-            IMPORTANT DISCLAIMER: This is an AI simulation based on publicly available information,
-            not the actual person. The following is generated for educational and entertainment purposes only.
+        streamingModel.chat(fullPrompt, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String partialResponse) {
+                onChunk.accept(partialResponse);
+            }
 
-            Speak in character, drawing from your historical context and expertise.
-            """, name, webContent);
-    }
+            @Override
+            public void onCompleteResponse(ChatResponse completeResponse) {
+                if (completeResponse != null && completeResponse.aiMessage() != null) {
+                    onComplete.accept(completeResponse.aiMessage().text());
+                } else {
+                    onComplete.accept("");
+                }
+            }
 
-    private String buildDefaultCharacterPrompt(String name) {
-        return String.format("""
-            You are %s, a wise historical figure known for deep insights.
-
-            IMPORTANT DISCLAIMER: This is an AI simulation, not the actual person.
-            This is generated for educational and entertainment purposes only.
-
-            Speak thoughtfully and draw upon your historical wisdom.
-            """, name);
+            @Override
+            public void onError(Throwable error) {
+                onError.accept(error);
+            }
+        });
     }
 }

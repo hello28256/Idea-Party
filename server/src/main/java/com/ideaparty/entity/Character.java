@@ -2,6 +2,7 @@ package com.ideaparty.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -23,6 +24,20 @@ public class Character {
 
     @Column(columnDefinition = "TEXT")
     private String prompt;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "character_expertise", joinColumns = @JoinColumn(name = "character_id"))
+    @Column(name = "expertise")
+    private List<String> expertise;
+
+    @Column(length = 50)
+    private String era;
+
+    @Column(name = "speaking_style", length = 500)
+    private String speakingStyle;
+
+    @Column(columnDefinition = "TEXT")
+    private String persona;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id")
@@ -63,11 +78,27 @@ public class Character {
     public String getAvatarUrl() { return avatarUrl; }
     public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 
+    // Alias for DataLoader compatibility
+    public void setAvatar(String avatarUrl) { this.avatarUrl = avatarUrl; }
+    public String getAvatar() { return avatarUrl; }
+
     public String getPrompt() { return prompt; }
     public void setPrompt(String prompt) { this.prompt = prompt; }
 
     public User getOwner() { return owner; }
     public void setOwner(User owner) { this.owner = owner; }
+
+    public List<String> getExpertise() { return expertise; }
+    public void setExpertise(List<String> expertise) { this.expertise = expertise; }
+
+    public String getEra() { return era; }
+    public void setEra(String era) { this.era = era; }
+
+    public String getSpeakingStyle() { return speakingStyle; }
+    public void setSpeakingStyle(String speakingStyle) { this.speakingStyle = speakingStyle; }
+
+    public String getPersona() { return persona; }
+    public void setPersona(String persona) { this.persona = persona; }
 
     public boolean isPreset() { return isPreset; }
     public void setPreset(boolean preset) { isPreset = preset; }
