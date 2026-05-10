@@ -25,6 +25,8 @@ const roomId = computed(() => route.params.roomId as string)
 const showCharacterPanel = ref(false)
 const showCharacterDetail = ref(false)
 const showRoomSettings = ref(false)
+const showModeDropdown = ref(false)
+const modeDropdownRef = ref<HTMLElement | null>(null)
 const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
@@ -85,6 +87,27 @@ function handleCharacterDetail(character: Character) {
   closeSidebar()
 }
 
+function toggleModeDropdown() {
+  showModeDropdown.value = !showModeDropdown.value
+}
+
+async function switchMode(mode: 'dialogue' | 'discussion') {
+  showModeDropdown.value = false
+  if (mode === currentRoom.value?.chatMode) return
+  try {
+    await roomStore.updateRoomMode(roomId.value, { chatMode: mode })
+  } catch (e) {
+    console.error('[DEBUG] Failed to switch mode:', e)
+  }
+}
+
+// Close dropdown when clicking outside
+function handleClickOutside(event: MouseEvent) {
+  if (modeDropdownRef.value && !modeDropdownRef.value.contains(event.target as Node)) {
+    showModeDropdown.value = false
+  }
+}
+
 // Load data on mount
 onMounted(async () => {
   if (!roomId.value) {
@@ -104,9 +127,13 @@ onMounted(async () => {
   } catch (error) {
     console.error('[DEBUG] Failed to load chat data:', error)
   }
+
+  // Add click outside listener for mode dropdown
+  document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
   leaveRoom()
   messageStore.clearMessages()
   roomStore.setCurrentRoom(null)
@@ -195,43 +222,9 @@ async function handleCharacterAdded(character: Character) {
           </svg>
           {{ currentRoom.characterCount }} 位思想家
         </span>
-
-        <!-- Chat Mode Toggle (prominent) -->
-        <div class="relative">
-          <button
-            class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
-            :class="isDiscussionMode
-              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
-              : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'"
-            @click="showRoomSettings = true"
-          >
-            <svg v-if="isDiscussionMode" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-            </svg>
-            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            <span>{{ isDiscussionMode ? '讨论模式' : '对话模式' }}</span>
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Stop discussion button (discussion mode only) -->
-        <button
-          v-if="isDiscussionMode && isDiscussing"
-          class="px-3 py-1.5 text-xs font-medium bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
-          @click="stopDiscussion"
-        >
-          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-            <rect x="6" y="6" width="12" height="12" rx="1" />
-          </svg>
-          停止
-        </button>
       </div>
 
-      <!-- Desktop: back button and menu -->
+      <!-- Desktop: back button and mode toggle -->
       <div class="hidden lg:flex items-center gap-2">
         <button
           class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
@@ -242,14 +235,77 @@ async function handleCharacterAdded(character: Character) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </button>
+
+        <!-- Mode quick toggle with dropdown -->
+        <div class="relative" ref="modeDropdownRef">
+          <button
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all"
+            :class="isDiscussionMode
+              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+              : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'"
+            @click="toggleModeDropdown"
+          >
+            <svg v-if="isDiscussionMode" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+            </svg>
+            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            {{ isDiscussionMode ? '讨论' : '对话' }}
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          <!-- Mode dropdown menu -->
+          <div
+            v-if="showModeDropdown"
+            class="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50"
+          >
+            <button
+              class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
+              :class="!isDiscussionMode ? 'text-blue-600 font-medium' : 'text-gray-700'"
+              @click="switchMode('dialogue')"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              对话模式
+            </button>
+            <button
+              class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
+              :class="isDiscussionMode ? 'text-amber-600 font-medium' : 'text-gray-700'"
+              @click="switchMode('discussion')"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+              </svg>
+              讨论模式
+            </button>
+            <hr class="my-1 border-gray-100" />
+            <button
+              class="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 text-gray-500 flex items-center gap-2"
+              @click="showRoomSettings = true; showModeDropdown = false"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              更多设置
+            </button>
+          </div>
+        </div>
+
+        <!-- Stop discussion button (discussion mode only) -->
         <button
-          class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
-          title="房间设置"
-          @click="showRoomSettings = true"
+          v-if="isDiscussionMode && isDiscussing"
+          class="px-2.5 py-1.5 text-xs font-medium bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
+          @click="stopDiscussion"
         >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="1" />
           </svg>
+          停止
         </button>
       </div>
     </header>
