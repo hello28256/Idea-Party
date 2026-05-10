@@ -1709,3 +1709,7 @@
 2026-05-10T02:24:27Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/client && npx vue-tsc --noEmit 2>&1 | head -20
 2026-05-10T02:24:49Z [ALLOW] npx vue-tsc --noEmit 2>&1 | head -10
 2026-05-10T02:24:56Z [ALLOW] cd /Users/yangq/Codes/Idea-Party && git add -A && git commit -m \
+2026-05-10T02:27:08Z [ALLOW] find /Users/yangq/Codes/Idea-Party/client/src/views -name \
+2026-05-10T02:27:08Z [ALLOW] find /Users/yangq/Codes/Idea-Party/client/src/components -name \
+2026-05-10T02:29:03Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/client && npx vue-tsc --noEmit 2>&1 | head -10
+2026-05-10T02:29:09Z [ALLOW] cd /Users/yangq/Codes/Idea-Party && git add -A && git commit -m \

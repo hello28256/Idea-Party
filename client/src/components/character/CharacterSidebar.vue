@@ -148,10 +148,8 @@ function handleClose() {
       <!-- Mode toggle -->
       <div class="mt-3 pt-3 border-t border-[var(--color-border)]">
         <button
-          class="w-full py-2 px-3 rounded-lg text-xs font-medium border transition-all flex items-center gap-2"
-          :class="isDiscussionMode
-            ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
-            : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'"
+          class="w-full py-2 px-3 rounded-lg text-xs font-medium border transition-all flex items-center gap-2 mode-toggle"
+          :class="isDiscussionMode ? 'mode-toggle--discussion' : 'mode-toggle--dialogue'"
           @click="$emit('switchMode', isDiscussionMode ? 'dialogue' : 'discussion')"
         >
           <svg v-if="isDiscussionMode" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
