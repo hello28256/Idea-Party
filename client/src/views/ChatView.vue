@@ -11,6 +11,7 @@ import ChatInput from '@/components/chat/ChatInput.vue'
 import CharacterSidebar from '@/components/character/CharacterSidebar.vue'
 import CharacterAddPanel from '@/components/character/CharacterAddPanel.vue'
 import CharacterDetailModal from '@/components/character/CharacterDetailModal.vue'
+import RoomSettingsModal from '@/components/room/RoomSettingsModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +24,7 @@ const roomId = computed(() => route.params.roomId as string)
 // Local state
 const showCharacterPanel = ref(false)
 const showCharacterDetail = ref(false)
+const showRoomSettings = ref(false)
 const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
@@ -228,7 +230,11 @@ async function handleCharacterAdded(character: Character) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </button>
-        <button class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors">
+        <button
+          class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
+          title="房间设置"
+          @click="showRoomSettings = true"
+        >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
           </svg>
@@ -294,6 +300,13 @@ async function handleCharacterAdded(character: Character) {
         :show="showCharacterDetail"
         :character="detailCharacter"
         @close="showCharacterDetail = false"
+      />
+
+      <!-- Room settings modal -->
+      <RoomSettingsModal
+        :show="showRoomSettings"
+        :room-id="roomId"
+        @close="showRoomSettings = false"
       />
     </div>
   </div>
