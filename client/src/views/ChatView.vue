@@ -196,26 +196,38 @@ async function handleCharacterAdded(character: Character) {
           {{ currentRoom.characterCount }} 位思想家
         </span>
 
-        <!-- Mode indicator -->
-        <span
-          v-if="isDiscussionMode"
-          class="px-2 py-0.5 text-xs font-medium rounded-full"
-          :class="isDiscussing ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'"
-        >
-          {{ isDiscussing ? '讨论中' : '讨论模式' }}
-        </span>
+        <!-- Chat Mode Toggle (prominent) -->
+        <div class="relative">
+          <button
+            class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all"
+            :class="isDiscussionMode
+              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+              : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'"
+            @click="showRoomSettings = true"
+          >
+            <svg v-if="isDiscussionMode" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+            </svg>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <span>{{ isDiscussionMode ? '讨论模式' : '对话模式' }}</span>
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
 
         <!-- Stop discussion button (discussion mode only) -->
         <button
           v-if="isDiscussionMode && isDiscussing"
-          class="px-3 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors flex items-center gap-1"
+          class="px-3 py-1.5 text-xs font-medium bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-1"
           @click="stopDiscussion"
         >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="1" />
           </svg>
-          停止讨论
+          停止
         </button>
       </div>
 

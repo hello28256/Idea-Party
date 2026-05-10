@@ -1690,3 +1690,14 @@
 2026-05-10T02:05:20Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/client && npx vue-tsc --noEmit 2>&1 | head -40
 2026-05-10T02:05:27Z [ALLOW] cd /Users/yangq/Codes/Idea-Party && git add -A && git commit -m \
 2026-05-10T02:05:46Z [ALLOW] git add -A && git commit -m \
+2026-05-10T02:05:49Z [ALLOW] git status
+2026-05-10T02:09:10Z [ALLOW] lsof -i :8080 -i :5173 2>/dev/null | grep LISTEN
+2026-05-10T02:09:14Z [ALLOW] ls -la
+2026-05-10T02:09:14Z [ALLOW] ls /Users/yangq/Codes/Idea-Party/server/*.sql 2>/dev/null; ls /Users/yangq/Codes/Idea-Party/server/src/main/resources/*.sql 2>/dev/null
+2026-05-10T02:09:27Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/server && mvn spring-boot:run -q &
+2026-05-10T02:09:27Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/client && npm run dev &
+2026-05-10T02:09:29Z [ALLOW] lsof -i :8080 -i :5173 2>/dev/null | grep LISTEN
+2026-05-10T02:09:38Z [ALLOW] lsof -i :8080 2>/dev/null | grep LISTEN
+2026-05-10T02:09:41Z [ALLOW] curl -s http://localhost:8080/api/health 2>/dev/null || curl -s http://localhost:8080/actuator/health 2>/dev/null || echo \
+2026-05-10T02:12:16Z [ALLOW] cd /Users/yangq/Codes/Idea-Party/client && npx vue-tsc --noEmit 2>&1 | head -20
+2026-05-10T02:12:23Z [ALLOW] cd /Users/yangq/Codes/Idea-Party && git add -A && git commit -m \
