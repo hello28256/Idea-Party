@@ -48,6 +48,14 @@ public class Room {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "chat_mode", length = 20)
+    @Builder.Default
+    private String chatMode = "dialogue"; // "dialogue" or "discussion"
+
+    @Column(name = "max_discussion_rounds")
+    @Builder.Default
+    private Integer maxDiscussionRounds = 5;
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();

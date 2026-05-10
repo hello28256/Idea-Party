@@ -9,18 +9,18 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
- * Moderator Agent for intelligent speaker selection and response orchestration.
- * Replaces the simple round-robin logic with context-aware selection.
+ * Moderator Agent for multi-round group discussion orchestration.
  *
- * Selection rules:
- * 1. Same character cannot speak more than 2 consecutive turns
- * 2. Characters who haven't spoken recently (30+ seconds) get priority
- * 3. When all characters have spoken consecutively, reset the tracking
+ * Discussion flow:
+ * 1. Round 1: All characters respond to the user's question in PARALLEL
+ * 2. Round 2+: Characters comment on each other's responses, forming a debate
+ * 3. After MAX_ROUNDS, discussion ends
  */
 @Service
 public class ModeratorAgent {
@@ -29,20 +29,14 @@ public class ModeratorAgent {
     private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
 
-    // Track the last speaking index for each character (by roomId)
-    private final Map<String, Map<UUID, Integer>> characterLastSpokeIndex = new ConcurrentHashMap<>();
+    // Maximum discussion rounds
+    private static final int MAX_ROUNDS = 3;
 
-    // Track the last speaking time for each character (by roomId)
-    private final Map<String, Map<UUID, Long>> characterLastSpokeTime = new ConcurrentHashMap<>();
+    // Delay between rounds (milliseconds) to let responses propagate
+    private static final long ROUND_DELAY_MS = 1500;
 
-    // Track consecutive speaking count for each character (by roomId)
-    private final Map<String, Map<UUID, Integer>> characterConsecutiveCount = new ConcurrentHashMap<>();
-
-    // Time threshold in seconds for "recently spoken" consideration
-    private static final long IDLE_THRESHOLD_SECONDS = 30;
-
-    // Maximum consecutive turns a character can speak
-    private static final int MAX_CONSECUTIVE_TURNS = 2;
+    // Executor for async operations
+    private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService) {
         this.aiService = aiService;
@@ -51,227 +45,223 @@ public class ModeratorAgent {
     }
 
     /**
-     * Process a user message and orchestrate AI character responses.
-     * Each character speaks once in a round, with intelligent ordering.
+     * Process a user message and orchestrate AI character discussion.
      *
      * @param roomId The room ID
      * @param userMessage The user's message
      * @param characters List of characters in the room
+     * @param isContinuous If true, run multiple rounds (discussion mode); if false, single round (dialogue mode)
+     * @param maxRounds Maximum rounds for continuous mode
      * @param onThinking Callback for "thinking" state
      * @param onResponse Callback for each character's response
      */
     public void processMessage(String roomId, String userMessage, List<Character> characters,
+                               boolean isContinuous, int maxRounds,
                                Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
         if (characters == null || characters.isEmpty()) {
             return;
         }
 
-        // Get or initialize room tracking
-        Map<UUID, Integer> lastIndex = characterLastSpokeIndex.computeIfAbsent(roomId, k -> new ConcurrentHashMap<>());
-        Map<UUID, Long> lastTime = characterLastSpokeTime.computeIfAbsent(roomId, k -> new ConcurrentHashMap<>());
-        Map<UUID, Integer> consecutiveCount = characterConsecutiveCount.computeIfAbsent(roomId, k -> new ConcurrentHashMap<>());
+        // Build initial context with user message
+        String initialContext = buildInitialContext(userMessage);
 
-        // Build conversation context from recent messages
-        String conversationContext = buildConversationContext(roomId, userMessage);
+        // Track responses for each round
+        Map<Integer, List<ResponseFragment>> roundResponses = new ConcurrentHashMap<>();
 
-        // Process each character in order
-        List<Character> speakingOrder = determineSpeakingOrder(characters, lastIndex, lastTime, consecutiveCount);
+        if (isContinuous) {
+            // Discussion mode: multi-round
+            runDiscussionRound(roomId, userMessage, initialContext, characters, 1,
+                maxRounds, roundResponses, onThinking, onResponse);
+        } else {
+            // Dialogue mode: single round only
+            runSingleRound(roomId, userMessage, initialContext, characters,
+                roundResponses, onThinking, onResponse);
+        }
+    }
 
-        for (Character character : speakingOrder) {
-            UUID characterId = character.getId();
+    /**
+     * Run a single dialogue round (dialogue mode).
+     */
+    private void runSingleRound(String roomId, String userMessage, String context,
+                                List<Character> characters,
+                                Map<Integer, List<ResponseFragment>> roundResponses,
+                                Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
 
-            // Notify thinking state
+        // Notify thinking for all characters
+        for (Character character : characters) {
             onThinking.accept(character.getName());
-
-            // Build character-specific prompt
-            String characterPrompt = buildCharacterPrompt(character);
-
-            // Use streaming response
-            StringBuilder fullResponse = new StringBuilder();
-            aiService.generateResponseStream(
-                characterPrompt + "\n\n" + conversationContext,
-                userMessage,
-                // onChunk - each token as it arrives
-                chunk -> {
-                    fullResponse.append(chunk);
-                },
-                // onComplete - full response ready
-                completeResponse -> {
-                    // Update tracking
-                    int currentIndex = lastIndex.getOrDefault(characterId, -1);
-                    lastIndex.put(characterId, currentIndex + 1);
-                    lastTime.put(characterId, System.currentTimeMillis());
-
-                    int currentConsecutive = consecutiveCount.getOrDefault(characterId, 0);
-                    consecutiveCount.put(characterId, currentConsecutive + 1);
-
-                    // Send response fragment
-                    ResponseFragment fragment = new ResponseFragment(
-                        characterId.toString(),
-                        character.getName(),
-                        fullResponse.toString(),
-                        true
-                    );
-                    onResponse.accept(fragment);
-                },
-                // onError
-                error -> {
-                    ResponseFragment errorFragment = new ResponseFragment(
-                        characterId.toString(),
-                        character.getName(),
-                        "Sorry, an error occurred: " + error.getMessage(),
-                        true
-                    );
-                    onResponse.accept(errorFragment);
-                }
-            );
         }
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<ResponseFragment> thisRoundResponses = Collections.synchronizedList(new ArrayList<>());
+        roundResponses.put(1, thisRoundResponses);
+
+        for (Character character : characters) {
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                String characterPrompt = buildCharacterPrompt(character);
+                String fullPrompt = characterPrompt + "\n\n" + context;
+
+                StringBuilder fullResponse = new StringBuilder();
+                CountDownLatch latch = new CountDownLatch(1);
+
+                aiService.generateResponseStream(
+                    fullPrompt,
+                    userMessage,
+                    chunk -> fullResponse.append(chunk),
+                    completeResponse -> {
+                        String responseText = fullResponse.toString();
+                        thisRoundResponses.add(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            responseText,
+                            true
+                        ));
+                        latch.countDown();
+                    },
+                    error -> {
+                        thisRoundResponses.add(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            "Error: " + error.getMessage(),
+                            true
+                        ));
+                        latch.countDown();
+                    }
+                );
+
+                try {
+                    latch.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, executor);
+            futures.add(future);
+        }
+
+        // Wait for all characters and send responses
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenAccept(v -> {
+            for (ResponseFragment fragment : thisRoundResponses) {
+                onResponse.accept(fragment);
+            }
+        });
     }
 
     /**
-     * Select the next speaker based on context-aware rules.
-     * This is called internally during processMessage orchestration.
+     * Run a single discussion round (for continuous discussion mode).
      */
-    Character selectNextSpeaker(List<Character> characters, List<Message> recentMessages) {
-        if (characters == null || characters.isEmpty()) {
-            return null;
+    private void runDiscussionRound(String roomId, String userMessage, String context,
+                                   List<Character> characters, int roundNum, int maxRounds,
+                                   Map<Integer, List<ResponseFragment>> roundResponses,
+                                   Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
+
+        // Notify thinking for all characters
+        for (Character character : characters) {
+            onThinking.accept(character.getName());
         }
 
-        // Get room tracking - use a default room key since we don't have room context
-        Map<UUID, Integer> lastIndex = new ConcurrentHashMap<>();
-        Map<UUID, Long> lastTime = new ConcurrentHashMap<>();
-        Map<UUID, Integer> consecutiveCount = new ConcurrentHashMap<>();
+        // Collect completions for this round
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<ResponseFragment> thisRoundResponses = Collections.synchronizedList(new ArrayList<>());
+        roundResponses.put(roundNum, thisRoundResponses);
 
-        // Try to find existing room tracking
-        for (String roomKey : characterLastSpokeIndex.keySet()) {
-            lastIndex = characterLastSpokeIndex.get(roomKey);
-            break;
-        }
-        for (String roomKey : characterLastSpokeTime.keySet()) {
-            lastTime = characterLastSpokeTime.get(roomKey);
-            break;
-        }
-        for (String roomKey : characterConsecutiveCount.keySet()) {
-            consecutiveCount = characterConsecutiveCount.get(roomKey);
-            break;
-        }
+        for (Character character : characters) {
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                String characterPrompt = buildCharacterPrompt(character);
+                String fullPrompt = characterPrompt + "\n\n" + context;
 
-        return determineNextSpeaker(characters, lastIndex, lastTime, consecutiveCount);
-    }
+                StringBuilder fullResponse = new StringBuilder();
+                CountDownLatch latch = new CountDownLatch(1);
 
-    /**
-     * Internal method to determine the next speaker based on rules.
-     */
-    private Character determineNextSpeaker(List<Character> characters,
-                                           Map<UUID, Integer> lastIndex,
-                                           Map<UUID, Long> lastTime,
-                                           Map<UUID, Integer> consecutiveCount) {
-        long now = System.currentTimeMillis();
+                aiService.generateResponseStream(
+                    fullPrompt,
+                    roundNum == 1 ? userMessage : "Continue the discussion",
+                    // onChunk
+                    chunk -> fullResponse.append(chunk),
+                    // onComplete
+                    completeResponse -> {
+                        String responseText = fullResponse.toString();
+                        thisRoundResponses.add(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            responseText,
+                            true
+                        ));
+                        latch.countDown();
+                    },
+                    // onError
+                    error -> {
+                        thisRoundResponses.add(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            "Error: " + error.getMessage(),
+                            true
+                        ));
+                        latch.countDown();
+                    }
+                );
 
-        // First, filter out characters who have spoken too many consecutive times
-        List<Character> eligible = characters.stream()
-            .filter(c -> consecutiveCount.getOrDefault(c.getId(), 0) < MAX_CONSECUTIVE_TURNS)
-            .collect(Collectors.toList());
-
-        // If all characters have hit the consecutive limit, reset and allow all
-        if (eligible.isEmpty()) {
-            consecutiveCount.clear();
-            eligible = new ArrayList<>(characters);
-        }
-
-        // Score each eligible character
-        Map<UUID, Double> scores = new HashMap<>();
-        for (Character character : eligible) {
-            UUID id = character.getId();
-            double score = 0;
-
-            // Time since last spoke (higher = more priority)
-            Long lastSpoke = lastTime.get(id);
-            if (lastSpoke != null) {
-                long secondsSince = ChronoUnit.SECONDS.between(
-                    Instant.ofEpochMilli(lastSpoke), Instant.ofEpochMilli(now));
-                if (secondsSince >= IDLE_THRESHOLD_SECONDS) {
-                    score += 50; // Significant boost for idle characters
-                } else {
-                    score += secondsSince;
+                try {
+                    latch.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-            } else {
-                // Never spoke = highest priority
-                score += 100;
+            }, executor);
+            futures.add(future);
+        }
+
+        // Wait for all characters to complete this round
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenAccept(v -> {
+            // Send all responses from this round
+            for (ResponseFragment fragment : thisRoundResponses) {
+                onResponse.accept(fragment);
             }
 
-            // Lower consecutive count = higher priority
-            score += (MAX_CONSECUTIVE_TURNS - consecutiveCount.getOrDefault(id, 0)) * 10;
+            // Check if we should continue to next round
+            if (roundNum < maxRounds) {
+                // Build context for next round with all previous responses
+                String nextContext = buildRoundContext(context, thisRoundResponses, roundNum);
 
-            scores.put(id, score);
-        }
+                // Delay before next round
+                try {
+                    Thread.sleep(ROUND_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
 
-        // Return character with highest score
-        return eligible.stream()
-            .max(Comparator.comparingDouble(c -> scores.getOrDefault(c.getId(), 0.0)))
-            .orElse(characters.get(0));
+                // Continue to next round
+                runDiscussionRound(roomId, userMessage, nextContext, characters, roundNum + 1, maxRounds,
+                    roundResponses, onThinking, onResponse);
+            }
+        });
     }
 
     /**
-     * Determine speaking order for all characters in a round.
+     * Build initial context with user message and system prompt.
      */
-    private List<Character> determineSpeakingOrder(List<Character> characters,
-                                                  Map<UUID, Integer> lastIndex,
-                                                  Map<UUID, Long> lastTime,
-                                                  Map<UUID, Integer> consecutiveCount) {
-        List<Character> result = new ArrayList<>();
-        List<Character> remaining = new ArrayList<>(characters);
-
-        // Check if we need to reset consecutive counts
-        boolean allMaxed = remaining.stream()
-            .allMatch(c -> consecutiveCount.getOrDefault(c.getId(), 0) >= MAX_CONSECUTIVE_TURNS);
-
-        if (allMaxed) {
-            consecutiveCount.clear();
-        }
-
-        // Round-robin with idle priority
-        while (!remaining.isEmpty()) {
-            Character next = determineNextSpeaker(remaining, lastIndex, lastTime, consecutiveCount);
-            result.add(next);
-            remaining.remove(next);
-        }
-
-        return result;
+    private String buildInitialContext(String userMessage) {
+        return "The user has asked: \"" + userMessage + "\"\n\n" +
+               "This is a GROUP DISCUSSION. Everyone should respond to the user's question first, " +
+               "then in subsequent rounds, comment on and debate each other's viewpoints.\n\n" +
+               "Keep responses conversational and relatively brief (2-4 sentences).";
     }
 
     /**
-     * Build the conversation context from recent messages.
+     * Build context for subsequent rounds with previous responses.
      */
-    private String buildConversationContext(String roomId, String userMessage) {
+    private String buildRoundContext(String previousContext, List<ResponseFragment> responses, int roundNum) {
         StringBuilder context = new StringBuilder();
-        context.append("Recent conversation:\n");
+        context.append(previousContext);
+        context.append("\n\n=== Round ").append(roundNum).append(" Responses ===\n");
 
-        try {
-            UUID roomUuid = UUID.fromString(roomId);
-            List<Message> recentMessages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomUuid);
-            // Take last 20 messages
-            if (recentMessages.size() > 20) {
-                recentMessages = recentMessages.subList(recentMessages.size() - 20, recentMessages.size());
-            }
-
-            for (Message msg : recentMessages) {
-                String sender;
-                if (msg.getSenderType() == Message.SenderType.USER) {
-                    sender = "User";
-                } else if (msg.getCharacter() != null) {
-                    sender = msg.getCharacter().getName();
-                } else {
-                    sender = "Unknown";
-                }
-                context.append("[").append(sender).append("]: ").append(msg.getContent()).append("\n");
-            }
-        } catch (Exception e) {
-            // If we can't fetch messages, just continue with empty context
-            context.append("(No recent messages available)\n");
+        for (ResponseFragment r : responses) {
+            context.append("[").append(r.getCharacterName()).append("]: ").append(r.getContent()).append("\n");
         }
 
-        context.append("\nUser's latest message: ").append(userMessage).append("\n");
+        context.append("\n=== Round ").append(roundNum + 1).append(" ===\n");
+        context.append("Now COMMENT on or RESPOND to what others said. Agree, disagree, or add new perspectives. " +
+                      "Keep it conversational (2-4 sentences). Address specific points others made.");
+
         return context.toString();
     }
 
@@ -281,17 +271,17 @@ public class ModeratorAgent {
     private String buildCharacterPrompt(Character character) {
         StringBuilder prompt = new StringBuilder();
 
-        // 首先联网检索角色信息
+        // First fetch web context for role info
         String webContext = firecrawlService.scrape(character.getName());
         if (webContext != null && !webContext.isBlank()) {
-            prompt.append("Background information (from public sources): ").append(webContext).append("\n\n");
+            prompt.append("Background information: ").append(webContext).append("\n\n");
         }
 
-        prompt.append("You are playing the role of ").append(character.getName()).append(".\n\n");
-
+        prompt.append("You are ").append(character.getName());
         if (character.getEra() != null) {
-            prompt.append("Era: ").append(character.getEra()).append("\n\n");
+            prompt.append(", from the ").append(character.getEra());
         }
+        prompt.append(".\n\n");
 
         if (character.getDescription() != null) {
             prompt.append("Description: ").append(character.getDescription()).append("\n\n");
@@ -306,17 +296,13 @@ public class ModeratorAgent {
         }
 
         if (character.getExpertise() != null && !character.getExpertise().isEmpty()) {
-            prompt.append("Your areas of expertise include: ");
-            prompt.append(String.join(", ", character.getExpertise()));
-            prompt.append(".\n\n");
+            prompt.append("Areas of expertise: ").append(String.join(", ", character.getExpertise())).append("\n\n");
         }
 
-        prompt.append("IMPORTANT DISCLAIMER: This is an AI simulation based on publicly available information, ");
-        prompt.append("not the actual person. This is generated for educational and entertainment purposes only.\n\n");
+        prompt.append("IMPORTANT: This is an AI simulation for educational/entertainment purposes only.\n\n");
 
-        prompt.append("Respond in character as ").append(character.getName()).append(" would speak, ");
-        prompt.append("using your unique speaking style and drawing from your expertise. ");
-        prompt.append("Keep responses concise and conversational, as if in a group chat.");
+        prompt.append("You are in a GROUP DISCUSSION. Engage with the topic and with what others say. " +
+                      "Be concise, conversational, and true to your character's perspective.");
 
         return prompt.toString();
     }

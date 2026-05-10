@@ -17,10 +17,16 @@ withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   close: []
   characterSelected: [character: Character | null]
+  characterDetail: [character: Character]
 }>()
 
 function handleCharacterClick(character: Character) {
   emit('characterSelected', character)
+}
+
+function handleCharacterDetail(character: Character, event: Event) {
+  event.stopPropagation()
+  emit('characterDetail', character)
 }
 
 function handleClose() {
@@ -50,7 +56,7 @@ function handleClose() {
       <div
         v-for="char in characters"
         :key="char.id"
-        class="character-card flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-300"
+        class="character-card group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-300"
         :class="{
           'hover:bg-[var(--color-parchment)]': activeCharacterId !== char.id,
           'bg-gradient-to-r from-[var(--color-parchment)] to-[var(--color-ivory)] border-l-4 border-[var(--color-gold)] shadow-sm': activeCharacterId === char.id
@@ -90,6 +96,18 @@ function handleClose() {
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-100"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-200"></span>
         </div>
+
+        <!-- Info button -->
+        <button
+          class="p-1.5 rounded-lg hover:bg-[var(--color-gold)]/10 text-[var(--color-text-muted)] hover:text-[var(--color-gold)] transition-colors opacity-0 group-hover:opacity-100"
+          :class="{ 'opacity-100': activeCharacterId === char.id }"
+          @click="handleCharacterDetail(char, $event)"
+          title="查看详情"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
       </div>
 
       <!-- Empty state -->
@@ -164,7 +182,7 @@ function handleClose() {
             <div
               v-for="char in characters"
               :key="char.id"
-              class="character-card flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-300"
+              class="character-card group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-300"
               :class="{
                 'hover:bg-[var(--color-parchment)]': activeCharacterId !== char.id,
                 'bg-gradient-to-r from-[var(--color-parchment)] to-[var(--color-ivory)] border-l-4 border-[var(--color-gold)] shadow-sm': activeCharacterId === char.id
@@ -204,6 +222,18 @@ function handleClose() {
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-100"></span>
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-200"></span>
               </div>
+
+              <!-- Info button -->
+              <button
+                class="p-1.5 rounded-lg hover:bg-[var(--color-gold)]/10 text-[var(--color-text-muted)] hover:text-[var(--color-gold)] transition-colors opacity-0 group-hover:opacity-100"
+                :class="{ 'opacity-100': activeCharacterId === char.id }"
+                @click="handleCharacterDetail(char, $event)"
+                title="查看详情"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
             </div>
 
             <!-- Empty state -->

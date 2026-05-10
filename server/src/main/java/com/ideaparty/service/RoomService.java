@@ -98,4 +98,28 @@ public class RoomService {
                 .map(RoomResponse::fromEntity)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
     }
+
+    public RoomResponse updateChatMode(UUID roomId, UUID userId, String chatMode, Integer maxDiscussionRounds) {
+        log.info("[DEBUG] Updating chat mode for room {} by user {}", roomId, userId);
+
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+
+        if (!room.getOwner().getId().equals(userId)) {
+            log.warn("[DEBUG] User {} is not owner of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not the owner of this room");
+        }
+
+        if (chatMode != null) {
+            room.setChatMode(chatMode);
+        }
+        if (maxDiscussionRounds != null) {
+            room.setMaxDiscussionRounds(maxDiscussionRounds);
+        }
+
+        Room saved = roomRepository.save(room);
+        log.info("[DEBUG] Room {} chat mode updated to {}", roomId, chatMode);
+
+        return RoomResponse.fromEntity(saved);
+    }
 }

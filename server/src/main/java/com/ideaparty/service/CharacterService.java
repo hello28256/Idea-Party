@@ -81,7 +81,8 @@ public class CharacterService {
 
         try {
             if (name != null && !name.isBlank()) {
-                String result = generatePromptFromWeb(name, userApiKey);
+                // Use LLM directly to generate prompt based on character name
+                String result = generatePromptWithAIFromName(name, userApiKey);
                 log.info("[DEBUG] generatePrompt success, length: {}", result.length());
                 return result;
             }
@@ -93,6 +94,90 @@ public class CharacterService {
         }
 
         return "You are a unique character. Speak in character with depth and authenticity.";
+    }
+
+    /**
+     * Generate prompt using AI directly from a character name.
+     * Uses the LLM's knowledge about the character without web scraping.
+     */
+    private String generatePromptWithAIFromName(String characterName, String apiKey) {
+        RestTemplate restTemplate = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        if (apiKey != null && !apiKey.isBlank() && !apiKey.equals("sk-dummy-key-for-testing")) {
+            headers.set("Authorization", "Bearer " + apiKey);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", "deepseek-chat");
+
+        String systemPrompt = """
+            You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY.
+
+            CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
+            - Signature phrases or口头禅 they always use
+            - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
+            - Strong opinions on specific topics
+            - A unique worldview that colors how they see everything
+            - Emotional range: are they passionate, detached, skeptical, enthusiastic?
+
+            Structure your prompt like this:
+            1. WHO they are (profession, identity, core belief)
+            2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
+            3. WHAT they care about (2-3 strong opinions or values)
+            4. Example lines they might say in conversation
+
+            ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
+            Instead of "caring", say "always puts family first, sacrifices own needs".
+            Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+
+            Write 150-250 words. Be specific, vivid, and memorable.
+            If you don't know this person, create a fictional character with that name who is interesting and memorable.
+            """;
+
+        String userMessage = String.format(
+            "Create a character prompt for: %s\n\nGenerate the character prompt now:",
+            characterName
+        );
+
+        body.put("messages", List.of(
+            Map.of("role", "system", "content", systemPrompt),
+            Map.of("role", "user", "content", userMessage)
+        ));
+        body.put("temperature", 0.7);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        log.info("[DEBUG] Calling DeepSeek API to generate prompt from name: {}", characterName);
+
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                deepseekBaseUrl + "/chat/completions",
+                HttpMethod.POST,
+                request,
+                Map.class
+            );
+
+            if (response.getBody() != null && response.getBody().containsKey("choices")) {
+                List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+                if (!choices.isEmpty()) {
+                    Map<String, Object> choice = choices.get(0);
+                    Map<String, Object> message = (Map<String, Object>) choice.get("message");
+                    String content = (String) message.get("content");
+                    return content.trim();
+                }
+            }
+        } catch (Exception e) {
+            log.error("[DEBUG] AI prompt generation from name failed: {}", e.getMessage());
+        }
+
+        // Fallback if AI fails
+        return String.format(
+            "You are %s. Speak with depth and authenticity, expressing your own perspective and character in every response.",
+            characterName
+        );
     }
 
     /**
@@ -112,23 +197,27 @@ public class CharacterService {
         body.put("model", "deepseek-chat");
 
         String systemPrompt = """
-            You are a character prompt generator for an AI chat platform. Based on the user's description, create a unique, authentic character prompt that sounds like a REAL person with a specific profession and worldview.
+            You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY based on the user's description.
 
-            IMPORTANT: The character's PROFESSION shapes EVERYTHING:
-            - A scientist: precise, curious, references evidence and data
-            - A poet/artist: lyrical, metaphorical, emotionally expressive
-            - A warrior/tactician: direct, honor-focused, strategic
-            - A philosopher: abstract, questioning, ethical
-            - A leader/politician: diplomatic, strategic about power dynamics
+            CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
+            - Signature phrases or 口头禅 they always use
+            - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
+            - Strong opinions on specific topics
+            - A unique worldview that colors how they see everything
+            - Emotional range: are they passionate, detached, skeptical, enthusiastic?
 
-            OUTPUT FORMAT - Write in first person as the character:
-            - Start with "You are [role/profession]..." that immediately establishes their identity
-            - Include their specific beliefs and values from the description
-            - Add 2-3 sample phrases they might say that reflect their personality
-            - Match vocabulary and tone to their described personality
+            Structure your prompt like this:
+            1. WHO they are (profession, identity, core belief)
+            2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
+            3. WHAT they care about (2-3 strong opinions or values)
+            4. Example lines they might say in conversation
 
-            The prompt should be 150-300 words, specific to the description.
-            Do NOT use generic phrases - every word should be grounded in what the user described.
+            ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
+            Instead of "caring", say "always puts family first, sacrifices own needs".
+            Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+
+            Write 150-250 words. Be specific, vivid, and memorable.
+            Every word should be grounded in what the user described.
             """;
 
         String userMessage = String.format("Create a character prompt based on this description:\n\n%s\n\nGenerate the character prompt now:", description);
@@ -176,14 +265,10 @@ public class CharacterService {
         String scrapedContent = firecrawlService.scrape(characterName);
         log.info("[DEBUG] Scraped content length: {}", scrapedContent.length());
 
-        // Step 2: Clean the scraped content to remove Wikipedia artifacts
-        String cleanedContent = cleanMarkdown(scrapedContent);
-        log.info("[DEBUG] Cleaned content length: {}", cleanedContent.length());
-
-        // Step 3: Try AI generation with cleaned content
+        // Step 2: Try AI generation with raw content first (cleanMarkdown may drop too much)
         if (userApiKey != null && !userApiKey.isBlank() && !userApiKey.equals("sk-dummy-key-for-testing")) {
             try {
-                String aiGeneratedPrompt = generatePromptWithAI(characterName, cleanedContent, userApiKey);
+                String aiGeneratedPrompt = generatePromptWithAI(characterName, scrapedContent, userApiKey);
                 if (aiGeneratedPrompt != null && !aiGeneratedPrompt.isBlank()) {
                     log.info("[DEBUG] AI generated prompt length: {}", aiGeneratedPrompt.length());
                     return aiGeneratedPrompt;
@@ -193,8 +278,8 @@ public class CharacterService {
             }
         }
 
-        // Step 4: Fallback - use cleaned content in prompt format
-        return convertToPromptFormat(characterName, cleanedContent);
+        // Step 3: Fallback - use simple prompt with character name
+        return "You are " + characterName + ". " + scrapedContent.substring(0, Math.min(scrapedContent.length(), 1000));
     }
 
     private String cleanMarkdown(String markdown) {
@@ -263,17 +348,11 @@ public class CharacterService {
             .replaceAll("Wikipedia[\\s]*does\\s+not\\s+have\\s+an\\s+article.*?(?=[。]|$)", "")
             // Remove "条目：xxx" patterns
             .replaceAll("条目[：:]\\s*[^。]+", "")
-            // Remove Wikipedia quality article notice: []("This is a good article...")
-            .replaceAll("\\[\\]\\(\"[^\"]+\"\\)", "")
-            .replaceAll("\\[\\]\\([^)]+\\)", "")
-            // Remove broken backslash bracket patterns like [\] or [\a]
-            .replaceAll("\\\\\\[\\\\?\\]?", "")
-            .replaceAll("\\[\\\\\\]", "")
-            // Remove "X redirects here" Wikipedia redirect notice
-            .replaceAll("\"[^\"]+\" redirects here\\.?\\s*", "")
             // Clean up Chinese parentheses and quotes
             .replaceAll("（", "(")
             .replaceAll("）", ")")
+            .replaceAll("“", "\"")
+            .replaceAll("”", "\"")
             .replaceAll("『", "'")
             .replaceAll("』", "'");
 
@@ -301,10 +380,6 @@ public class CharacterService {
             if (sentence.startsWith("Born ") || sentence.startsWith(" c. ") || sentence.startsWith("Died ")) continue;
             if (sentence.contains("This is a ") || sentence.contains("Wikipedia") || sentence.contains("Jump to")) continue;
             if (sentence.contains("article") && sentence.length() < 100) continue;
-            // Filter out Wikipedia infobox rows and metadata
-            if (sentence.matches(".*\\|.*\\|.*")) continue;  // Multiple pipe separators = table row
-            if (sentence.matches(".*Born.*Württemberg.*")) continue;  // Specific location patterns
-            if (sentence.matches(".*Kingdom of.*Empire.*")) continue;  // Political entity patterns
             // Filter out sentences that are mostly brackets
             if (sentence.replaceAll("[^\\[\\]]", "").length() > sentence.length() * 0.3) continue;
             // Filter out sentences that look like Wikipedia navigation
@@ -340,6 +415,11 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
+        String userMessage = String.format(
+            "Create a character prompt for %s based on this information:\n\n%s\n\nGenerate the character prompt now:",
+            characterName, scrapedContent
+        );
+
         String systemPrompt = """
             You are a character prompt generator for an AI chat platform. Your task is to create unique, authentic prompts that reflect what this specific person actually DID and BELIEVED.
 
@@ -365,8 +445,6 @@ public class CharacterService {
             The prompt should be 200-400 words. Be SPECIFIC - cite actual achievements, beliefs, or famous quotes when known.
             Every sentence should sound like a DIFFERENT type of person, not a generic "wise figure."
             """;
-
-        String userMessage = String.format("Based on this information about %s, create a unique character prompt:\n\n%s\n\nGenerate the character prompt now:", characterName, scrapedContent);
 
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),

@@ -15,6 +15,19 @@ export const useMessageStore = defineStore('message', () => {
 
   // Actions
   function addMessage(msg: ChatMessage) {
+    // Deduplication: if this message has a real id and there's a matching temp message,
+    // replace the temp message instead of adding a new one
+    if (msg.id && !msg.id.startsWith('temp-')) {
+      const tempIndex = messages.value.findIndex(
+        m => m.id.startsWith('temp-') &&
+             m.content === msg.content &&
+             m.senderType === msg.senderType
+      )
+      if (tempIndex !== -1) {
+        messages.value[tempIndex] = msg
+        return
+      }
+    }
     messages.value.push(msg)
     // Clear thinking indicator when a message arrives from that character
     if (thinkingCharacterId.value === msg.characterId) {

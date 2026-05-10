@@ -2,8 +2,12 @@ package com.ideaparty.controller;
 
 import com.ideaparty.dto.CharacterRequest;
 import com.ideaparty.dto.CharacterResponse;
+import com.ideaparty.dto.GeneratePromptRequest;
+import com.ideaparty.dto.GeneratePromptResponse;
 import com.ideaparty.service.CharacterService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -15,6 +19,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/characters")
 public class CharacterController {
+    private static final Logger log = LoggerFactory.getLogger(CharacterController.class);
 
     private final CharacterService characterService;
 
@@ -33,6 +38,16 @@ public class CharacterController {
     public ResponseEntity<List<CharacterResponse>> getPresetCharacters() {
         List<CharacterResponse> presets = characterService.findPresets();
         return ResponseEntity.ok(presets);
+    }
+
+    @PostMapping("/generate-prompt")
+    @ResponseBody
+    public GeneratePromptResponse generatePrompt(
+            Authentication auth,
+            @RequestBody GeneratePromptRequest request) {
+        UUID userId = UUID.fromString(auth.getName());
+        String prompt = characterService.generatePrompt(userId, request.getName(), request.getDescription());
+        return new GeneratePromptResponse(prompt);
     }
 
     @GetMapping("/{id}")

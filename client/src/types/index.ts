@@ -41,6 +41,8 @@ export interface Room {
   ownerName: string
   characterCount: number
   characters?: Character[]
+  chatMode: 'dialogue' | 'discussion'
+  maxDiscussionRounds: number
   createdAt: string
   updatedAt: string
 }
@@ -48,6 +50,11 @@ export interface Room {
 export interface CreateRoomRequest {
   name: string
   topic?: string
+}
+
+export interface UpdateRoomModeRequest {
+  chatMode?: 'dialogue' | 'discussion'
+  maxDiscussionRounds?: number
 }
 
 // Character types

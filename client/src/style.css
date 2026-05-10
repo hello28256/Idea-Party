@@ -29,6 +29,7 @@
 
 html {
   scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
@@ -40,6 +41,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  height: 100%;
+}
+
+#app {
+  height: 100%;
 }
 
 /* Typography Scale */

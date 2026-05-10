@@ -11,8 +11,8 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  * WebSocket configuration for real-time chat.
  * Registers ChatWebSocketHandler at /ws endpoint with CORS support.
  */
-@Configuration
-@EnableWebSocket
+// @Configuration  // Disabled - using SocketConfig instead
+// @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
 
     @Autowired

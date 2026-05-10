@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 import type { ChatMessage } from '@/composables/useSocket'
@@ -15,15 +15,30 @@ const messagesContainer = ref<HTMLElement | null>(null)
 
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    const el = messagesContainer.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+      console.log('[DEBUG] Scrolling to bottom. scrollTop:', el.scrollTop, 'scrollHeight:', el.scrollHeight)
+    } else {
+      console.log('[DEBUG] messagesContainer is null')
     }
+    // Double ensure after layout
+    setTimeout(() => {
+      const el = messagesContainer.value
+      if (el) {
+        el.scrollTop = el.scrollHeight
+      }
+    }, 50)
   })
 }
 
-watch(() => props.messages.length, () => {
+onMounted(() => {
   scrollToBottom()
 })
+
+watch(() => props.messages, () => {
+  scrollToBottom()
+}, { deep: true })
 
 watch(() => props.thinkingCharacterId, () => {
   scrollToBottom()
@@ -78,11 +93,14 @@ const hasMessages = () => props.messages.length > 0
 <style scoped>
 .message-list {
   flex: 1;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  box-sizing: border-box;
 }
 
 .messages-header {

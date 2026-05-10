@@ -87,7 +87,12 @@ public class AIService {
                                        java.util.function.Consumer<String> onChunk,
                                        java.util.function.Consumer<String> onComplete,
                                        java.util.function.Consumer<Throwable> onError) {
-        String userApiKey = settingsService.getApiKey();
+        String userApiKey = null;
+        try {
+            userApiKey = settingsService.getApiKey();
+        } catch (RuntimeException e) {
+            // User not authenticated in WebSocket context, will use system API key
+        }
         OpenAiStreamingChatModel streamingModel = createStreamingChatModel(userApiKey);
 
         String fullPrompt = characterPrompt + "\n\nUser: " + userMessage + "\n\nResponse:";

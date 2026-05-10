@@ -10,6 +10,7 @@ import MessageList from '@/components/chat/MessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import CharacterSidebar from '@/components/character/CharacterSidebar.vue'
 import CharacterAddPanel from '@/components/character/CharacterAddPanel.vue'
+import CharacterDetailModal from '@/components/character/CharacterDetailModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,15 +22,21 @@ const roomId = computed(() => route.params.roomId as string)
 
 // Local state
 const showCharacterPanel = ref(false)
+const showCharacterDetail = ref(false)
+const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
 const connectionError = ref<string | null>(null)
-const { isConnected, sendMessage, leaveRoom } = useSocket(roomId.value, {
+const { isConnected, sendMessage, stopDiscussion: stopDiscussionSocket, leaveRoom } = useSocket(roomId.value, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
   },
   onThinking: (characterId: string | null) => {
     messageStore.setThinking(characterId)
+    // 在讨论模式下，当角色开始思考时设置讨论状态
+    if (isDiscussionMode.value && characterId) {
+      roomStore.isDiscussing = true
+    }
   },
   onStream: (data: { characterId: string; chunk: string }) => {
     messageStore.updateStreamingMessage(data.characterId, data.chunk)
@@ -45,6 +52,8 @@ const currentRoom = computed(() => roomStore.currentRoom)
 const characters = computed(() => characterStore.characters)
 const messages = computed(() => messageStore.messages)
 const thinkingCharacterId = computed(() => messageStore.thinkingCharacterId)
+const isDiscussionMode = computed(() => currentRoom.value?.chatMode === 'discussion')
+const isDiscussing = computed(() => roomStore.isDiscussing)
 
 // Mobile sidebar state (drawer)
 const sidebarOpen = ref(false)
@@ -68,6 +77,12 @@ function handleCharacterSelected(character: any) {
   closeSidebar()
 }
 
+function handleCharacterDetail(character: Character) {
+  detailCharacter.value = character
+  showCharacterDetail.value = true
+  closeSidebar()
+}
+
 // Load data on mount
 onMounted(async () => {
   if (!roomId.value) {
@@ -76,12 +91,8 @@ onMounted(async () => {
   }
 
   try {
-    // Load room details
-    await roomStore.fetchRooms()
-    const room = roomStore.rooms.find(r => r.id === roomId.value)
-    if (room) {
-      roomStore.setCurrentRoom(room)
-    }
+    // Load room details (with characters)
+    await roomStore.fetchRoomById(roomId.value)
 
     // Load characters
     await characterStore.fetchCharacters()
@@ -116,8 +127,19 @@ function handleSend(content: string) {
   }
   messageStore.addMessage(userMsg)
 
+  // In discussion mode, mark as discussing when user sends a message
+  if (isDiscussionMode.value) {
+    roomStore.isDiscussing = true
+  }
+
   // Send via socket
   sendMessage(content.trim())
+}
+
+// Handle stop discussion button
+function stopDiscussion() {
+  stopDiscussionSocket()
+  roomStore.isDiscussing = false
 }
 
 // Handle adding a character to the room
@@ -171,6 +193,28 @@ async function handleCharacterAdded(character: Character) {
           </svg>
           {{ currentRoom.characterCount }} 位思想家
         </span>
+
+        <!-- Mode indicator -->
+        <span
+          v-if="isDiscussionMode"
+          class="px-2 py-0.5 text-xs font-medium rounded-full"
+          :class="isDiscussing ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'"
+        >
+          {{ isDiscussing ? '讨论中' : '讨论模式' }}
+        </span>
+
+        <!-- Stop discussion button (discussion mode only) -->
+        <button
+          v-if="isDiscussionMode && isDiscussing"
+          class="px-3 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors flex items-center gap-1"
+          @click="stopDiscussion"
+        >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+          </svg>
+          停止讨论
+        </button>
       </div>
 
       <!-- Desktop: back button and menu -->
@@ -208,10 +252,11 @@ async function handleCharacterAdded(character: Character) {
         :is-thinking="!!thinkingCharacterId"
         @close="closeSidebar"
         @character-selected="handleCharacterSelected"
+        @character-detail="handleCharacterDetail"
       />
 
       <!-- Message area -->
-      <main class="flex-1 flex flex-col min-w-0 bg-[var(--color-cream)]">
+      <main class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--color-cream)]">
         <!-- Connection warning -->
         <div v-if="!isConnected" class="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-sm flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,7 +265,7 @@ async function handleCharacterAdded(character: Character) {
           连接中... 消息暂存本地
         </div>
         <!-- Messages -->
-        <div class="flex-1 overflow-hidden">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <MessageList
             :messages="messages"
             :thinking-character-id="thinkingCharacterId"
@@ -242,6 +287,13 @@ async function handleCharacterAdded(character: Character) {
         :show="showCharacterPanel"
         @close="showCharacterPanel = false"
         @character-added="handleCharacterAdded"
+      />
+
+      <!-- Character detail modal -->
+      <CharacterDetailModal
+        :show="showCharacterDetail"
+        :character="detailCharacter"
+        @close="showCharacterDetail = false"
       />
     </div>
   </div>

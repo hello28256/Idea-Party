@@ -2,6 +2,7 @@ package com.ideaparty.controller;
 
 import com.ideaparty.dto.CreateRoomRequest;
 import com.ideaparty.dto.RoomResponse;
+import com.ideaparty.dto.UpdateRoomModeRequest;
 import com.ideaparty.service.RoomService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -73,6 +74,18 @@ public class RoomController {
         log.info("[DEBUG] Adding character {} to room {} by user {}", characterId, id, userId);
 
         RoomResponse room = roomService.addCharacterToRoom(id, characterId, userId);
+        return ResponseEntity.ok(room);
+    }
+
+    @PatchMapping("/{id}/mode")
+    public ResponseEntity<RoomResponse> updateRoomMode(
+            Authentication auth,
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateRoomModeRequest request) {
+        UUID userId = UUID.fromString(auth.getName());
+        log.info("[DEBUG] Updating room {} mode by user {}", id, userId);
+
+        RoomResponse room = roomService.updateChatMode(id, userId, request.getChatMode(), request.getMaxDiscussionRounds());
         return ResponseEntity.ok(room);
     }
 }

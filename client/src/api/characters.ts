@@ -10,6 +10,9 @@ export const charactersApi = {
 
   create: (data: CharacterRequest) => api.post<Character>('/characters', data),
 
+  generatePrompt: (data: { name?: string; description?: string }) =>
+    api.post<{ prompt: string }>('/characters/generate-prompt', data),
+
   update: (id: string, data: CharacterRequest) => api.put<Character>(`/characters/${id}`, data),
 
   remove: (id: string) => api.delete(`/characters/${id}`)

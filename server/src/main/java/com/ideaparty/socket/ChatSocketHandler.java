@@ -10,10 +10,12 @@ import com.ideaparty.service.ModeratorAgent;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.UUID;
@@ -22,6 +24,7 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
 
+@Slf4j
 @Component
 public class ChatSocketHandler extends TextWebSocketHandler {
 
@@ -49,6 +52,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
+        log.debug("[WS] Received message: {} (sessionId={})", payload, session.getId());
 
         // Socket.IO protocol: "42" prefix means MESSAGE with event name
         // Format: 42["event_name", data]
@@ -56,10 +60,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             handleSocketIOMessage(session, payload.substring(2));
         } else if (payload.equals("2")) {
             // "2" is a ping, respond with "3" (pong)
+            log.debug("[WS] Sending pong");
             session.sendMessage(new TextMessage("3"));
         } else if (payload.startsWith("40")) {
             // "40" is a connect packet, respond with "40" (connection acknowledged)
+            log.debug("[WS] Sending connection ack");
             session.sendMessage(new TextMessage("40"));
+        } else {
+            log.debug("[WS] Unknown payload format");
         }
     }
 
@@ -70,10 +78,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             JsonNode eventData = node.get(1);
 
             switch (event) {
-                case "join-room":
+                case "join room":
                     handleJoinRoom(session, eventData);
                     break;
-                case "leave-room":
+                case "leave room":
                     handleLeaveRoom(session, eventData);
                     break;
                 case "chat message":
@@ -81,6 +89,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     break;
                 case "trigger-ai":
                     handleTriggerAI(session, eventData);
+                    break;
+                case "stop-discussion":
+                    handleStopDiscussion(session, eventData);
                     break;
             }
         }
@@ -117,33 +128,105 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Save message to database
+        // Save message to database and get generated ID
+        String messageId = null;
         try {
             Message.SenderType type = Message.SenderType.valueOf(senderType);
             UUID roomUuid = UUID.fromString(roomId);
             UUID characterUuid = characterId != null ? UUID.fromString(characterId) : null;
-            messageService.saveMessage(roomUuid, characterUuid, type, content);
+            Message savedMessage = messageService.saveMessage(roomUuid, characterUuid, type, content);
+            messageId = savedMessage.getId();
         } catch (Exception e) {
             // Log error but continue broadcasting
         }
 
-        // Broadcast to all clients in the room
+        // Broadcast to all clients in the room (include message id for deduplication)
+        Map<String, Object> broadcastData = new java.util.HashMap<>();
+        broadcastData.put("content", content);
+        broadcastData.put("senderType", senderType);
+        broadcastData.put("characterId", characterId != null ? characterId : "");
+        broadcastData.put("roomId", roomId);
+        if (messageId != null) {
+            broadcastData.put("id", messageId);
+        }
         String broadcastMessage = "42[\"chat message\","
-            + objectMapper.writeValueAsString(Map.of(
-                "content", content,
-                "senderType", senderType,
-                "characterId", characterId != null ? characterId : "",
-                "roomId", roomId
-            ))
+            + objectMapper.writeValueAsString(broadcastData)
             + "]";
         broadcastToRoom(roomId, broadcastMessage);
+
+        // Trigger AI response for user messages
+        if ("USER".equals(senderType)) {
+            triggerAIForRoom(roomId, content);
+        }
+    }
+
+    @Transactional
+    public void triggerAIForRoom(String roomId, String userMessage) {
+        try {
+            Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
+            if (room == null || room.getCharacters().isEmpty()) {
+                return;
+            }
+
+            List<Character> characters = room.getCharacters().stream().toList();
+            boolean isContinuous = "discussion".equals(room.getChatMode());
+            int maxRounds = room.getMaxDiscussionRounds() != null ? room.getMaxDiscussionRounds() : 5;
+
+            moderatorAgent.processMessage(roomId, userMessage, characters, isContinuous, maxRounds,
+                // onThinking: 角色开始思考
+                characterName -> {
+                    try {
+                        String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
+                        broadcastToRoom(roomId, event);
+                    } catch (Exception e) {
+                        // Log thinking broadcast error
+                    }
+                },
+                // onResponse: 收到角色回复
+                fragment -> {
+                    try {
+                        // 保存消息到数据库
+                        UUID characterUuid = UUID.fromString(fragment.getCharacterId());
+                        Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
+                            Message.SenderType.CHARACTER, fragment.getContent());
+
+                        // 广播到 WebSocket 房间（包含 message id 用于去重）
+                        Map<String, Object> responseData = new java.util.HashMap<>();
+                        responseData.put("content", fragment.getContent());
+                        responseData.put("senderType", "CHARACTER");
+                        responseData.put("characterId", fragment.getCharacterId());
+                        responseData.put("characterName", fragment.getCharacterName());
+                        responseData.put("roomId", roomId);
+                        responseData.put("id", savedMessage.getId());
+                        String responseEvent = "42[\"chat message\","
+                            + objectMapper.writeValueAsString(responseData)
+                            + "]";
+                        broadcastToRoom(roomId, responseEvent);
+                    } catch (Exception e) {
+                        // Log response broadcast error
+                    }
+                }
+            );
+        } catch (Exception e) {
+            // Broadcast AI error to room
+            try {
+                String errorEvent = "42[\"error\","
+                    + objectMapper.writeValueAsString(Map.of(
+                        "message", "AI 服务调用失败: " + e.getMessage()
+                    ))
+                    + "]";
+                broadcastToRoom(roomId, errorEvent);
+            } catch (Exception ex) {
+                // Ignore broadcast error
+            }
+        }
     }
 
     private void handleTriggerAI(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String userMessage = data.has("message") ? data.get("message").asText() : "";
 
-        Room room = roomRepository.findById(UUID.fromString(roomId)).orElse(null);
+        Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
             session.sendMessage(new TextMessage("42[\"error\",{\"message\":\"Room not found\"}]"));
             return;
@@ -155,8 +238,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        boolean isContinuous = "discussion".equals(room.getChatMode());
+        int maxRounds = room.getMaxDiscussionRounds() != null ? room.getMaxDiscussionRounds() : 5;
+
         // 使用 ModeratorAgent 进行智能发言编排和流式响应
-        moderatorAgent.processMessage(roomId, userMessage, characters,
+        moderatorAgent.processMessage(roomId, userMessage, characters, isContinuous, maxRounds,
             // onThinking: 角色开始思考
             characterName -> {
                 String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
@@ -167,18 +253,19 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 try {
                     // 保存消息到数据库
                     UUID characterUuid = UUID.fromString(fragment.getCharacterId());
-                    messageService.saveMessage(UUID.fromString(roomId), characterUuid,
+                    Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
                         Message.SenderType.CHARACTER, fragment.getContent());
 
-                    // 广播到 WebSocket 房间
+                    // 广播到 WebSocket 房间（包含 message id 用于去重）
+                    Map<String, Object> responseData = new java.util.HashMap<>();
+                    responseData.put("content", fragment.getContent());
+                    responseData.put("senderType", "CHARACTER");
+                    responseData.put("characterId", fragment.getCharacterId());
+                    responseData.put("characterName", fragment.getCharacterName());
+                    responseData.put("roomId", roomId);
+                    responseData.put("id", savedMessage.getId());
                     String responseEvent = "42[\"chat message\","
-                        + objectMapper.writeValueAsString(Map.of(
-                            "content", fragment.getContent(),
-                            "senderType", "CHARACTER",
-                            "characterId", fragment.getCharacterId(),
-                            "characterName", fragment.getCharacterName(),
-                            "roomId", roomId
-                        ))
+                        + objectMapper.writeValueAsString(responseData)
                         + "]";
                     broadcastToRoom(roomId, responseEvent);
                 } catch (Exception e) {
@@ -186,6 +273,15 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 }
             }
         );
+    }
+
+    private void handleStopDiscussion(WebSocketSession session, JsonNode data) throws Exception {
+        String roomId = data.get("roomId").asText();
+        log.info("[WS] Stop discussion requested for room: {}", roomId);
+        // TODO: 实现真正的讨论中断功能
+        // 目前 ModeratorAgent 不支持取消正在进行的讨论
+        // 未来可以添加 CompletableFuture 取消机制
+        session.sendMessage(new TextMessage("42[\"discussion-stopped\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
     @Override

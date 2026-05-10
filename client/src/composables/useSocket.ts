@@ -1,4 +1,3 @@
-import { io } from 'socket.io-client'
 import { ref, onUnmounted } from 'vue'
 
 export interface ChatMessage {
@@ -19,7 +18,7 @@ export interface UseSocketOptions {
   onError?: (error: string) => void
 }
 
-const DEFAULT_SERVER_URL = 'http://localhost:8080'
+const DEFAULT_SERVER_URL = 'ws://localhost:8080'
 
 export function useSocket(roomId: string, options: UseSocketOptions = {}) {
   const {
@@ -29,55 +28,74 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}) {
     onError
   } = options
 
-  const socket = io(DEFAULT_SERVER_URL, {
-    transports: ['websocket', 'polling'],
-    autoConnect: true,
-    path: '/ws'
-  })
-
+  const ws = new WebSocket(`${DEFAULT_SERVER_URL}/ws`)
   const isConnected = ref(false)
 
-  socket.on('connect', () => {
+  ws.onopen = () => {
     isConnected.value = true
-    socket.emit('join room', { roomId })
-  })
+    // Send join room message using Socket.IO protocol format
+    sendSocketIO('join room', { roomId })
+  }
 
-  socket.on('disconnect', () => {
+  ws.onclose = () => {
     isConnected.value = false
-  })
+  }
 
-  // Handle incoming messages
-  socket.on('message', (data: ChatMessage) => {
-    onMessage?.(data)
-  })
+  ws.onerror = (error) => {
+    console.error('[DEBUG] WebSocket error:', error)
+    onError?.('Connection error')
+  }
 
-  // Handle character thinking indicator
-  socket.on('character thinking', (data: { characterId: string }) => {
-    onThinking?.(data.characterId)
-  })
+  ws.onmessage = (event) => {
+    const data = event.data
+    // Handle Socket.IO protocol messages (42 prefix)
+    if (typeof data === 'string' && data.startsWith('42')) {
+      try {
+        const parsed = JSON.parse(data.substring(2))
+        const eventName = parsed[0]
+        const eventData = parsed[1]
 
-  // Handle streaming chunks
-  socket.on('message stream', (data: { characterId: string; chunk: string }) => {
-    onStream?.(data)
-  })
+        switch (eventName) {
+          case 'chat message':
+            onMessage?.(eventData)
+            break
+          case 'character thinking':
+            onThinking?.(eventData.characterName)
+            break
+          case 'message stream':
+            onStream?.(eventData)
+            break
+          case 'error':
+            onError?.(eventData.message)
+            break
+          case 'room-joined':
+            console.log('[DEBUG] Joined room:', eventData.roomId)
+            break
+        }
+      } catch (e) {
+        console.error('[DEBUG] Failed to parse Socket.IO message:', e)
+      }
+    }
+  }
 
-  // Handle errors
-  socket.on('error', (data: { message: string }) => {
-    onError?.(data.message)
-  })
-
-  // Handle room joined confirmation
-  socket.on('room-joined', (data: { roomId: string }) => {
-    console.log('[DEBUG] Joined room:', data.roomId)
-  })
+  function sendSocketIO(event: string, data: object) {
+    const message = `42${JSON.stringify([event, data])}`
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message)
+    }
+  }
 
   function sendMessage(content: string) {
-    socket.emit('chat message', { roomId, content })
+    sendSocketIO('chat message', { roomId, content })
+  }
+
+  function stopDiscussion() {
+    sendSocketIO('stop-discussion', { roomId })
   }
 
   function leaveRoom() {
-    socket.emit('leave room', { roomId })
-    socket.disconnect()
+    sendSocketIO('leave room', { roomId })
+    ws.close()
   }
 
   onUnmounted(() => {
@@ -85,9 +103,10 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}) {
   })
 
   return {
-    socket,
+    socket: ws,
     isConnected,
     sendMessage,
+    stopDiscussion,
     leaveRoom
   }
 }

@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
+import { charactersApi } from '@/api/characters'
 import CharacterCard from './CharacterCard.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
@@ -38,6 +39,7 @@ const form = ref<CharacterForm>({
   prompt: ''
 })
 const loading = ref(false)
+const generatingPrompt = ref(false)
 const error = ref<string | null>(null)
 
 // Reset form when props change
@@ -94,6 +96,29 @@ async function handleSave() {
 function handlePresetSelect(character: Character) {
   emit('characterAdded', character)
   emit('close')
+}
+
+async function handleGeneratePrompt() {
+  if (!form.value.name.trim() && !form.value.description.trim()) {
+    error.value = '请输入角色名称或描述'
+    return
+  }
+
+  generatingPrompt.value = true
+  error.value = null
+
+  try {
+    const response = await charactersApi.generatePrompt({
+      name: form.value.name.trim() || undefined,
+      description: form.value.description.trim() || undefined
+    })
+    form.value.prompt = response.data.prompt
+  } catch (e: any) {
+    error.value = e.response?.data?.message || '生成提示词失败'
+    console.error('[DEBUG] handleGeneratePrompt failed:', e)
+  } finally {
+    generatingPrompt.value = false
+  }
 }
 
 function handleClose() {
@@ -183,6 +208,23 @@ function handleClose() {
                 placeholder="输入角色设定，用于定义 AI 角色的行为和风格"
                 class="w-full px-3 py-2 text-sm border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10B981] focus:border-transparent resize-none"
               ></textarea>
+              <div class="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  @click="handleGeneratePrompt"
+                  :disabled="generatingPrompt"
+                  class="flex-1 px-3 py-1.5 text-sm font-medium text-[#10B981] bg-[#F0FDF4] border border-[#10B981] rounded-lg hover:bg-[#DCFCE7] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
+                >
+                  <svg v-if="generatingPrompt" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>{{ generatingPrompt ? '生成中...' : 'AI 生成提示词' }}</span>
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-[#6B7280]">
+                根据角色名称联网生成，或根据描述内容智能生成
+              </p>
             </div>
 
             <p v-if="error" class="text-sm text-[#EF4444]">
