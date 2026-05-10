@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Character } from '@/types'
 import Avatar from '@/components/ui/Avatar.vue'
 
@@ -7,18 +8,25 @@ interface Props {
   characters: Character[]
   activeCharacterId?: string | null
   isThinking?: boolean
+  chatMode?: 'dialogue' | 'discussion'
+  isDiscussing?: boolean
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   activeCharacterId: null,
-  isThinking: false
+  isThinking: false,
+  chatMode: 'dialogue',
+  isDiscussing: false
 })
 
 const emit = defineEmits<{
   close: []
   characterSelected: [character: Character | null]
   characterDetail: [character: Character]
+  switchMode: [mode: 'dialogue' | 'discussion']
 }>()
+
+const isDiscussionMode = computed(() => props.chatMode === 'discussion')
 
 function handleCharacterClick(character: Character) {
   emit('characterSelected', character)
@@ -136,6 +144,28 @@ function handleClose() {
         </svg>
         添加角色
       </button>
+
+      <!-- Mode toggle -->
+      <div class="mt-3 pt-3 border-t border-[var(--color-border)]">
+        <button
+          class="w-full py-2 px-3 rounded-lg text-xs font-medium border transition-all flex items-center gap-2"
+          :class="isDiscussionMode
+            ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+            : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'"
+          @click="$emit('switchMode', isDiscussionMode ? 'dialogue' : 'discussion')"
+        >
+          <svg v-if="isDiscussionMode" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+          </svg>
+          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          {{ isDiscussionMode ? '讨论模式' : '对话模式' }}
+        </button>
+        <p class="text-[10px] text-[var(--color-text-muted)] text-center mt-1.5">
+          {{ isDiscussionMode ? '角色持续讨论多轮' : '角色响应一次结束' }}
+        </p>
+      </div>
     </div>
   </aside>
 
