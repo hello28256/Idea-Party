@@ -18,11 +18,13 @@ import java.util.HashMap;
 public class FirecrawlService {
 
     private final String apiKey;
+    private final RestTemplate restTemplate;
     private static final String FIRECRAWL_URL_V1 = "https://api.firecrawl.dev/v0/scrape";
     private static final String FIRECRAWL_URL_V2 = "https://api.firecrawl.dev/v2/scrape";
     private static final String FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search";
 
-    public FirecrawlService() {
+    public FirecrawlService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
         // Check both environment variable and system property (set by dotenv)
         String envKey = System.getenv("FIRECRAWL_API_KEY");
         String propKey = System.getProperty("FIRECRAWL_API_KEY");
@@ -82,7 +84,6 @@ public class FirecrawlService {
      * Handles ambiguous names like "Messi" by finding the most relevant page.
      */
     private String searchForCharacter(String characterName) {
-        RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + apiKey);
@@ -148,7 +149,6 @@ public class FirecrawlService {
      * Scrape a specific URL.
      */
     private String scrapeUrl(String url) {
-        RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + apiKey);
@@ -199,8 +199,6 @@ public class FirecrawlService {
     }
 
     private String scrapeFromFirecrawl(String characterName) {
-        RestTemplate restTemplate = new RestTemplate();
-
         // Determine if name is Chinese and use appropriate Wikipedia
         boolean isChinese = characterName.matches("[\\u4e00-\\u9fa5]+");
         String wikipediaBase = isChinese ? "https://zh.wikipedia.org/wiki/" : "https://en.wikipedia.org/wiki/";

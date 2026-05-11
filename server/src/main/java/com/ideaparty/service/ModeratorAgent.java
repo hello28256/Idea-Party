@@ -6,11 +6,14 @@ import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.service.FirecrawlService;
 import org.springframework.stereotype.Service;
 
+import org.springframework.beans.factory.DisposableBean;
+
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -23,7 +26,7 @@ import java.util.stream.Collectors;
  * 3. After MAX_ROUNDS, discussion ends
  */
 @Service
-public class ModeratorAgent {
+public class ModeratorAgent implements DisposableBean {
 
     private final AIService aiService;
     private final MessageRepository messageRepository;
@@ -37,6 +40,9 @@ public class ModeratorAgent {
 
     // Executor for async operations
     private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    // Room-level futures tracking for cancellation
+    private final ConcurrentHashMap<String, List<CompletableFuture<?>>> roomFutures = new ConcurrentHashMap<>();
 
     public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService) {
         this.aiService = aiService;
@@ -136,6 +142,8 @@ public class ModeratorAgent {
                 }
             }, executor);
             futures.add(future);
+            // Track future for room-level cancellation
+            roomFutures.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>()).add(future);
         }
 
         // Wait for all characters and send responses
@@ -143,6 +151,8 @@ public class ModeratorAgent {
             for (ResponseFragment fragment : thisRoundResponses) {
                 onResponse.accept(fragment);
             }
+            // Remove futures from tracking after completion
+            roomFutures.remove(roomId, futures);
         });
     }
 
@@ -207,6 +217,8 @@ public class ModeratorAgent {
                 }
             }, executor);
             futures.add(future);
+            // Track future for room-level cancellation
+            roomFutures.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>()).add(future);
         }
 
         // Wait for all characters to complete this round
@@ -215,6 +227,8 @@ public class ModeratorAgent {
             for (ResponseFragment fragment : thisRoundResponses) {
                 onResponse.accept(fragment);
             }
+            // Remove futures from tracking after completion
+            roomFutures.remove(roomId, futures);
 
             // Check if we should continue to next round
             if (roundNum < maxRounds) {
@@ -305,6 +319,34 @@ public class ModeratorAgent {
                       "Be concise, conversational, and true to your character's perspective.");
 
         return prompt.toString();
+    }
+
+    @Override
+    public void destroy() throws Exception {
+        executor.shutdown();
+        // Wait up to 60 seconds for tasks to complete
+        if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            executor.shutdownNow();
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                System.err.println("[DEBUG] ModeratorAgent: Executor did not terminate");
+            }
+        }
+        System.out.println("[DEBUG] ModeratorAgent: ExecutorService shut down");
+    }
+
+    /**
+     * Cancel all ongoing AI processing for a room.
+     * This method cancels all tracked CompletableFutures associated with the room.
+     *
+     * @param roomId The room ID to cancel
+     */
+    public void cancelRoom(String roomId) {
+        List<CompletableFuture<?>> futures = roomFutures.remove(roomId);
+        if (futures != null) {
+            for (CompletableFuture<?> future : futures) {
+                future.cancel(true);
+            }
+        }
     }
 
     /**

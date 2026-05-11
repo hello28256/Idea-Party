@@ -1,19 +1,21 @@
 package com.ideaparty.service;
 
 import com.ideaparty.entity.Character;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Service;
 
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Mock AI service for Phase 1 - generates round-robin mock responses.
  * In Phase 2, this will be replaced with LangChain4j Moderator Agent.
  */
 @Service
-public class MockAiService {
+public class MockAiService implements DisposableBean {
 
     private final Random random = new Random();
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -90,5 +92,17 @@ public class MockAiService {
         } else {
             return GENERAL_RESPONSES;
         }
+    }
+
+    @Override
+    public void destroy() throws Exception {
+        executor.shutdown();
+        if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            executor.shutdownNow();
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                System.err.println("[DEBUG] MockAiService: Executor did not terminate");
+            }
+        }
+        System.out.println("[DEBUG] MockAiService: ExecutorService shut down");
     }
 }

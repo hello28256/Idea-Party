@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 
 /**
  * Chat orchestration service.
- * Handles message persistence and coordinates Mock AI round-robin responses.
+ * Handles message persistence and coordinates AI round-robin responses.
  */
 @Service
 @Transactional
@@ -26,16 +26,16 @@ public class ChatService {
     private final MessageRepository messageRepository;
     private final RoomRepository roomRepository;
     private final CharacterRepository characterRepository;
-    private final MockAiService mockAiService;
+    private final AIService aiService;
 
     public ChatService(MessageRepository messageRepository,
                       RoomRepository roomRepository,
                       CharacterRepository characterRepository,
-                      MockAiService mockAiService) {
+                      AIService aiService) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
-        this.mockAiService = mockAiService;
+        this.aiService = aiService;
     }
 
     /**
@@ -72,10 +72,31 @@ public class ChatService {
     }
 
     /**
+     * Build character prompt for AI service.
+     */
+    private String buildCharacterPrompt(Character character) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("You are ").append(character.getName());
+        if (character.getEra() != null) {
+            prompt.append(", from the ").append(character.getEra());
+        }
+        prompt.append(".\n\n");
+        if (character.getDescription() != null) {
+            prompt.append("Description: ").append(character.getDescription()).append("\n\n");
+        }
+        if (character.getSpeakingStyle() != null) {
+            prompt.append("Speaking Style: ").append(character.getSpeakingStyle()).append("\n\n");
+        }
+        prompt.append("IMPORTANT: This is an AI simulation for educational/entertainment purposes only.\n");
+        prompt.append("Keep responses conversational and in character.");
+        return prompt.toString();
+    }
+
+    /**
      * Process a user message and trigger round-robin AI responses.
      * For each character in the room, in order:
      * 1. Emit "character thinking" event
-     * 2. Wait for mock AI response
+     * 2. Wait for AI response
      * 3. Save and broadcast the response
      *
      * @param roomId Room ID
@@ -95,8 +116,10 @@ public class ChatService {
             // Emit thinking event
             onThinking.accept(character.getId().toString());
 
-            // Generate and save AI response
-            CompletableFuture<String> futureResponse = mockAiService.generateResponse(character, content);
+            // Generate and save AI response using AIService
+            CompletableFuture<String> futureResponse = CompletableFuture.supplyAsync(() ->
+                aiService.generateResponse(buildCharacterPrompt(character), content)
+            );
 
             // Note: In a real implementation, we would wait for each character's
             // response before moving to the next (sequential round-robin).

@@ -8,7 +8,6 @@ import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
-import com.ideaparty.service.MockAiService;
 import com.ideaparty.service.ModerationService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -46,16 +45,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     private final MessageService messageService;
     private final ChatService chatService;
-    private final MockAiService mockAiService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
 
     public ChatWebSocketHandler(MessageService messageService, ChatService chatService,
-                               MockAiService mockAiService, ModerationService moderationService,
+                               ModerationService moderationService,
                                RoomRepository roomRepository) {
         this.messageService = messageService;
         this.chatService = chatService;
-        this.mockAiService = mockAiService;
         this.moderationService = moderationService;
         this.roomRepository = roomRepository;
     }
