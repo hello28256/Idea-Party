@@ -5,7 +5,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/ideaparty?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: ${DB_PASSWORD:root123}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -17,7 +17,7 @@ spring:
         format_sql: true
 
 jwt:
-  secret: ${JWT_SECRET:3d8a9f7e2c4b1a5f6e8d9c3b2a7f1e4d9c8b2a6f3e1d7c5b9a8f2e4d6c1a3b5}
+  secret: ${JWT_SECRET:}
   expiration: 900000
 
 logging:

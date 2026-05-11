@@ -9,6 +9,7 @@ import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -34,6 +35,7 @@ import java.util.stream.Collectors;
  * - 'character thinking' { characterId } - character started thinking
  * - 'message stream' { characterId, chunk } - streaming response chunk (simulated)
  */
+@Slf4j
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
@@ -158,7 +160,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         + objectMapper.writeValueAsString(Map.of("characterId", characterId))
                         + "]";
                     broadcastToRoom(roomId, thinkingEvent);
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[WS] Failed to send thinking event: {}", e.getMessage());
+                }
             },
             // onMessage callback
             (messageDto) -> {
@@ -175,7 +179,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         ))
                         + "]";
                     broadcastToRoom(roomId, msgEvent);
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[WS] Failed to send message event: {}", e.getMessage());
+                }
             }
         );
     }
@@ -212,8 +218,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 if (s.isOpen()) {
                     try {
                         s.sendMessage(textMessage);
-                    } catch (Exception ignored) {
-                        // Log send error but continue
+                    } catch (Exception e) {
+                        log.warn("[WS] Failed to send message to session {}: {}", s.getId(), e.getMessage());
                     }
                 }
             }

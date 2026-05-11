@@ -4,6 +4,7 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.service.FirecrawlService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import org.springframework.beans.factory.DisposableBean;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
  * 2. Round 2+: Characters comment on each other's responses, forming a debate
  * 3. After MAX_ROUNDS, discussion ends
  */
+@Slf4j
 @Service
 public class ModeratorAgent implements DisposableBean {
 
@@ -323,15 +325,19 @@ public class ModeratorAgent implements DisposableBean {
 
     @Override
     public void destroy() throws Exception {
+        // Cancel all ongoing room discussions
+        roomFutures.keySet().forEach(this::cancelRoom);
+        roomFutures.clear();
+
         executor.shutdown();
         // Wait up to 60 seconds for tasks to complete
         if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
             executor.shutdownNow();
             if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                System.err.println("[DEBUG] ModeratorAgent: Executor did not terminate");
+                log.error("[DEBUG] ModeratorAgent: Executor did not terminate");
             }
         }
-        System.out.println("[DEBUG] ModeratorAgent: ExecutorService shut down");
+        log.info("[DEBUG] ModeratorAgent: ExecutorService shut down");
     }
 
     /**

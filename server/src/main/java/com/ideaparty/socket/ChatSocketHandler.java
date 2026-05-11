@@ -137,7 +137,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             Message savedMessage = messageService.saveMessage(roomUuid, characterUuid, type, content);
             messageId = savedMessage.getId();
         } catch (Exception e) {
-            // Log error but continue broadcasting
+            log.error("[WS] Failed to save message: {}", e.getMessage());
         }
 
         // Broadcast to all clients in the room (include message id for deduplication)
@@ -179,7 +179,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
                         broadcastToRoom(roomId, event);
                     } catch (Exception e) {
-                        // Log thinking broadcast error
+                        log.warn("[WS] Failed to send thinking event: {}", e.getMessage());
                     }
                 },
                 // onResponse: 收到角色回复
@@ -203,7 +203,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                             + "]";
                         broadcastToRoom(roomId, responseEvent);
                     } catch (Exception e) {
-                        // Log response broadcast error
+                        log.warn("[WS] Failed to send response event: {}", e.getMessage());
                     }
                 }
             );
@@ -217,7 +217,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     + "]";
                 broadcastToRoom(roomId, errorEvent);
             } catch (Exception ex) {
-                // Ignore broadcast error
+                log.warn("[WS] Failed to send error event: {}", ex.getMessage());
             }
         }
     }

@@ -4,6 +4,8 @@ import com.ideaparty.dto.MessageDto;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
+import com.ideaparty.exception.CharacterNotFoundException;
+import com.ideaparty.exception.RoomNotFoundException;
 import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.RoomRepository;
@@ -43,7 +45,7 @@ public class ChatService {
      */
     public MessageDto saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content) {
         Room room = roomRepository.findById(roomId)
-            .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
+            .orElseThrow(() -> new RoomNotFoundException("Room not found: " + roomId));
 
         Message message = new Message();
         message.setContent(content);
@@ -52,7 +54,7 @@ public class ChatService {
 
         if (characterId != null) {
             Character character = characterRepository.findById(characterId)
-                .orElseThrow(() -> new RuntimeException("Character not found: " + characterId));
+                .orElseThrow(() -> new CharacterNotFoundException("Character not found: " + characterId));
             message.setCharacter(character);
         }
 

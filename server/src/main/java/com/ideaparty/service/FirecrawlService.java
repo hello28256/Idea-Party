@@ -25,11 +25,14 @@ public class FirecrawlService {
 
     public FirecrawlService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-        // Check both environment variable and system property (set by dotenv)
-        String envKey = System.getenv("FIRECRAWL_API_KEY");
+        // Check both system property and environment variable (system property takes precedence)
         String propKey = System.getProperty("FIRECRAWL_API_KEY");
-        this.apiKey = envKey != null ? envKey : propKey;
-        log.info("[DEBUG] FirecrawlService initialized with API key: {}", apiKey != null ? "present" : "missing");
+        String envKey = System.getenv("FIRECRAWL_API_KEY");
+        this.apiKey = propKey != null ? propKey : envKey;
+        if (this.apiKey == null || this.apiKey.isBlank()) {
+            throw new IllegalStateException("FIRECRAWL_API_KEY environment variable is not set");
+        }
+        log.info("[DEBUG] FirecrawlService initialized with API key: present");
     }
 
     /**

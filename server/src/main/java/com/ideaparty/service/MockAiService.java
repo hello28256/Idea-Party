@@ -1,6 +1,7 @@
 package com.ideaparty.service;
 
 import com.ideaparty.entity.Character;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
  * Mock AI service for Phase 1 - generates round-robin mock responses.
  * In Phase 2, this will be replaced with LangChain4j Moderator Agent.
  */
+@Slf4j
 @Service
 public class MockAiService implements DisposableBean {
 
@@ -100,9 +102,9 @@ public class MockAiService implements DisposableBean {
         if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
             executor.shutdownNow();
             if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                System.err.println("[DEBUG] MockAiService: Executor did not terminate");
+                log.error("[DEBUG] MockAiService: Executor did not terminate");
             }
         }
-        System.out.println("[DEBUG] MockAiService: ExecutorService shut down");
+        log.info("[DEBUG] MockAiService: ExecutorService shut down");
     }
 }
