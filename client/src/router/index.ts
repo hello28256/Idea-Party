@@ -39,8 +39,23 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/terms',
+      name: 'terms',
+      component: () => import('@/views/TermsView.vue'),
+      meta: { requiresAuth: false }
+    },
+    {
+      path: '/privacy',
+      name: 'privacy',
+      component: () => import('@/views/PrivacyView.vue'),
+      meta: { requiresAuth: false }
+    },
+    {
       path: '/',
-      redirect: '/rooms'
+      redirect: () => {
+        const isAuthenticated = !!localStorage.getItem('accessToken')
+        return isAuthenticated ? '/rooms' : '/login'
+      }
     },
     {
       path: '/:pathMatch(.*)*',
@@ -51,7 +66,7 @@ const router = createRouter({
 
 // Auth guard - redirect to login if accessing protected route without token
 router.beforeEach((to, _from, next) => {
-  const publicPaths = ['/login', '/register']
+  const publicPaths = ['/login', '/register', '/terms', '/privacy']
   const isAuthenticated = !!localStorage.getItem('accessToken')
 
   if (!publicPaths.includes(to.path) && !isAuthenticated) {
