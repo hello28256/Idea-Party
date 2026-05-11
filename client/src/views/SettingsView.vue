@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import Button from '@/components/ui/Button.vue'
+import RoomListView from '@/views/RoomListView.vue'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
@@ -55,8 +56,18 @@ const activeMenu = ref('ai')
 </script>
 
 <template>
-  <div class="settings-page">
-    <div class="settings-modal">
+  <div class="settings-route">
+    <!-- Background RoomList -->
+    <div class="settings-background">
+      <RoomListView />
+    </div>
+
+    <!-- Overlay -->
+    <div class="settings-overlay" @click="handleClose"></div>
+
+    <!-- Modal -->
+    <div class="settings-modal-wrap">
+      <div class="settings-modal" @click.stop>
       <!-- Left Sidebar -->
       <aside class="settings-sidebar">
         <div class="sidebar-header">
@@ -174,13 +185,38 @@ const activeMenu = ref('ai')
       </main>
     </div>
   </div>
+  </div>
 </template>
 
 <style scoped>
-/* Page Container */
-.settings-page {
+/* Route Container */
+.settings-route {
+  position: relative;
   min-height: 100vh;
-  background: #f5f5f6;
+  overflow: hidden;
+}
+
+/* Background */
+.settings-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Overlay */
+.settings-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(245, 245, 246, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+/* Modal Wrap */
+.settings-modal-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -189,13 +225,14 @@ const activeMenu = ref('ai')
 
 /* Modal */
 .settings-modal {
-  width: min(760px, calc(100vw - 48px));
+  width: min(760px, calc(100vw - 96px));
   border-radius: 28px;
   background: #e5e5e8;
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
   overflow: hidden;
   display: grid;
   grid-template-columns: 180px 1fr;
+  max-height: calc(100vh - 96px);
 }
 
 /* Sidebar */
@@ -536,8 +573,8 @@ const activeMenu = ref('ai')
 
 /* Dark Mode */
 @media (prefers-color-scheme: dark) {
-  .settings-page {
-    background: #0f1115;
+  .settings-overlay {
+    background: rgba(10, 10, 12, 0.72);
   }
 
   .settings-modal {
