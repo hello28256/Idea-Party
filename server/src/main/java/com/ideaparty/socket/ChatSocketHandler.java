@@ -278,9 +278,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private void handleStopDiscussion(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Stop discussion requested for room: {}", roomId);
-        // TODO: 实现真正的讨论中断功能
-        // 目前 ModeratorAgent 不支持取消正在进行的讨论
-        // 未来可以添加 CompletableFuture 取消机制
+
+        // Cancel ongoing discussion in ModeratorAgent
+        moderatorAgent.cancelRoom(roomId);
+
         session.sendMessage(new TextMessage("42[\"discussion-stopped\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
