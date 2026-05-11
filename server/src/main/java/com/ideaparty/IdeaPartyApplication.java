@@ -1,10 +1,12 @@
 package com.ideaparty;
 
 import io.github.cdimascio.dotenv.Dotenv;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
+@Slf4j
 @SpringBootApplication(exclude = {UserDetailsServiceAutoConfiguration.class})
 public class IdeaPartyApplication {
 
@@ -18,9 +20,9 @@ public class IdeaPartyApplication {
             dotenv.entries().forEach(e ->
                 System.setProperty(e.getKey(), e.getValue())
             );
-            System.out.println("[DEBUG] Loaded .env from project root");
+            log.info("Loaded .env from project root");
         } catch (Exception e) {
-            System.out.println("[DEBUG] Could not load .env file: " + e.getMessage());
+            log.warn("Could not load .env file: {}", e.getMessage());
         }
 
         SpringApplication.run(IdeaPartyApplication.class, args);
