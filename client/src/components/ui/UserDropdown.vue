@@ -12,6 +12,7 @@ const showLogoutModal = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const cardRef = ref<HTMLElement | null>(null)
+const avatarError = ref(false)
 
 const menuItems = [
   { id: 'settings', label: '设置', emoji: '⚙️', action: () => router.push('/settings') },
@@ -108,14 +109,17 @@ onUnmounted(() => {
     <button class="user-card" ref="cardRef" @click="toggleMenu">
       <div class="user-avatar">
         <img
-          v-if="authStore.user?.avatarUrl"
+          v-if="authStore.user?.avatarUrl && !avatarError"
           :src="authStore.user.avatarUrl"
-          :alt="authStore.user?.name || '用户'"
-          @error="$event.target.style.display = 'none'"
+          :alt="authStore.user.name"
+          @error="avatarError = true"
         />
-        <div v-else class="user-avatar-placeholder">
-          {{ authStore.user?.name?.charAt(0) || '访客'.charAt(0) }}
-        </div>
+        <img
+          v-else
+          src="/default_touxiang.svg"
+          :alt="authStore.user?.name || '用户'"
+          @error="avatarError = true"
+        />
       </div>
       <div class="user-info">
         <span class="user-name">{{ authStore.user?.name || '访客' }}</span>
@@ -161,28 +165,14 @@ onUnmounted(() => {
   border-color: #e0e0e5;
 }
 
-@media (prefers-color-scheme: dark) {
-  .user-card:hover {
-    background: #374151;
-    border-color: #4b5563;
-  }
-
-  .user-name {
-    color: #f3f4f6;
-  }
-
-  .chevron {
-    color: #9ca3af;
-  }
-}
-
 .user-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 9999px;
+  border-radius: 10px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: #f3f4f6;
 }
 
 .user-avatar img {
@@ -191,30 +181,9 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
-.user-avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #e5e7eb;
-  color: #374151;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
 @media (prefers-color-scheme: dark) {
   .user-avatar {
     background: #374151;
-  }
-
-  .user-avatar img {
-    filter: brightness(0.9);
-  }
-
-  .user-avatar-placeholder {
-    background: #374151;
-    color: white;
   }
 }
 
@@ -336,40 +305,5 @@ onUnmounted(() => {
 .popover-leave-to {
   opacity: 0;
   transform: translateY(6px) scale(0.97);
-}
-
-@media (prefers-color-scheme: dark) {
-  .popover-menu {
-    background: #1f2937;
-    border-color: #374151;
-  }
-
-  .menu-item:hover:not(.disabled) {
-    background: #374151;
-  }
-
-  .menu-item.disabled {
-    opacity: 0.5;
-  }
-
-  .logout-item:hover {
-    background: #7f1d1d;
-  }
-
-  .item-label {
-    color: #f3f4f6;
-  }
-
-  .logout-item .item-label {
-    color: #f87171;
-  }
-
-  .menu-divider {
-    background: #374151;
-  }
-
-  .item-soon {
-    color: #9ca3af;
-  }
 }
 </style>
