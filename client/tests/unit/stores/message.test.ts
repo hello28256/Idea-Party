@@ -30,7 +30,7 @@ describe('useMessageStore', () => {
     senderType: 'CHARACTER',
     content: 'Hello, world!',
     avatarUrl: 'https://example.com/avatar.png',
-    createdAt: '2024-01-01T00:00:00Z'
+    createdAt: '2026-01-01T00:00:00Z'
   }
 
   beforeEach(() => {
@@ -62,14 +62,14 @@ describe('useMessageStore', () => {
       roomId: 'room-123',
       senderType: 'USER',
       content: 'Hello',
-      createdAt: '2024-01-01T00:00:00Z'
+      createdAt: '2026-01-01T00:00:00Z'
     }
     const realMessage: ChatMessage = {
       id: 'msg-real-123',
       roomId: 'room-123',
       senderType: 'USER',
       content: 'Hello',
-      createdAt: '2024-01-01T00:01:00Z'
+      createdAt: '2026-01-01T00:01:00Z'
     }
 
     store.addMessage(tempMessage)

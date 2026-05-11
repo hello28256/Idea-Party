@@ -1,5 +1,5 @@
 <template>
-  <LegalLayout title="Idea Party 服务条款" subtitle="最后更新于 2025">
+  <LegalLayout title="Idea Party 服务条款" subtitle="最后更新于 2026">
     <section>
       <p>
         欢迎使用 Idea Party。

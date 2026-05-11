@@ -25,8 +25,8 @@ describe('useRoomStore', () => {
     ownerName: 'Test Owner',
     characterCount: 0,
     characters: [],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-01T00:00:00Z'
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z'
   }
 
   beforeEach(() => {
@@ -148,8 +148,8 @@ describe('useRoomStore', () => {
 
   it('sortedRooms should return rooms sorted by updatedAt descending', () => {
     const store = useRoomStore()
-    const olderRoom = { ...mockRoom, id: 'room-old', updatedAt: '2024-01-01T00:00:00Z' }
-    const newerRoom = { ...mockRoom, id: 'room-new', updatedAt: '2024-01-02T00:00:00Z' }
+    const olderRoom = { ...mockRoom, id: 'room-old', updatedAt: '2026-01-01T00:00:00Z' }
+    const newerRoom = { ...mockRoom, id: 'room-new', updatedAt: '2026-01-02T00:00:00Z' }
 
     store.rooms = [olderRoom, newerRoom]
 

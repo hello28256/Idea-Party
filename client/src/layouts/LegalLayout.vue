@@ -20,7 +20,7 @@
     </main>
 
     <footer class="legal-footer">
-      © 2025 Idea Party. Built for imagination and conversation.
+      © 2026 Idea Party. Built for imagination and conversation.
     </footer>
   </div>
 </template>
