@@ -71,6 +71,25 @@ function handleClick() {
 </template>
 
 <style scoped>
+.character-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.character-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(201, 169, 98, 0.05) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+}
+
+.character-card:hover::before {
+  opacity: 1;
+}
+
 .animation-delay-100 {
   animation-delay: 100ms;
 }

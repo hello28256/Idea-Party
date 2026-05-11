@@ -27,36 +27,41 @@ defineProps<{
 .thinking-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1.25rem;
-  background: linear-gradient(145deg, var(--color-ivory), var(--color-parchment));
-  border: 1px solid var(--color-border);
+  gap: 0.875rem;
+  padding: 0.875rem 1.5rem;
+  background: linear-gradient(145deg, var(--color-ivory) 0%, var(--color-parchment) 100%);
+  border: 1px solid rgba(224, 214, 200, 0.6);
   border-radius: 2rem;
   animation: fadeInUp 0.4s ease-out;
+  box-shadow:
+    0 1px 3px rgba(44, 36, 22, 0.04),
+    0 4px 16px rgba(201, 169, 98, 0.1);
 }
 
 .thinking-avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-navy), var(--color-navy-light));
+  background: linear-gradient(145deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   animation: pulse 2s ease-in-out infinite;
+  box-shadow: 0 2px 8px rgba(30, 42, 58, 0.2);
 }
 
 .dots {
   display: flex;
-  gap: 4px;
+  gap: 5px;
   align-items: center;
 }
 
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background-color: var(--color-gold);
+  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+  box-shadow: 0 0 6px rgba(201, 169, 98, 0.4);
 }
 
 .dot:nth-child(1) {
@@ -65,6 +70,8 @@ defineProps<{
 
 .dot:nth-child(2) {
   animation: sequential-pulse 1.4s ease-in-out infinite 0.2s;
+  width: 6px;
+  height: 6px;
 }
 
 .dot:nth-child(3) {
@@ -73,8 +80,8 @@ defineProps<{
 
 @keyframes sequential-pulse {
   0%, 60%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
+    opacity: 0.25;
+    transform: scale(0.85);
   }
   30% {
     opacity: 1;
@@ -83,20 +90,22 @@ defineProps<{
 }
 
 .thinking-text {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--color-text-secondary);
+  letter-spacing: 0.01em;
 }
 
 .character-name {
   font-family: 'Playfair Display', serif;
   font-weight: 600;
   color: var(--color-navy);
+  margin-right: 0.25rem;
 }
 
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -109,7 +118,7 @@ defineProps<{
     box-shadow: 0 0 0 0 rgba(201, 169, 98, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(201, 169, 98, 0);
+    box-shadow: 0 0 0 10px rgba(201, 169, 98, 0);
   }
 }
 </style>

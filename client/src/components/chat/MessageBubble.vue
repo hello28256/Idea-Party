@@ -80,27 +80,58 @@ const avatarGradient = computed(() => {
 <style scoped>
 .message-bubble {
   display: flex;
-  gap: 1rem;
+  gap: 0.875rem;
   padding: 1rem 1.25rem;
-  background: linear-gradient(145deg, var(--color-ivory), var(--color-parchment));
-  border-radius: 1rem;
-  max-width: 85%;
-  border: 1px solid var(--color-border);
+  background: linear-gradient(145deg, var(--color-ivory) 0%, var(--color-parchment) 100%);
+  border-radius: 1.25rem;
+  max-width: 82%;
+  border: 1px solid rgba(224, 214, 200, 0.6);
   position: relative;
-  transition: all 0.3s ease;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   animation: fadeInUp 0.4s ease-out;
+  box-shadow:
+    0 1px 3px rgba(44, 36, 22, 0.04),
+    0 4px 12px rgba(201, 169, 98, 0.08);
+}
+
+.message-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(201, 169, 98, 0.15);
+  pointer-events: none;
 }
 
 .message-bubble:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(201, 169, 98, 0.1);
+  transform: translateY(-2px) scale(1.005);
+  box-shadow:
+    0 2px 6px rgba(44, 36, 22, 0.06),
+    0 8px 24px rgba(201, 169, 98, 0.12);
 }
 
 .message-bubble.own {
-  background: linear-gradient(145deg, var(--color-navy-light), var(--color-navy));
+  background: linear-gradient(145deg, var(--color-navy-light) 0%, var(--color-navy) 100%);
   margin-left: auto;
   flex-direction: row-reverse;
-  border-color: transparent;
+  border-color: rgba(30, 42, 58, 0.3);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.15),
+    0 4px 16px rgba(30, 42, 58, 0.2);
+}
+
+.message-bubble.own::before {
+  border-color: rgba(201, 169, 98, 0.2);
+}
+
+.message-bubble.own:hover {
+  transform: translateY(-2px) scale(1.005);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(30, 42, 58, 0.25);
 }
 
 .message-bubble.own .message-content {
@@ -116,13 +147,18 @@ const avatarGradient = computed(() => {
 }
 
 .message-bubble.own .message-time {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.message-bubble.own .sender-role {
+  background: rgba(201, 169, 98, 0.15);
+  color: var(--color-gold);
 }
 
 .message-content {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: 0.35rem;
   min-width: 0;
   flex: 1;
 }
@@ -135,77 +171,87 @@ const avatarGradient = computed(() => {
 
 .sender-name {
   font-family: 'Playfair Display', serif;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-navy);
+  letter-spacing: 0.01em;
 }
 
 .sender-role {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--color-gold);
-  background: rgba(201, 169, 98, 0.1);
-  padding: 0.125rem 0.5rem;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  color: var(--color-gold-dark);
+  background: rgba(201, 169, 98, 0.12);
+  padding: 0.2rem 0.55rem;
   border-radius: 999px;
+  border: 1px solid rgba(201, 169, 98, 0.2);
 }
 
 .message-body {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.5rem;
 }
 
 .message-text {
-  font-size: 1rem;
-  line-height: 1.6;
+  font-size: 0.975rem;
+  line-height: 1.65;
   color: var(--color-text-primary);
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .message-time {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  margin-top: 0.25rem;
 }
 
-/* Streaming dots animation */
+/* Elegant streaming dots animation */
 .streaming-dots {
   display: inline-flex;
-  gap: 3px;
+  gap: 4px;
+  align-items: center;
+  padding: 0 0.25rem;
 }
 
 .streaming-dots .dot {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background-color: var(--color-gold);
-  animation: blink 1.2s ease-in-out infinite;
+  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+  animation: elegantBlink 1.4s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(201, 169, 98, 0.4);
 }
 
 .streaming-dots .dot:nth-child(2) {
   animation-delay: 0.2s;
+  width: 5px;
+  height: 5px;
 }
 
 .streaming-dots .dot:nth-child(3) {
   animation-delay: 0.4s;
 }
 
-@keyframes blink {
-  0%, 60%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
+@keyframes elegantBlink {
+  0%, 100% {
+    opacity: 0.25;
+    transform: translateY(0) scale(0.85);
   }
-  30% {
+  50% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(-2px) scale(1);
   }
 }
 
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(15px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;

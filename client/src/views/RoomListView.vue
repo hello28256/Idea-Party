@@ -2,220 +2,450 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
-import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
-import Button from '@/components/ui/Button.vue'
+import UserDropdown from '@/components/ui/UserDropdown.vue'
 
 const router = useRouter()
 const roomStore = useRoomStore()
-const authStore = useAuthStore()
 
 const showCreateModal = ref(false)
+const selectedCategory = ref('all')
+const searchQuery = ref('')
+const mounted = ref(false)
+
+// Navigation items - only 5 primary nav items
+const navItems = [
+  { id: 'discover', label: '发现', emoji: '🔍' },
+  { id: 'trending', label: '热门', emoji: '🔥' },
+  { id: 'categories', label: '分类', emoji: '📂' },
+  { id: 'my-rooms', label: '我的聊天室', emoji: '💬' },
+  { id: 'recent', label: '最近', emoji: '🕐' },
+]
+
+// Categories for tabs
+const categories = [
+  { id: 'all', label: '全部', emoji: '✨' },
+  { id: 'scientist', label: '科学家', emoji: '🔬', color: '#4F7DF3' },
+  { id: 'star', label: '明星', emoji: '🌟', color: '#F472B6' },
+  { id: 'entrepreneur', label: '企业家', emoji: '🚀', color: '#FB923C' },
+  { id: 'philosopher', label: '哲学家', emoji: '💭', color: '#8B5CF6' },
+  { id: 'athlete', label: '运动员', emoji: '🏆', color: '#10B981' },
+  { id: 'writer', label: '作家', emoji: '📖', color: '#34D399' },
+  { id: 'anime', label: '动漫', emoji: '🎨', color: '#EC4899' },
+  { id: 'historical', label: '历史人物', emoji: '🏛️', color: '#D4AF6A' },
+]
+
+// Featured characters with AI-style avatar URLs
+const featuredCharacters = [
+  { id: 1, name: '爱因斯坦', role: '物理学家', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', category: 'scientist', online: true },
+  { id: 2, name: '梅西', role: '足球巨星', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', category: 'athlete', online: true },
+  { id: 3, name: '马斯克', role: '科技先锋', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', category: 'entrepreneur', online: true },
+  { id: 4, name: '泰勒·斯威夫特', role: '音乐天后', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=ffd5dc', category: 'star', online: false },
+  { id: 5, name: '宫崎骏', role: '动画大师', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', category: 'anime', online: true },
+  { id: 6, name: '莎士比亚', role: '文学巨匠', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', category: 'writer', online: true },
+  { id: 7, name: '苏格拉底', role: '哲学先驱', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1', category: 'philosopher', online: false },
+  { id: 8, name: '牛顿', role: '科学巨匠', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd', category: 'scientist', online: true },
+]
+
+// Live activities
+const liveActivities = ref([
+  { id: 1, character: '马斯克', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', action: '加入了', room: '「未来 AI 实验室」', time: '刚刚', color: '#FB923C' },
+  { id: 2, character: '爱因斯坦', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', action: '发言', room: '「相对论探讨」', time: '2分钟前', color: '#4F7DF3' },
+  { id: 3, character: '莎士比亚', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', action: '回复了', room: '「文学沙龙」', time: '5分钟前', color: '#34D399' },
+  { id: 4, character: '梅西', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', action: '正在讨论', room: '「天赋与努力」', time: '8分钟前', color: '#10B981' },
+  { id: 5, character: '宫崎骏', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', action: '发布了新观点', room: '「创作的意义」', time: '12分钟前', color: '#EC4899' },
+])
+
+// Online users
+const onlineUsers = ref([
+  { name: '爱因斯坦', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', status: '讨论中' },
+  { name: '马斯克', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', status: '发言中' },
+  { name: '莎士比亚', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', status: '思考中' },
+  { name: '宫崎骏', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', status: '创作中' },
+  { name: '梅西', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', status: '在线' },
+])
+
+// Room cards data
+const roomCardsData = [
+  {
+    id: '1',
+    title: 'AI 会取代人类创造力吗？',
+    cover: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&h=225&fit=crop',
+    participants: ['爱因斯坦', '马斯克', '宫崎骏'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf'
+    ],
+    latestMessage: { sender: '爱因斯坦', text: '时间并不是线性的...' },
+    onlineCount: 128,
+    messageCount: 892,
+    category: 'scientist',
+    isHot: true
+  },
+  {
+    id: '2',
+    title: '天赋与努力，哪个更重要？',
+    cover: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=400&h=225&fit=crop',
+    participants: ['梅西', '乔丹', '泰勒'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Jordan&backgroundColor=ffd5dc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede'
+    ],
+    latestMessage: { sender: '梅西', text: '每天训练8小时...' },
+    onlineCount: 256,
+    messageCount: 1543,
+    category: 'athlete',
+    isHot: true
+  },
+  {
+    id: '3',
+    title: '时间是否真实存在？',
+    cover: 'https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=400&h=225&fit=crop',
+    participants: ['苏格拉底', '爱因斯坦', '牛顿'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd'
+    ],
+    latestMessage: { sender: '苏格拉底', text: '我知道我一无所知...' },
+    onlineCount: 89,
+    messageCount: 567,
+    category: 'philosopher',
+    isHot: false
+  },
+  {
+    id: '4',
+    title: '创作的本质是什么？',
+    cover: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=400&h=225&fit=crop',
+    participants: ['宫崎骏', '莎士比亚', '泰勒'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede'
+    ],
+    latestMessage: { sender: '宫崎骏', text: '创造让世界更温暖...' },
+    onlineCount: 167,
+    messageCount: 723,
+    category: 'anime',
+    isHot: true
+  },
+  {
+    id: '5',
+    title: '星际旅行能实现吗？',
+    cover: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=225&fit=crop',
+    participants: ['马斯克', '爱因斯坦'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+    ],
+    latestMessage: { sender: '马斯克', text: '2050年火星城市...' },
+    onlineCount: 312,
+    messageCount: 2104,
+    category: 'entrepreneur',
+    isHot: true
+  },
+  {
+    id: '6',
+    title: '音乐能改变世界吗？',
+    cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=225&fit=crop',
+    participants: ['泰勒', '贝多芬'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Beethoven&backgroundColor=ffd5dc'
+    ],
+    latestMessage: { sender: '泰勒', text: '每一首歌都是一个故事...' },
+    onlineCount: 198,
+    messageCount: 945,
+    category: 'star',
+    isHot: false
+  },
+]
+
+// Recent chats
+const recentChats = ref([
+  { id: '1', name: '相对论探讨', lastMessage: '爱因斯坦: 时间是相对的...', time: '5分钟前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4' },
+  { id: '2', name: '文学沙龙', lastMessage: '莎士比亚: 生存还是毁灭...', time: '1小时前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc' },
+  { id: '3', name: '未来 AI 实验室', lastMessage: '马斯克: AI 将改变一切', time: '2小时前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9' },
+])
 
 onMounted(async () => {
   await roomStore.fetchRooms()
+  setTimeout(() => { mounted.value = true }, 50)
 })
-
-async function handleDelete(roomId: string, roomName: string) {
-  if (!confirm(`确定要删除聊天室 "${roomName}" 吗？`)) {
-    return
-  }
-
-  try {
-    await roomStore.deleteRoom(roomId)
-  } catch (e) {
-    alert(e instanceof Error ? e.message : '删除失败')
-  }
-}
 
 function handleRoomCreated(roomId: string) {
   router.push(`/chat/${roomId}`)
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+function enterRoom(roomId: string) {
+  router.push(`/chat/${roomId}`)
 }
 </script>
 
 <template>
-  <div class="min-h-screen">
-    <!-- Header -->
-    <header class="header">
-      <div class="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between">
-        <div class="animate-fade-in-up">
-          <h1 class="text-display mb-1">我的聊天室</h1>
-          <p class="text-[var(--color-text-secondary)]">
-            <span class="text-[var(--color-gold)]">✦</span>
-            {{ authStore.user?.name || '用户' }} · 智慧的殿堂
-          </p>
+  <div class="page-layout" :class="{ mounted }">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <!-- Logo -->
+      <div class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/image.svg" alt="Idea Party Logo" class="logo-img" />
         </div>
-        <!-- Desktop actions -->
-        <div class="flex items-center gap-3">
-          <!-- User info with logout -->
-          <div class="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[var(--color-parchment)] border border-[var(--color-border)]">
-            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] flex items-center justify-center">
-              <span class="text-[var(--color-gold)] text-sm font-medium">{{ authStore.user?.name?.charAt(0) || '?' }}</span>
-            </div>
-            <div class="hidden sm:block">
-              <p class="text-sm font-medium text-[var(--color-navy)]">{{ authStore.user?.name || '用户' }}</p>
-              <p class="text-xs text-[var(--color-text-muted)]">{{ authStore.user?.email }}</p>
-            </div>
-            <button
-              @click="authStore.logout()"
-              class="ml-2 p-1.5 rounded hover:bg-[var(--color-cream)] text-[var(--color-text-muted)] hover:text-[var(--color-destructive)] transition-colors"
-              title="退出登录"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-          </div>
-          <button
-            @click="router.push('/settings')"
-            class="hidden lg:flex p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
-            title="设置"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-          <Button
-            variant="primary"
-            class="hidden lg:inline-flex"
-            @click="showCreateModal = true"
-          >
-            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            创建房间
-          </Button>
-        </div>
-      </div>
-    </header>
-
-    <!-- Content -->
-    <main class="max-w-4xl mx-auto px-4 py-8 pb-24 lg:pb-8">
-      <!-- Decorative divider -->
-      <div class="flex items-center justify-center gap-4 mb-10">
-        <div class="h-px w-16 bg-gradient-to-r from-transparent to-[var(--color-gold)]"></div>
-        <span class="text-[var(--color-gold)] text-sm">✦</span>
-        <div class="h-px w-16 bg-gradient-to-l from-transparent to-[var(--color-gold)]"></div>
+        <span class="logo-text">Idea Party</span>
       </div>
 
-      <!-- Loading State -->
-      <div v-if="roomStore.loading && roomStore.rooms.length === 0" class="flex justify-center py-16">
-        <div class="loading-spinner">
-          <svg class="animate-spin h-10 w-10 text-[var(--color-gold)]" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-        </div>
-      </div>
+      <!-- Create Button -->
+      <button class="create-btn" @click="showCreateModal = true">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        <span>创建聊天室</span>
+      </button>
 
-      <!-- Empty State -->
-      <div
-        v-else-if="roomStore.rooms.length === 0"
-        class="text-center py-20 animate-fade-in-up"
-      >
-        <div class="empty-icon">
-          <svg class="w-24 h-24 mx-auto text-[var(--color-gold)] opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </div>
-        <h2 class="text-heading mt-6 mb-3">开启你的智慧之旅</h2>
-        <p class="text-[var(--color-text-secondary)] mb-8 max-w-md mx-auto">
-          创建一个聊天室，邀请历史上的伟大思想家，就任何话题展开深入对话
-        </p>
-        <Button variant="primary" @click="showCreateModal = true">
-          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          创建第一个聊天室
-        </Button>
-      </div>
-
-      <!-- Room List Grid -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div
-          v-for="(room, index) in roomStore.sortedRooms"
-          :key="room.id"
-          class="room-card animate-fade-in-up"
-          :style="{ animationDelay: `${index * 0.1}s` }"
-          @click="router.push(`/chat/${room.id}`)"
+      <!-- Navigation -->
+      <nav class="nav-menu">
+        <a
+          v-for="item in navItems"
+          :key="item.id"
+          href="#"
+          class="nav-item"
+          :class="{ active: item.id === 'discover' }"
+          @click.prevent
         >
-          <!-- Decorative corner -->
-          <div class="corner-accent top-left"></div>
-          <div class="corner-accent top-right"></div>
+          <span class="nav-emoji">{{ item.emoji }}</span>
+          <span class="nav-label">{{ item.label }}</span>
+        </a>
+      </nav>
 
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-2">
-                <div class="w-2 h-2 rounded-full bg-[var(--color-gold)]"></div>
-                <h3 class="text-lg font-semibold text-[var(--color-navy)] truncate font-['Playfair_Display']">
-                  {{ room.name }}
-                </h3>
+      <!-- Recent Chats -->
+      <div class="recent-chats">
+        <div class="section-header">
+          <span class="section-title">最近聊天</span>
+        </div>
+        <div class="chat-list">
+          <a
+            v-for="chat in recentChats"
+            :key="chat.id"
+            href="#"
+            class="chat-item"
+            @click.prevent="enterRoom(chat.id)"
+          >
+            <div class="chat-avatar">
+              <img v-if="chat.avatar" :src="chat.avatar" :alt="chat.name" />
+              <span v-else class="chat-avatar-placeholder">{{ chat.name.charAt(0) }}</span>
+            </div>
+            <div class="chat-info">
+              <span class="chat-name">{{ chat.name }}</span>
+              <span class="chat-preview">{{ chat.lastMessage }}</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      <!-- User Profile -->
+      <UserDropdown />
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="content-header">
+        <h1 class="page-title">发现</h1>
+        <div class="search-bar">
+          <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="search-input"
+            placeholder="搜索角色、讨论、场景..."
+          />
+        </div>
+      </header>
+
+      <!-- Featured Characters -->
+      <section class="featured-section">
+        <div class="section-header">
+          <h2 class="section-title">推荐角色</h2>
+          <a href="#" class="see-all" @click.prevent>查看全部</a>
+        </div>
+        <div class="featured-scroll">
+          <div
+            v-for="char in featuredCharacters"
+            :key="char.id"
+            class="character-card"
+          >
+            <div class="character-avatar-wrap">
+              <img :src="char.avatar" :alt="char.name" class="character-avatar" />
+              <span v-if="char.online" class="online-indicator"></span>
+            </div>
+            <div class="character-info">
+              <span class="character-name">{{ char.name }}</span>
+              <span class="character-role">{{ char.role }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Category Tabs -->
+      <section class="category-tabs">
+        <button
+          v-for="cat in categories"
+          :key="cat.id"
+          class="category-chip"
+          :class="{ active: selectedCategory === cat.id }"
+          @click="selectedCategory = cat.id"
+          :style="selectedCategory === cat.id && cat.color ? { backgroundColor: cat.color + '20', borderColor: cat.color, color: cat.color } : {}"
+        >
+          <span class="chip-emoji">{{ cat.emoji }}</span>
+          <span class="chip-label">{{ cat.label }}</span>
+        </button>
+      </section>
+
+      <!-- Hot Rooms -->
+      <section class="rooms-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <span class="hot-badge">🔥</span>
+            热门聊天室
+          </h2>
+          <span class="room-count">{{ roomCardsData.length }} 个房间</span>
+        </div>
+
+        <!-- Room Grid -->
+        <div class="room-grid">
+          <div
+            v-for="room in roomCardsData"
+            :key="room.id"
+            class="room-card"
+            @click="enterRoom(room.id)"
+          >
+            <!-- Cover Image -->
+            <div class="room-cover">
+              <img :src="room.cover" :alt="room.title" class="cover-img" />
+              <div v-if="room.isHot" class="hot-tag">🔥 热门</div>
+              <div class="cover-overlay"></div>
+            </div>
+
+            <!-- Room Info -->
+            <div class="room-body">
+              <h3 class="room-title">{{ room.title }}</h3>
+
+              <!-- Participants -->
+              <div class="room-participants">
+                <div class="avatar-stack">
+                  <img
+                    v-for="(avatar, i) in room.participantAvatars"
+                    :key="i"
+                    :src="avatar"
+                    :alt="room.participants[i]"
+                    class="participant-avatar"
+                    :style="{ zIndex: 3 - i }"
+                  />
+                </div>
+                <span class="participant-names">{{ room.participants.slice(0, 3).join('、') }}</span>
               </div>
-              <p v-if="room.topic" class="text-sm text-[var(--color-text-secondary)] mt-2 line-clamp-2 leading-relaxed">
-                {{ room.topic }}
-              </p>
-              <div class="flex items-center gap-4 mt-4 text-xs text-[var(--color-text-muted)]">
-                <span class="flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5 text-[var(--color-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+              <!-- Latest Message -->
+              <div class="latest-message">
+                <span class="message-sender">{{ room.latestMessage.sender }}:</span>
+                <span class="message-text">{{ room.latestMessage.text }}</span>
+              </div>
+
+              <!-- Stats -->
+              <div class="room-stats">
+                <span class="stat">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                  {{ room.characterCount }} 位思想家
+                  {{ room.onlineCount }} 在线
                 </span>
-                <span class="flex items-center gap-1.5">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <span class="stat">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
-                  {{ formatDate(room.updatedAt) }}
+                  {{ room.messageCount }} 条消息
                 </span>
               </div>
             </div>
-
-            <!-- Action buttons -->
-            <div class="flex flex-col gap-2 shrink-0" @click.stop>
-              <button
-                class="p-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-muted)] hover:text-[var(--color-destructive)] transition-all"
-                @click="handleDelete(room.id, room.name)"
-                title="删除房间"
-              >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
           </div>
+        </div>
+      </section>
+    </main>
 
-          <!-- Enter indicator -->
-          <div class="enter-hint">
-            <span>进入讨论</span>
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
+    <!-- Right Sidebar -->
+    <aside class="right-sidebar">
+      <!-- Live Activity -->
+      <div class="widget">
+        <div class="widget-header">
+          <span class="widget-title">
+            <span class="live-dot"></span>
+            实时动态
+          </span>
+          <span class="live-count">{{ liveActivities.length }} 个在线</span>
+        </div>
+        <div class="activity-feed">
+          <div
+            v-for="activity in liveActivities"
+            :key="activity.id"
+            class="activity-item"
+          >
+            <img :src="activity.avatar" :alt="activity.character" class="activity-avatar" />
+            <div class="activity-content">
+              <p class="activity-text">
+                <span class="activity-name" :style="{ color: activity.color }">{{ activity.character }}</span>
+                {{ activity.action }}
+              </p>
+              <p class="activity-room">{{ activity.room }}</p>
+              <span class="activity-time">{{ activity.time }}</span>
+            </div>
           </div>
         </div>
       </div>
-    </main>
 
-    <!-- Mobile FAB -->
-    <button
-      class="lg:hidden fixed bottom-8 right-8 w-16 h-16 bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] text-[var(--color-gold)] rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-10"
-      @click="showCreateModal = true"
-      aria-label="创建聊天室"
-    >
-      <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-      </svg>
-    </button>
+      <!-- Online Now -->
+      <div class="widget">
+        <div class="widget-header">
+          <span class="widget-title">在线角色</span>
+        </div>
+        <div class="online-list">
+          <div
+            v-for="user in onlineUsers"
+            :key="user.name"
+            class="online-item"
+          >
+            <div class="online-avatar-wrap">
+              <img :src="user.avatar" :alt="user.name" class="online-avatar" />
+              <span class="online-status"></span>
+            </div>
+            <div class="online-info">
+              <span class="online-name">{{ user.name }}</span>
+              <span class="online-status-text">{{ user.status }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="widget quick-actions">
+        <button class="action-btn" @click="showCreateModal = true">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          创建聊天室
+        </button>
+        <button class="action-btn secondary" @click="router.push('/settings')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          设置
+        </button>
+      </div>
+    </aside>
 
     <!-- Create Room Modal -->
     <CreateRoomModal
@@ -227,108 +457,833 @@ function formatDate(dateString: string): string {
 </template>
 
 <style scoped>
-.header {
-  background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
-  border-bottom: 1px solid var(--color-border);
-  position: relative;
+/* ===== Page Layout ===== */
+.page-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  min-height: 100vh;
+  background: #F6F7FB;
+  opacity: 0;
+  transition: opacity 0.4s ease;
 }
 
-.header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 120px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+.page-layout.mounted {
+  opacity: 1;
 }
 
-.room-card {
-  position: relative;
-  background: linear-gradient(145deg, var(--color-ivory), var(--color-parchment));
-  border: 1px solid var(--color-border);
+/* ===== Left Sidebar ===== */
+.sidebar {
+  background: #f7f7f8;
+  border-right: 1px solid #E5E7EB;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem;
+  margin-bottom: 0.875rem;
+}
+
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (prefers-color-scheme: dark) {
+  .logo-img {
+    filter: brightness(0) invert(1);
+  }
+}
+
+.logo-text {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1E293B;
+  letter-spacing: -0.02em;
+}
+
+/* Create Button - Light & Minimal */
+.create-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: #1E293B;
+  border: none;
   border-radius: 16px;
-  padding: 1.5rem;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
+  margin-bottom: 1rem;
+}
+
+.create-btn:hover {
+  background: #334155;
+}
+
+.create-btn svg {
+  opacity: 0.9;
+}
+
+/* Navigation - Minimal & Light */
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-bottom: 1rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  color: #64748B;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition: all 0.15s ease;
+}
+
+.nav-item:hover {
+  background: #e8e8ed;
+  color: #1E293B;
+}
+
+.nav-item.active {
+  background: #e8e8ed;
+  color: #1E293B;
+  font-weight: 500;
+}
+
+.nav-emoji {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Recent Chats - Minimal List */
+.recent-chats {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #94A3B8;
+  text-transform: uppercase;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.chat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.chat-item:hover {
+  background: #e8e8ed;
+}
+
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #e8e8ed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748B;
+  flex-shrink: 0;
   overflow: hidden;
 }
 
-.room-card::before {
-  content: '';
+.chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-avatar-placeholder {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #94A3B8;
+}
+
+.chat-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.chat-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #1E293B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-preview {
+  font-size: 0.7rem;
+  color: #94A3B8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+}
+
+/* Header */
+.content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1E293B;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 999px;
+  width: 320px;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.search-bar:focus-within {
+  border-color: #4F7DF3;
+  box-shadow: 0 0 0 3px rgba(79, 125, 243, 0.1);
+}
+
+.search-icon {
+  color: #94A3B8;
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.9rem;
+  color: #1E293B;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: #94A3B8;
+}
+
+/* Featured Section */
+.featured-section {
+  margin-bottom: 2rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+.see-all {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #4F7DF3;
+  text-decoration: none;
+}
+
+.see-all:hover {
+  text-decoration: underline;
+}
+
+/* Featured Scroll */
+.featured-scroll {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.featured-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.character-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem;
+  background: #FFFFFF;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+  min-width: 100px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.character-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  border-color: #4F7DF3;
+}
+
+.character-avatar-wrap {
+  position: relative;
+}
+
+.character-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #E5E7EB;
+}
+
+.online-indicator {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--color-gold-dark), var(--color-gold), var(--color-gold-dark));
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #10B981;
+  border: 2px solid white;
+}
+
+.character-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  text-align: center;
+}
+
+.character-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+.character-role {
+  font-size: 0.7rem;
+  color: #94A3B8;
+}
+
+/* Category Tabs */
+.category-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+  scrollbar-width: none;
+}
+
+.category-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.category-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #64748B;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.category-chip:hover {
+  background: #F1F5F9;
+  color: #1E293B;
+}
+
+.category-chip.active {
+  background: #EEF2FF;
+  border-color: #4F7DF3;
+  color: #4F7DF3;
+}
+
+.chip-emoji {
+  font-size: 0.95rem;
+}
+
+/* Rooms Section */
+.rooms-section {
+  margin-bottom: 2rem;
+}
+
+.hot-badge {
+  font-size: 1.2rem;
+}
+
+.room-count {
+  font-size: 0.85rem;
+  color: #94A3B8;
+}
+
+/* Room Grid */
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 1400px) {
+  .room-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .room-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Room Card */
+.room-card {
+  background: #FFFFFF;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
 .room-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(201, 169, 98, 0.2);
-  border-color: var(--color-gold-light);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  border-color: #4F7DF3;
 }
 
-.room-card:hover::before {
-  opacity: 1;
+.room-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
 }
 
-.corner-accent {
+.cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.room-card:hover .cover-img {
+  transform: scale(1.05);
+}
+
+.cover-overlay {
   position: absolute;
-  width: 20px;
-  height: 20px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.5) 100%);
 }
 
-.corner-accent.top-left {
-  top: 8px;
-  left: 8px;
-  border-top: 2px solid var(--color-gold);
-  border-left: 2px solid var(--color-gold);
+.hot-tag {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  background: rgba(255, 100, 50, 0.9);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: white;
 }
 
-.corner-accent.top-right {
-  top: 8px;
-  right: 8px;
-  border-top: 2px solid var(--color-gold);
-  border-right: 2px solid var(--color-gold);
+.room-body {
+  padding: 1rem;
 }
 
-.room-card:hover .corner-accent {
-  opacity: 1;
+.room-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1E293B;
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.enter-hint {
+.room-participants {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.avatar-stack {
+  display: flex;
+}
+
+.participant-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid white;
+  margin-left: -8px;
+  object-fit: cover;
+}
+
+.participant-avatar:first-child {
+  margin-left: 0;
+}
+
+.participant-names {
+  font-size: 0.8rem;
+  color: #64748B;
+}
+
+.latest-message {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: #F8FAFC;
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.message-sender {
+  font-weight: 600;
+  color: #4F7DF3;
+}
+
+.message-text {
+  color: #64748B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-stats {
+  display: flex;
+  gap: 1rem;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: #94A3B8;
+}
+
+/* ===== Right Sidebar ===== */
+.right-sidebar {
+  background: #FFFFFF;
+  border-left: 1px solid #E5E7EB;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* Widget */
+.widget {
+  background: #F8FAFC;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.widget-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10B981;
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.live-count {
+  font-size: 0.75rem;
+  color: #94A3B8;
+}
+
+/* Activity Feed */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.activity-item {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.activity-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-text {
+  font-size: 0.8rem;
+  color: #64748B;
+  line-height: 1.4;
+}
+
+.activity-name {
+  font-weight: 600;
+}
+
+.activity-room {
+  font-size: 0.75rem;
+  color: #94A3B8;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-time {
+  font-size: 0.7rem;
+  color: #94A3B8;
+}
+
+/* Online List */
+.online-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.online-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.online-avatar-wrap {
+  position: relative;
+}
+
+.online-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.online-status {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #10B981;
+  border: 2px solid #F8FAFC;
+}
+
+.online-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.online-name {
   font-size: 0.85rem;
-  color: var(--color-text-muted);
-  opacity: 0;
-  transform: translateY(5px);
-  transition: all 0.3s ease;
+  font-weight: 500;
+  color: #1E293B;
 }
 
-.room-card:hover .enter-hint {
-  opacity: 1;
-  transform: translateY(0);
-  color: var(--color-gold);
+.online-status-text {
+  font-size: 0.75rem;
+  color: #10B981;
 }
 
-.empty-icon {
-  animation: float 4s ease-in-out infinite;
+/* Quick Actions */
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: auto;
+  background: transparent;
+  padding: 0;
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+}
+
+.action-btn.secondary {
+  background: #F1F5F9;
+  color: #64748B;
+}
+
+.action-btn.secondary:hover {
+  background: #E2E8F0;
+  color: #1E293B;
+  box-shadow: none;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1200px) {
+  .page-layout {
+    grid-template-columns: 260px 1fr;
+  }
+
+  .right-sidebar {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
+
+  .search-bar {
+    width: 100%;
+  }
+
+  .content-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
 }
 </style>

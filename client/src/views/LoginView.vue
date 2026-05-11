@@ -1,32 +1,101 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
-import Input from '@/components/ui/Input.vue'
-import Button from '@/components/ui/Button.vue'
+import { Sun, Moon } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
+const themeStore = useThemeStore()
 const authStore = useAuthStore()
 
+// Form mode: true = register, false = login
+const isRegisterMode = ref(false)
+
+// Animation state
+const isVisible = ref(false)
+
+// Check URL params on mount to set initial mode
+onMounted(() => {
+  if (route.query.mode === 'register') {
+    isRegisterMode.value = true
+  }
+  setTimeout(() => {
+    isVisible.value = true
+  }, 50)
+})
+
+// Watch route query changes to sync isRegisterMode
+watch(() => route.query.mode, (newMode) => {
+  isRegisterMode.value = newMode === 'register'
+  error.value = ''
+})
+
+// Form fields
+const name = ref('')
 const email = ref('')
 const password = ref('')
+const confirmPassword = ref('')
+
+// UI state
 const loading = ref(false)
 const error = ref('')
 
+// Computed button text
+const submitButtonText = computed(() => {
+  if (loading.value) return isRegisterMode.value ? '创建中...' : '登录中...'
+  return isRegisterMode.value ? '创建账号' : '登录'
+})
+
+// Toggle between login and register
+function toggleMode() {
+  const newMode = !isRegisterMode.value
+  isRegisterMode.value = newMode
+  error.value = ''
+  // Update URL to reflect mode
+  if (newMode) {
+    router.push('/login?mode=register')
+  } else {
+    router.push('/login')
+  }
+}
+
+// Login/Register
 async function handleSubmit() {
+  error.value = ''
+
   if (!email.value || !password.value) {
-    error.value = '请输入邮箱和密码'
+    error.value = '请填写所有字段'
     return
   }
 
+  if (isRegisterMode.value) {
+    if (!name.value) {
+      error.value = '请输入用户名'
+      return
+    }
+    if (password.value.length < 6) {
+      error.value = '密码长度至少为 6 个字符'
+      return
+    }
+    if (password.value !== confirmPassword.value) {
+      error.value = '两次输入的密码不一致'
+      return
+    }
+  }
+
   loading.value = true
-  error.value = ''
 
   try {
-    await authStore.login(email.value, password.value)
+    if (isRegisterMode.value) {
+      await authStore.register(name.value, email.value, password.value)
+    } else {
+      await authStore.login(email.value, password.value)
+    }
     router.push('/rooms')
   } catch (err: any) {
-    error.value = err.response?.data?.message || '登录失败，请检查邮箱和密码'
+    error.value = err.response?.data?.message || (isRegisterMode.value ? '注册失败，请稍后重试' : '登录失败，请检查邮箱和密码')
   } finally {
     loading.value = false
   }
@@ -34,98 +103,818 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4 py-12">
-    <div class="w-full max-w-md">
-      <!-- Decorative Logo Area -->
-      <div class="text-center mb-12 animate-fade-in-up">
-        <!-- Decorative Icon -->
-        <div class="inline-flex items-center justify-center w-20 h-20 mb-6 rounded-full bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] shadow-lg">
-          <svg class="w-10 h-10 text-[var(--color-gold)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-        </div>
-        <h1 class="text-display mb-3">IdeaParty</h1>
-        <p class="text-subheading text-[var(--color-text-secondary)] italic">智慧的沙龙，思想的盛宴</p>
-        <div class="flex items-center justify-center gap-2 mt-4">
-          <span class="w-12 h-px bg-gradient-to-r from-transparent to-[var(--color-gold)]"></span>
-          <span class="text-[var(--color-gold)] text-sm">✦</span>
-          <span class="w-12 h-px bg-gradient-to-l from-transparent to-[var(--color-gold)]"></span>
-        </div>
-      </div>
-
-      <!-- Login Card -->
-      <div class="card animate-fade-in-up stagger-2">
-        <!-- Decorative top border -->
-        <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-1 bg-gradient-to-r from-[var(--color-gold-dark)] via-[var(--color-gold)] to-[var(--color-gold-dark)] rounded-full"></div>
-
-        <h2 class="text-heading text-center mb-8">欢迎回来</h2>
-
-        <form @submit.prevent="handleSubmit" class="space-y-5">
-          <div class="animate-fade-in-up stagger-3">
-            <Input
-              v-model="email"
-              type="email"
-              label="邮箱地址"
-              placeholder="请输入邮箱"
-              :disabled="loading"
-            />
-          </div>
-
-          <div class="animate-fade-in-up stagger-4">
-            <Input
-              v-model="password"
-              type="password"
-              label="密码"
-              placeholder="请输入密码"
-              :disabled="loading"
-            />
-          </div>
-
-          <div
-            v-if="error"
-            class="text-sm text-[var(--color-destructive)] text-center py-2 px-3 bg-red-50 rounded-lg border border-red-100 animate-fade-in-up"
+  <!-- 根容器 - 无 flex 干扰布局 -->
+  <div class="login-page-root">
+    <!-- Header -->
+    <header class="login-header">
+      <div class="header-inner">
+        <!-- Logo -->
+        <div class="flex items-center">
+          <h1
+            class="text-[30px] font-black tracking-[-0.03em]"
+            :style="{ color: themeStore.isDark ? '#FFFFFF' : '#18181B' }"
           >
-            {{ error }}
-          </div>
+            Idea Party
+          </h1>
+        </div>
 
-          <div class="pt-2 animate-fade-in-up stagger-5">
-            <Button
-              type="submit"
-              variant="primary"
-              :loading="loading"
-              class="w-full"
-            >
-              <svg v-if="!loading" class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-              </svg>
+        <!-- Right buttons -->
+        <div class="flex items-center gap-3">
+          <!-- Theme Toggle Button -->
+          <button
+            @click="themeStore.toggle"
+            class="theme-toggle-btn"
+            :title="themeStore.isDark ? '切换到白天模式' : '切换到暗黑模式'"
+          >
+            <Transition name="icon-fade" mode="out-in">
+              <Moon v-if="themeStore.isDark" :size="20" :stroke-width="2" />
+              <Sun v-else :size="20" :stroke-width="2" />
+            </Transition>
+          </button>
+
+          <router-link to="/login">
+            <button class="inline-flex h-11 min-w-[92px] items-center justify-center rounded-full border border-zinc-200 bg-white px-6 text-[14px] font-semibold text-zinc-800 shadow-sm transition-all hover:border-zinc-300 hover:bg-zinc-50 hover:-translate-y-[1px] dark:border-white/20 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100">
               登录
-            </Button>
-          </div>
-        </form>
+            </button>
+          </router-link>
+          <router-link to="/login?mode=register">
+            <button class="inline-flex h-11 min-w-[92px] items-center justify-center rounded-full bg-zinc-950 px-6 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-zinc-800 hover:-translate-y-[1px] dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100">
+              注册
+            </button>
+          </router-link>
+        </div>
+      </div>
+    </header>
 
-        <div class="flex items-center justify-center gap-3 mt-8">
-          <span class="w-16 h-px bg-[var(--color-border)]"></span>
-          <span class="text-[var(--color-text-muted)] text-sm">还没有账号</span>
-          <span class="w-16 h-px bg-[var(--color-border)]"></span>
+    <!-- Main Content -->
+    <main class="login-main">
+      <section class="login-section">
+        <!-- 右侧大图 - 使用 inline style 确保 calc 生效 -->
+        <div class="hero-image-container" :style="{ width: 'calc(100% - 300px)' }">
+          <img
+            src="/login-bg.png"
+            alt="login background"
+            class="hero-image"
+          />
         </div>
 
-        <p class="text-center mt-4">
-          <router-link
-            to="/register"
-            class="inline-flex items-center gap-1 text-[var(--color-navy)] hover:text-[var(--color-gold)] font-medium transition-colors"
-          >
-            <span>创建账户</span>
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
-          </router-link>
-        </p>
-      </div>
+        <!-- 左侧登录卡片 -->
+        <div class="login-card-wrapper">
+          <div class="login-card">
+            <!-- Card Header -->
+            <div class="card-header">
+              <h1 class="card-title" v-if="!isRegisterMode">
+                <span class="title-line1">有些对话</span>
+                <span class="title-line2">人类历史上从未发生过</span>
+              </h1>
+              <h1 class="card-title card-title-single" v-else>创建账号</h1>
+              <p class="card-subtitle">
+                {{ isRegisterMode ? '加入 Idea Party，探索 AI 角色世界' : '现在，你可以让他们第一次坐在同一张桌子前' }}
+              </p>
+            </div>
 
-      <!-- Footer -->
-      <p class="text-center text-[var(--color-text-muted)] text-sm mt-8 animate-fade-in-up stagger-5">
-        与历史上的伟大思想家对话
-      </p>
-    </div>
+            <!-- Auth Form -->
+            <form @submit.prevent="handleSubmit" class="auth-form">
+              <!-- Name (Register only) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="name"
+                  type="text"
+                  placeholder="用户名"
+                  class="form-input"
+                />
+              </div>
+
+              <!-- Email -->
+              <div>
+                <input
+                  v-model="email"
+                  type="email"
+                  placeholder="邮箱地址"
+                  class="form-input"
+                />
+              </div>
+
+              <!-- Password -->
+              <div>
+                <input
+                  v-model="password"
+                  type="password"
+                  placeholder="密码"
+                  class="form-input"
+                />
+              </div>
+
+              <!-- Confirm Password (Register only) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="confirmPassword"
+                  type="password"
+                  placeholder="确认密码"
+                  class="form-input"
+                />
+              </div>
+
+              <!-- Error Message -->
+              <Transition name="fade">
+                <div v-if="error" class="text-sm text-red-500 text-center py-2">
+                  {{ error }}
+                </div>
+              </Transition>
+
+              <!-- Submit Button -->
+              <button
+                type="submit"
+                :disabled="loading"
+                class="submit-button"
+              >
+                {{ submitButtonText }}
+              </button>
+            </form>
+
+            <!-- Toggle Mode -->
+            <div class="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+              <span>{{ isRegisterMode ? '已有账号？' : '还没有账号？' }}</span>
+
+              <button
+                type="button"
+                @click="toggleMode"
+                class="
+                  font-semibold
+                  text-sky-700
+                  underline-offset-4
+                  transition-all
+                  duration-200
+                  hover:text-sky-800
+                  hover:underline
+                  dark:text-sky-300
+                  dark:hover:text-sky-200
+                "
+              >
+                {{ isRegisterMode ? '立即登录' : '立即注册' }}
+              </button>
+            </div>
+
+            <!-- Terms -->
+            <p v-if="isRegisterMode" class="text-center text-xs text-zinc-400 mt-6">
+              注册即表示您同意我们的
+              <router-link to="/terms" class="underline hover:text-zinc-600 transition-colors">服务条款</router-link>
+              和
+              <router-link to="/privacy" class="underline hover:text-zinc-600 transition-colors">隐私政策</router-link>
+            </p>
+          </div>
+        </div>
+
+        <!-- 移动端布局 -->
+        <div class="mobile-layout">
+          <!-- 移动端图片 -->
+          <div class="mobile-image-container">
+            <img
+              src="/login-bg.png"
+              alt="login background"
+              class="mobile-image"
+            />
+          </div>
+
+          <!-- 移动端卡片 -->
+          <div class="mobile-card">
+            <div class="mobile-card-header">
+              <h1 class="mobile-card-title" v-if="!isRegisterMode">
+                <span class="mobile-title-line1">有些对话</span>
+                <span class="mobile-title-line2">人类历史上从未发生过</span>
+              </h1>
+              <h1 class="mobile-card-title mobile-card-title-single" v-else>创建账号</h1>
+              <p class="mobile-card-subtitle">
+                {{ isRegisterMode ? '加入 Idea Party，探索 AI 角色世界' : '现在，你可以让他们第一次坐在同一张桌子前' }}
+              </p>
+            </div>
+
+            <!-- Auth Form -->
+            <form @submit.prevent="handleSubmit" class="mobile-auth-form">
+              <!-- Name (Register only) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="name"
+                  type="text"
+                  placeholder="用户名"
+                  class="mobile-form-input"
+                />
+              </div>
+
+              <!-- Email -->
+              <div>
+                <input
+                  v-model="email"
+                  type="email"
+                  placeholder="邮箱地址"
+                  class="mobile-form-input"
+                />
+              </div>
+
+              <!-- Password -->
+              <div>
+                <input
+                  v-model="password"
+                  type="password"
+                  placeholder="密码"
+                  class="mobile-form-input"
+                />
+              </div>
+
+              <!-- Confirm Password (Register only) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="confirmPassword"
+                  type="password"
+                  placeholder="确认密码"
+                  class="mobile-form-input"
+                />
+              </div>
+
+              <!-- Error Message -->
+              <Transition name="fade">
+                <div v-if="error" class="text-sm text-red-500 text-center py-2">
+                  {{ error }}
+                </div>
+              </Transition>
+
+              <!-- Submit Button -->
+              <button
+                type="submit"
+                :disabled="loading"
+                class="mobile-submit-button"
+              >
+                {{ submitButtonText }}
+              </button>
+            </form>
+
+            <!-- Toggle Mode -->
+            <div class="mt-8 flex items-center justify-center gap-2 text-sm" :style="{ color: themeStore.isDark ? '#A1A1AA' : '#71717A' }">
+              <span>{{ isRegisterMode ? '已有账号？' : '还没有账号？' }}</span>
+
+              <button
+                type="button"
+                @click="toggleMode"
+                class="font-semibold underline-offset-4 transition-all duration-200 hover:underline hover:text-sky-600 dark:hover:text-sky-400"
+                :style="{ color: themeStore.isDark ? '#93C5FD' : '#1D4ED8' }"
+              >
+                {{ isRegisterMode ? '立即登录' : '立即注册' }}
+              </button>
+            </div>
+
+            <!-- Terms -->
+            <p v-if="isRegisterMode" class="text-center text-xs text-zinc-400 dark:text-zinc-500 mt-4">
+              注册即表示您同意我们的
+              <router-link to="/terms" class="underline hover:text-zinc-600 transition-colors dark:hover:text-zinc-300">服务条款</router-link>
+              和
+              <router-link to="/privacy" class="underline hover:text-zinc-600 transition-colors dark:hover:text-zinc-300">隐私政策</router-link>
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 </template>
+
+<style scoped>
+/* 根容器 */
+.login-page-root {
+  min-height: 100vh;
+  background: var(--color-bg);
+  transition: var(--transition-theme);
+}
+
+/* Header */
+.login-header {
+  height: 64px;
+  border-bottom: 1px solid rgba(228, 228, 231, 0.7);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--transition-theme);
+}
+
+.dark .login-header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: rgba(30, 30, 35, 0.98);
+}
+
+.header-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+
+/* Theme Toggle Button */
+.theme-toggle-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: #18181b;
+}
+
+.theme-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.dark .theme-toggle-btn {
+  background: rgba(24, 24, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #FAFAFA;
+}
+
+.dark .theme-toggle-btn:hover {
+  background: rgba(39, 39, 42, 0.9);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Icon transition */
+.icon-fade-enter-active,
+.icon-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.icon-fade-enter-from {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.8);
+}
+
+.icon-fade-leave-to {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.8);
+}
+
+/* Login toggle button - force white in dark mode */
+.dark .login-card-wrapper .auth-form ~ div button {
+  color: #FFFFFF !important;
+}
+
+/* Main */
+.login-main {
+  padding: 48px 32px 64px;
+  min-height: calc(100vh - 64px);
+}
+
+/* Section - 关键：这是 relative 容器 */
+.login-section {
+  position: relative;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+/* Hero 图片容器 */
+.hero-image-container {
+  height: 560px;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.18);
+  position: relative;
+}
+
+.hero-image-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: var(--transition-theme);
+  pointer-events: none;
+}
+
+.dark .hero-image-container::after {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.hero-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 登录卡片包装器 - 绝对定位 */
+.login-card-wrapper {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  width: 420px;
+}
+
+/* 登录卡片 */
+.login-card {
+  background: #FFFFFF;
+  border: 1px solid transparent;
+  border-radius: 28px;
+  padding: 52px 32px 44px 32px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+  transition: var(--transition-theme);
+}
+
+.dark .login-card {
+  background: #18181B;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 标题区域 */
+.card-header {
+  margin-bottom: 32px;
+}
+
+.card-title {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 8px;
+  line-height: 1.1;
+}
+
+.card-title-single {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #18181b;
+}
+
+.dark .card-title-single {
+  color: #FFFFFF;
+}
+
+.title-line1 {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #18181b;
+  display: block;
+  line-height: 1.1;
+}
+
+.dark .title-line1 {
+  color: #FFFFFF;
+}
+
+.title-line2 {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #18181b;
+  display: block;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark .title-line2 {
+  background: linear-gradient(135deg, #FFFFFF 0%, #E4E4E7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card-subtitle {
+  text-align: center;
+  font-size: 20px;
+  color: #71717a;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+.dark .card-subtitle {
+  color: #A1A1AA;
+}
+
+/* 表单区域 */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 表单输入框 */
+.form-input {
+  width: 100%;
+  height: 64px;
+  border-radius: 16px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  padding: 0 20px;
+  font-size: 15px;
+  color: #18181B;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.dark .form-input {
+  background: #18181B;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #FAFAFA;
+}
+
+.form-input::placeholder {
+  color: #A1A1AA;
+}
+
+.dark .form-input::placeholder {
+  color: #71717A;
+}
+
+.form-input:focus {
+  border-color: #A78BFA;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.15), 0 0 20px rgba(167, 139, 250, 0.1);
+}
+
+.dark .form-input:focus {
+  border-color: #A78BFA;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.2), 0 0 20px rgba(167, 139, 250, 0.15);
+}
+
+/* 提交按钮 */
+.submit-button {
+  width: 100%;
+  height: 64px;
+  border-radius: 16px;
+  margin-bottom: 28px;
+  background: #18181b;
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+}
+
+.dark .submit-button {
+  background: #FAFAFA;
+  color: #18181B;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.submit-button:hover:not(:disabled) {
+  background: #27272a;
+  transform: translateY(-1px);
+}
+
+.dark .submit-button:hover:not(:disabled) {
+  background: #E4E4E7;
+}
+
+.submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 移动端布局 */
+.mobile-layout {
+  display: none;
+}
+
+.mobile-image-container {
+  width: 100%;
+  height: 300px;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
+  position: relative;
+}
+
+.mobile-image-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: var(--transition-theme);
+  pointer-events: none;
+}
+
+.dark .mobile-image-container::after {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.mobile-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-card {
+  margin-top: 24px;
+  background: #FFFFFF;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  padding: 32px 24px 36px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  transition: var(--transition-theme);
+}
+
+.dark .mobile-card {
+  background: #18181B;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.mobile-card-header {
+  margin-bottom: 24px;
+}
+
+.mobile-card-title {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 6px;
+  line-height: 1.1;
+}
+
+.mobile-card-title-single {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #18181b;
+}
+
+.dark .mobile-card-title-single {
+  color: #FFFFFF;
+}
+
+.mobile-title-line1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #18181b;
+  display: block;
+  line-height: 1.1;
+}
+
+.dark .mobile-title-line1 {
+  color: #FFFFFF;
+}
+
+.mobile-title-line2 {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #18181b;
+  display: block;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark .mobile-title-line2 {
+  background: linear-gradient(135deg, #FFFFFF 0%, #E4E4E7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.mobile-card-subtitle {
+  text-align: center;
+  font-size: 16px;
+  color: #71717a;
+  line-height: 1.5;
+}
+
+.dark .mobile-card-subtitle {
+  color: #A1A1AA;
+}
+
+.mobile-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mobile-form-input {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  padding: 0 16px;
+  font-size: 14px;
+  color: #18181B;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.dark .mobile-form-input {
+  background: #18181B;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #FAFAFA;
+}
+
+.mobile-form-input::placeholder {
+  color: #A1A1AA;
+}
+
+.dark .mobile-form-input::placeholder {
+  color: #71717A;
+}
+
+.mobile-form-input:focus {
+  border-color: #A78BFA;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.15), 0 0 20px rgba(167, 139, 250, 0.1);
+}
+
+.dark .mobile-form-input:focus {
+  border-color: #A78BFA;
+  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.2), 0 0 20px rgba(167, 139, 250, 0.15);
+}
+
+.mobile-submit-button {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  background: #18181b;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+}
+
+.dark .mobile-submit-button {
+  background: #FAFAFA;
+  color: #18181B;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.mobile-submit-button:hover:not(:disabled) {
+  background: #27272a;
+}
+
+.dark .mobile-submit-button:hover:not(:disabled) {
+  background: #E4E4E7;
+}
+
+.mobile-submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 响应式 - 桌面端隐藏移动端布局 */
+@media (min-width: 769px) {
+  .mobile-layout {
+    display: none !important;
+  }
+}
+
+/* 响应式 - 移动端隐藏桌面端布局 */
+@media (max-width: 768px) {
+  .login-section {
+    outline: none;
+  }
+
+  .hero-image-container,
+  .login-card-wrapper {
+    display: none !important;
+  }
+
+  .mobile-layout {
+    display: block;
+  }
+
+  .login-main {
+    padding: 40px 24px 32px;
+  }
+
+  .header-inner {
+    padding: 0 24px;
+  }
+}
+
+/* 过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

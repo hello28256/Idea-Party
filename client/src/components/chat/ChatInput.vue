@@ -76,8 +76,20 @@ function autoResize() {
 
 <style scoped>
 .chat-input {
-  padding: 1rem 1.25rem;
+  padding: 1rem 1.5rem 1.25rem;
   background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
+  position: relative;
+}
+
+.chat-input::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201, 169, 98, 0.3), transparent);
 }
 
 .chat-input.disabled {
@@ -87,18 +99,23 @@ function autoResize() {
 .input-wrapper {
   display: flex;
   align-items: flex-end;
-  gap: 0.75rem;
+  gap: 0.875rem;
   border: 1px solid var(--color-border);
-  border-radius: 16px;
-  padding: 0.5rem 0.5rem 0.5rem 1rem;
-  background: var(--color-cream);
-  transition: all 0.3s ease;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+  border-radius: 20px;
+  padding: 0.5rem 0.5rem 0.5rem 1.25rem;
+  background: linear-gradient(145deg, var(--color-cream) 0%, var(--color-ivory) 100%);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    inset 0 2px 4px rgba(44, 36, 22, 0.02),
+    0 1px 3px rgba(44, 36, 22, 0.04);
 }
 
 .input-wrapper:focus-within {
   border-color: var(--color-gold);
-  box-shadow: 0 0 0 3px rgba(201, 169, 98, 0.15), inset 0 2px 4px rgba(0, 0, 0, 0.02);
+  box-shadow:
+    0 0 0 3px rgba(201, 169, 98, 0.12),
+    0 0 24px rgba(201, 169, 98, 0.08),
+    inset 0 2px 4px rgba(44, 36, 22, 0.02);
 }
 
 textarea {
@@ -108,9 +125,9 @@ textarea {
   resize: none;
   font-size: 1rem;
   line-height: 1.6;
-  padding: 0.375rem 0;
+  padding: 0.5rem 0;
   background: transparent;
-  max-height: 96px;
+  max-height: 100px;
   overflow-y: auto;
   color: var(--color-text-primary);
 }
@@ -124,20 +141,38 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
   color: var(--color-gold);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.send-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.send-button:hover:not(:disabled)::before {
+  opacity: 1;
 }
 
 .send-button:hover:not(:disabled) {
   transform: scale(1.05);
-  box-shadow: 0 4px 15px rgba(30, 42, 58, 0.3);
+  box-shadow:
+    0 4px 16px rgba(30, 42, 58, 0.35),
+    0 0 20px rgba(201, 169, 98, 0.2);
+  color: var(--color-navy);
 }
 
 .send-button:active:not(:disabled) {
@@ -150,10 +185,21 @@ textarea::placeholder {
   cursor: not-allowed;
 }
 
+.send-button :deep(svg) {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.3s ease;
+}
+
+.send-button:hover:not(:disabled) :deep(svg) {
+  transform: translateX(1px);
+}
+
 .input-hint {
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--color-text-muted);
-  margin-top: 0.5rem;
+  margin-top: 0.625rem;
+  letter-spacing: 0.02em;
 }
 </style>

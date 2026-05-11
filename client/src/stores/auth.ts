@@ -45,7 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
     accessToken.value = null
     localStorage.removeItem('accessToken')
     localStorage.removeItem('user')
-    window.location.href = '/login'
+    // Let the component handle navigation
   }
 
   return {

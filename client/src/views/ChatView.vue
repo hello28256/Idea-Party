@@ -280,13 +280,13 @@ async function handleCharacterAdded(character: Character) {
 }
 
 .header {
-  height: 64px;
-  padding: 0 1rem;
+  height: 68px;
+  padding: 0 1.25rem;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.875rem;
   background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(224, 214, 200, 0.6);
   position: relative;
 }
 
@@ -296,8 +296,8 @@ async function handleCharacterAdded(character: Character) {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 100px;
-  height: 1px;
+  width: 120px;
+  height: 2px;
   background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
 }
 </style>

@@ -302,6 +302,28 @@ function handleClose() {
   animation-delay: 200ms;
 }
 
+.character-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.character-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(201, 169, 98, 0.08) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+}
+
+.character-card:hover::before {
+  opacity: 1;
+}
+
 /* Drawer transition */
 .drawer-enter-active,
 .drawer-leave-active {
@@ -311,5 +333,24 @@ function handleClose() {
 .drawer-enter-from,
 .drawer-leave-to {
   transform: translateX(-100%);
+}
+
+/* Mode toggle refinements */
+.mode-toggle {
+  position: relative;
+  overflow: hidden;
+}
+
+.mode-toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mode-toggle:hover::after {
+  opacity: 1;
 }
 </style>

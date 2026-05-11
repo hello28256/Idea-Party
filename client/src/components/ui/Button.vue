@@ -1,7 +1,7 @@
 <script setup lang="ts">
 interface Props {
   type?: 'button' | 'submit' | 'reset'
-  variant?: 'primary' | 'secondary' | 'destructive'
+  variant?: 'primary' | 'secondary' | 'destructive' | 'outline'
   disabled?: boolean
   loading?: boolean
 }
@@ -66,12 +66,12 @@ function handleClick(event: MouseEvent) {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
+  padding: 0.8rem 1.6rem;
+  border-radius: 12px;
   font-weight: 500;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
   border: none;
@@ -84,9 +84,12 @@ function handleClick(event: MouseEvent) {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-navy), var(--color-navy-light));
+  background: linear-gradient(145deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
   color: var(--color-gold-light);
-  box-shadow: 0 2px 8px rgba(30, 42, 58, 0.2);
+  box-shadow:
+    0 2px 4px rgba(30, 42, 58, 0.15),
+    0 4px 12px rgba(30, 42, 58, 0.1);
+  border: 1px solid rgba(201, 169, 98, 0.1);
 }
 
 .btn-primary::before {
@@ -102,7 +105,9 @@ function handleClick(event: MouseEvent) {
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(30, 42, 58, 0.3);
+  box-shadow:
+    0 4px 8px rgba(30, 42, 58, 0.2),
+    0 8px 24px rgba(30, 42, 58, 0.15);
 }
 
 .btn-primary:hover:not(:disabled)::before {
@@ -111,18 +116,20 @@ function handleClick(event: MouseEvent) {
 
 .btn-primary:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(30, 42, 58, 0.15);
 }
 
 .btn-secondary {
-  background: linear-gradient(145deg, var(--color-ivory), var(--color-parchment));
+  background: linear-gradient(145deg, var(--color-ivory) 0%, var(--color-parchment) 100%);
   color: var(--color-navy);
   border: 1px solid var(--color-border);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: linear-gradient(145deg, var(--color-parchment), var(--color-ivory));
+  background: linear-gradient(145deg, var(--color-parchment) 0%, var(--color-ivory) 100%);
   border-color: var(--color-gold);
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(201, 169, 98, 0.1);
 }
 
 .btn-destructive {
@@ -132,6 +139,18 @@ function handleClick(event: MouseEvent) {
 
 .btn-destructive:hover:not(:disabled) {
   background: #8B2525;
+  transform: translateY(-1px);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-navy);
+  border: 1.5px solid var(--color-border);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--color-ivory);
+  border-color: var(--color-navy);
   transform: translateY(-1px);
 }
 

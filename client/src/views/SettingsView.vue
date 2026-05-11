@@ -105,9 +105,9 @@ function goBack() {
             </button>
           </div>
 
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
             <Button variant="primary" @click="handleSave" :loading="settingsStore.loading">
-              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
               保存
@@ -115,12 +115,19 @@ function goBack() {
             <Button variant="secondary" @click="handleClear" :disabled="!settingsStore.hasApiKey || settingsStore.loading">
               清除
             </Button>
-            <span v-if="saved" class="text-sm text-[var(--color-success)] animate-fade-in-up">
-              已保存 ✓
-            </span>
-            <span v-if="error" class="text-sm text-[var(--color-destructive)]">
-              {{ error }}
-            </span>
+            <Transition name="fade">
+              <span v-if="saved" class="text-sm text-[var(--color-success)] flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                已保存
+              </span>
+            </Transition>
+            <Transition name="fade">
+              <span v-if="error" class="text-sm text-[var(--color-destructive)]">
+                {{ error }}
+              </span>
+            </Transition>
           </div>
         </div>
 

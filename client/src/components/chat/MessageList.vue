@@ -96,10 +96,10 @@ const hasMessages = () => props.messages.length > 0
   min-height: 0;
   height: 100%;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: 1.5rem 1.75rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.875rem;
   box-sizing: border-box;
 }
 
@@ -107,37 +107,56 @@ const hasMessages = () => props.messages.length > 0
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 0.5rem 0 1rem;
-  opacity: 0.6;
+  gap: 1.25rem;
+  padding: 0.75rem 0 1.5rem;
+  opacity: 0.5;
 }
 
 .header-text {
   font-family: 'Playfair Display', serif;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.25em;
   color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
 .header-flourish {
-  width: 40px;
+  width: 50px;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+  position: relative;
+}
+
+.header-flourish::before {
+  content: '✦';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.5rem;
+  color: var(--color-gold);
 }
 
 .header-flourish.left {
   background: linear-gradient(90deg, transparent, var(--color-gold));
 }
 
+.header-flourish.left::before {
+  right: -2px;
+}
+
 .header-flourish.right {
   background: linear-gradient(90deg, var(--color-gold), transparent);
+}
+
+.header-flourish.right::before {
+  left: -2px;
 }
 
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.125rem;
 }
 
 .empty-state {
@@ -147,31 +166,43 @@ const hasMessages = () => props.messages.length > 0
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 3rem 2rem;
+  padding: 4rem 2rem;
 }
 
 .empty-icon {
-  margin-bottom: 1.5rem;
-  animation: float 3s ease-in-out infinite;
+  margin-bottom: 2rem;
+  animation: gentleFloat 4s ease-in-out infinite;
+  opacity: 0.6;
+}
+
+@keyframes gentleFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 .empty-title {
   font-family: 'Playfair Display', serif;
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 500;
   color: var(--color-navy);
-  margin: 0 0 0.75rem 0;
+  margin: 0 0 0.875rem 0;
+  letter-spacing: 0.02em;
 }
 
 .empty-body {
   font-size: 0.95rem;
   color: var(--color-text-secondary);
   margin: 0;
-  max-width: 280px;
+  max-width: 300px;
+  line-height: 1.7;
 }
 
 .thinking-area {
-  padding: 0.75rem 0;
+  padding: 1rem 0;
 }
 
 @keyframes float {

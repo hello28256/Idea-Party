@@ -24,7 +24,6 @@
   right: 0;
   bottom: 0;
   pointer-events: none;
-  z-index: -1;
   background:
     radial-gradient(ellipse at 20% 0%, rgba(201, 169, 98, 0.08) 0%, transparent 50%),
     radial-gradient(ellipse at 80% 100%, rgba(30, 42, 58, 0.05) 0%, transparent 50%),
