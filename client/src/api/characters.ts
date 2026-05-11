@@ -15,5 +15,13 @@ export const charactersApi = {
 
   update: (id: string, data: CharacterRequest) => api.put<Character>(`/characters/${id}`, data),
 
-  remove: (id: string) => api.delete(`/characters/${id}`)
+  remove: (id: string) => api.delete(`/characters/${id}`),
+
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('avatar', file)
+    return api.post<{ url: string }>('/upload/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  }
 }
