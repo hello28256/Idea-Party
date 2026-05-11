@@ -1,3 +1,11 @@
+# =============================================================================
+# Encryption Configuration (ENHANCE-01)
+# =============================================================================
+# ENCRYPTION_KEY: Base64-encoded 32-byte key for AES-256-GCM encryption
+# Generate with: openssl rand -base64 32
+# When not set, API keys are stored as plain text (backward compatibility mode)
+# =============================================================================
+
 server:
   port: 8080
 
@@ -17,6 +25,7 @@ spring:
         format_sql: true
 
 jwt:
+  # JWT secret key (Base64-encoded, minimum 256 bits recommended)
   secret: ${JWT_SECRET:}
   expiration: 900000
 
