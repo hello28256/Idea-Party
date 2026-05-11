@@ -97,6 +97,16 @@ export const useCharacterStore = defineStore('character', () => {
     return characters.value.find(c => c.id === id)
   }
 
+  async function uploadAvatar(file: File): Promise<string | null> {
+    try {
+      const response = await charactersApi.uploadAvatar(file)
+      return response.data.url
+    } catch (e: any) {
+      console.error('[DEBUG] uploadAvatar failed:', e)
+      return null
+    }
+  }
+
   return {
     characters,
     presets,
@@ -108,6 +118,7 @@ export const useCharacterStore = defineStore('character', () => {
     createCharacter,
     updateCharacter,
     deleteCharacter,
-    getCharacterById
+    getCharacterById,
+    uploadAvatar
   }
 })
