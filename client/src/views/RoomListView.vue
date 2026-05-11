@@ -191,7 +191,7 @@ function enterRoom(roomId: string) {
       <!-- Logo -->
       <div class="sidebar-logo">
         <div class="logo-icon">
-          <img src="/image.svg" alt="Idea Party Logo" class="logo-img" />
+          <img src="/favicon.svg" alt="Idea Party Logo" class="logo-img" />
         </div>
         <span class="logo-text">Idea Party</span>
       </div>
