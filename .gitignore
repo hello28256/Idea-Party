@@ -10,10 +10,18 @@ dist-ssr/
 *.local
 client/.vite/
 client/tsconfig.tsbuildinfo
+client/coverage/
+client/playwright-report/
+client/test-results/
+client/.eslintcache
 
 # Backend
 server/target/
 server/*.jar
+server/HELP.md
+server/logs/
+*.class
+*.war
 
 # IDE
 .idea/
@@ -25,6 +33,9 @@ server/*.jar
 # OS
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
 
 # Logs
 *.log
@@ -35,10 +46,18 @@ yarn-error.log*
 # Cache
 .cache/
 *.tsbuildinfo
-*.tsbuildinfo
 
 # Planning (personal)
 .planning/
 
 # Test files
 *.mjs
+
+# Python (if used)
+__pycache__/
+*.pyc
+.python-version
+
+# Firebase
+.firestore/
+.firebase/
