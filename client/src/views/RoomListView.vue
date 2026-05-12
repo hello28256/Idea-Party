@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
@@ -9,6 +9,8 @@ const router = useRouter()
 const roomStore = useRoomStore()
 
 const showCreateModal = ref(false)
+const showCreateDropdown = ref(false)
+const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
 const searchQuery = ref('')
 const mounted = ref(false)
@@ -173,7 +175,20 @@ const recentChats = ref([
 onMounted(() => {
   roomStore.fetchRooms()
   setTimeout(() => { mounted.value = true }, 50)
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', handleClickOutside)
 })
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
+function handleClickOutside(e: MouseEvent) {
+  if (dropdownRef.value && !dropdownRef.value.contains(e.target as Node)) {
+    closeCreateDropdown()
+  }
+}
 
 function handleRoomCreated(roomId: string) {
   router.push(`/chat/${roomId}`)
@@ -181,6 +196,24 @@ function handleRoomCreated(roomId: string) {
 
 function enterRoom(roomId: string) {
   router.push(`/chat/${roomId}`)
+}
+
+function toggleCreateDropdown() {
+  showCreateDropdown.value = !showCreateDropdown.value
+}
+
+function closeCreateDropdown() {
+  showCreateDropdown.value = false
+}
+
+function handleCreateCharacter() {
+  closeCreateDropdown()
+  router.push('/characters/create')
+}
+
+function handleCreateRoom() {
+  closeCreateDropdown()
+  showCreateModal.value = true
 }
 </script>
 
@@ -193,13 +226,29 @@ function enterRoom(roomId: string) {
         <span class="logo-text">Idea Party</span>
       </div>
 
-      <!-- Create Button -->
-      <button class="create-btn" @click="showCreateModal = true">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        <span>创建聊天室</span>
-      </button>
+      <!-- Create Button with Dropdown -->
+      <div class="create-dropdown-wrapper" ref="dropdownRef">
+        <button class="create-btn" @click="toggleCreateDropdown" @mouseenter="showCreateDropdown = true">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>创建</span>
+        </button>
+
+        <!-- Dropdown Menu -->
+        <Transition name="dropdown">
+          <div v-if="showCreateDropdown" class="create-dropdown-menu" @click.stop>
+            <button class="dropdown-item" @click="handleCreateCharacter">
+              <span class="dropdown-icon">👤</span>
+              <span class="dropdown-label">创建角色</span>
+            </button>
+            <button class="dropdown-item" @click="handleCreateRoom">
+              <span class="dropdown-icon">💬</span>
+              <span class="dropdown-label">创建聊天室</span>
+            </button>
+          </div>
+        </Transition>
+      </div>
 
       <!-- Navigation -->
       <nav class="nav-menu">
@@ -523,6 +572,69 @@ function enterRoom(roomId: string) {
 
 .create-btn svg {
   opacity: 0.9;
+}
+
+/* Create Dropdown */
+.create-dropdown-wrapper {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.create-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 180px;
+  background: rgba(24, 24, 27, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.dropdown-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fafafa;
+}
+
+/* Dropdown animation */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.18s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* Navigation - Minimal & Light */
