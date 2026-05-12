@@ -550,18 +550,20 @@ function handleCreateRoom() {
 }
 
 .sidebar-brand-logo {
-  width: 28px;
-  height: 28px;
+  width: 38px;
+  height: 38px;
   object-fit: contain;
   border-radius: 8px;
   flex-shrink: 0;
 }
 
 .logo-text {
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
+  font-family: Inter, SF Pro Display, PingFang SC, sans-serif;
+  line-height: 1;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.5px;
   transition: color 0.25s ease;
 }
 
