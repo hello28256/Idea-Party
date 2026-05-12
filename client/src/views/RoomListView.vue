@@ -601,13 +601,13 @@ function handleCreateRoom() {
 
 .create-dropdown-menu {
   position: absolute;
-  left: calc(100% + 10px);
+  left: calc(100% + 4px);
   top: 0;
-  width: 170px;
+  width: 150px;
   background: #202020;
   border-radius: 14px;
   padding: 6px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
   z-index: 999;
 }
 
@@ -623,8 +623,8 @@ function handleCreateRoom() {
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 44px;
-  padding: 0 14px;
+  height: 40px;
+  padding: 0 12px;
   background: transparent;
   border: none;
   border-radius: 10px;
@@ -652,13 +652,13 @@ function handleCreateRoom() {
 /* Dropdown animation */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.18s ease;
+  transition: all 0.15s ease;
 }
 
 .dropdown-enter-from,
 .dropdown-leave-to {
   opacity: 0;
-  transform: translateX(-6px);
+  transform: translateX(-2px);
 }
 
 .dropdown-enter-to,
