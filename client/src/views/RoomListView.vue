@@ -583,9 +583,11 @@ function handleCreateRoom() {
   opacity: 0.9;
 }
 
-/* Create Dropdown */
+/* Create Dropdown Wrapper */
 .create-dropdown-wrapper {
   position: relative;
+  display: inline-block;
+  width: fit-content;
   margin-bottom: 1rem;
 }
 
