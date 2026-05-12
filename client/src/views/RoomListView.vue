@@ -5,6 +5,7 @@ import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
+import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
 const showCreateModal = ref(false)
+const showCreateCharacterModal = ref(false)
 const showCreateDropdown = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
@@ -269,7 +271,12 @@ function closeCreateDropdown() {
 
 function handleCreateCharacter() {
   closeCreateDropdown()
-  router.push('/characters/create')
+  showCreateCharacterModal.value = true
+}
+
+function handleCharacterCreated(_character: any) {
+  characterStore.fetchCharacters()
+  router.push('/characters')
 }
 
 function handleCreateRoom() {
@@ -625,6 +632,13 @@ function handleCreateRoom() {
       :show="showCreateModal"
       @close="showCreateModal = false"
       @created="handleRoomCreated"
+    />
+
+    <!-- Create Character Modal -->
+    <CreateCharacterModal
+      :show="showCreateCharacterModal"
+      @close="showCreateCharacterModal = false"
+      @created="handleCharacterCreated"
     />
   </div>
 </template>
