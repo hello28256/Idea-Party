@@ -223,7 +223,8 @@ function handleCreateRoom() {
     <!-- Left Sidebar -->
     <aside class="sidebar">
       <!-- Logo -->
-      <div class="sidebar-logo">
+      <div class="sidebar-brand">
+        <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
         <span class="logo-text">Idea Party</span>
       </div>
 
@@ -540,12 +541,20 @@ function handleCreateRoom() {
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-.sidebar-logo {
+.sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 10px;
   padding: 0.25rem;
   margin-bottom: 0.875rem;
+}
+
+.sidebar-brand-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
 
 .logo-text {
