@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
 
 const router = useRouter()
+const route = useRoute()
 const roomStore = useRoomStore()
 
 const showCreateModal = ref(false)
@@ -18,11 +19,38 @@ const mounted = ref(false)
 // Navigation items - only 5 primary nav items
 const navItems = [
   { id: 'discover', label: '发现', emoji: '🔍' },
+  { id: 'characters', label: '角色库', emoji: '📚' },
   { id: 'trending', label: '热门', emoji: '🔥' },
   { id: 'categories', label: '分类', emoji: '📂' },
   { id: 'my-rooms', label: '我的聊天室', emoji: '💬' },
   { id: 'recent', label: '最近', emoji: '🕐' },
 ]
+
+// Active nav item based on current route
+const activeNavId = computed(() => {
+  const path = route.path
+  if (path === '/rooms' || path === '/') return 'discover'
+  if (path.startsWith('/characters')) return 'characters'
+  if (path.startsWith('/chat')) return 'discover'
+  return 'discover'
+})
+
+// Navigation handler
+function handleNavClick(itemId: string) {
+  if (itemId === 'discover') {
+    router.push('/rooms')
+  } else if (itemId === 'characters') {
+    router.push('/characters')
+  } else if (itemId === 'trending') {
+    router.push('/rooms?tab=trending')
+  } else if (itemId === 'categories') {
+    router.push('/rooms?tab=categories')
+  } else if (itemId === 'my-rooms') {
+    router.push('/rooms?tab=my-rooms')
+  } else if (itemId === 'recent') {
+    router.push('/rooms?tab=recent')
+  }
+}
 
 // Categories for tabs
 const categories = [
@@ -247,7 +275,7 @@ function handleCreateRoom() {
             class="create-dropdown-menu"
             @click.stop
           >
-            <button class="dropdown-item" @click="handleCreateCharacter">
+            <button class="dropdown-item" @click.stop="handleCreateCharacter">
               <span class="dropdown-icon">👤</span>
               <span class="dropdown-label">创建角色</span>
             </button>
@@ -266,8 +294,8 @@ function handleCreateRoom() {
           :key="item.id"
           href="#"
           class="nav-item"
-          :class="{ active: item.id === 'discover' }"
-          @click.prevent
+          :class="{ active: item.id === activeNavId }"
+          @click.prevent="handleNavClick(item.id)"
         >
           <span class="nav-emoji">{{ item.emoji }}</span>
           <span class="nav-label">{{ item.label }}</span>

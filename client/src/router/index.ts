@@ -27,6 +27,18 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/characters',
+      name: 'characters',
+      component: () => import('@/views/CharacterLibraryView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/characters/create',
+      name: 'character-create',
+      component: () => import('@/views/CharacterCreateView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/chat/:roomId',
       name: 'chat',
       component: ChatView,

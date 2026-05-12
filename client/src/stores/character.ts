@@ -13,6 +13,15 @@ export const useCharacterStore = defineStore('character', () => {
   // Computed
   const userCharacters = computed(() => characters.value.filter(c => !c.isPreset))
 
+  // Check if user already has a character with the same name
+  function hasDuplicateName(creatorUserId: string, name: string, excludeId?: string): boolean {
+    return characters.value.some(c =>
+      c.creatorUserId === creatorUserId &&
+      c.name.toLowerCase() === name.toLowerCase() &&
+      c.id !== excludeId
+    )
+  }
+
   // Actions
   async function fetchCharacters() {
     loading.value = true
@@ -113,6 +122,7 @@ export const useCharacterStore = defineStore('character', () => {
     loading,
     error,
     userCharacters,
+    hasDuplicateName,
     fetchCharacters,
     fetchPresets,
     createCharacter,
