@@ -197,7 +197,8 @@ onMounted(() => {
     <header class="login-header">
       <div class="header-inner">
         <!-- Logo -->
-        <div class="flex items-center">
+        <div class="brand-logo">
+          <img src="/image.png" alt="logo" class="brand-logo-img" />
           <h1
             class="text-[30px] font-black tracking-[-0.03em]"
             :style="{ color: themeStore.isDark ? '#FFFFFF' : '#18181B' }"
@@ -539,6 +540,21 @@ onMounted(() => {
   min-height: 100vh;
   background: var(--color-bg);
   transition: var(--transition-theme);
+}
+
+/* Brand Logo */
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.brand-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 /* Header */
