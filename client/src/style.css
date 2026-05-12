@@ -2,19 +2,44 @@
 @import "tailwindcss";
 
 :root {
-  /* Light Mode Colors */
-  --color-bg: #F7F7F8;
-  --color-bg-card: #FFFFFF;
-  --color-text-primary: #18181B;
-  --color-text-secondary: #71717A;
-  --color-border: #E5E7EB;
-  --color-input-bg: #FFFFFF;
-  --color-input-border: #E5E7EB;
-  --color-glass-bg: rgba(255, 255, 255, 0.8);
-  --color-glass-border: rgba(255, 255, 255, 0.2);
-  --color-header-bg: rgba(255, 255, 255, 0.9);
-  --color-header-border: rgba(228, 228, 231, 0.7);
-  --color-hero-overlay: rgba(0, 0, 0, 0);
+  /* === Base Theme Variables (Light Mode Default) === */
+  --bg-primary: #f5f7fb;
+  --bg-secondary: #ffffff;
+  --card-bg: #ffffff;
+  --sidebar-bg: #f7f8fa;
+  --input-bg: #ffffff;
+  --border-color: #e5e7eb;
+
+  /* App-level backgrounds */
+  --app-bg: #F6F7FB;
+  --panel-bg: #F8FAFC;
+
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-muted: #888888;
+
+  --button-bg: #111827;
+  --button-text: #ffffff;
+
+  /* Overlay and Modal */
+  --overlay-bg: rgba(15, 23, 42, 0.32);
+  --modal-bg: rgba(255, 255, 255, 0.92);
+  --card-bg-alpha: rgba(255, 255, 255, 0.7);
+
+  /* Accent colors */
+  --accent-blue: #4F7DF3;
+  --accent-green: #10B981;
+
+  /* Legacy color aliases for compatibility */
+  --color-bg: var(--bg-primary);
+  --color-bg-card: var(--card-bg);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-border: var(--border-color);
+  --color-input-bg: var(--input-bg);
+  --color-input-border: var(--border-color);
+  --color-header-bg: var(--bg-secondary);
+  --color-header-border: var(--border-color);
 
   /* AI Character Universe Color Palette */
   --color-deep-space: #0F172A;
@@ -38,23 +63,60 @@
   --color-glass-border-hover: rgba(77, 162, 255, 0.3);
 
   /* Transition */
-  --transition-theme: background 0.35s ease, color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+  --transition-theme: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+
+  /* Scrollbar Colors - Light Mode */
+  --scrollbar-track: #f3f3f3;
+  --scrollbar-thumb: #111111;
+  --scrollbar-thumb-hover: #000000;
 }
 
-.dark {
-  /* Dark Mode Colors */
-  --color-bg: #111315;
-  --color-bg-card: rgba(24, 24, 28, 0.95);
-  --color-text-primary: #FAFAFA;
-  --color-text-secondary: #A1A1AA;
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-input-bg: rgba(24, 24, 27, 0.9);
-  --color-input-border: rgba(255, 255, 255, 0.1);
-  --color-glass-bg: rgba(24, 24, 28, 0.85);
+/* Dark Mode Override */
+html[data-theme="dark"] {
+  --bg-primary: #0f1115;
+  --bg-secondary: #171923;
+  --card-bg: #1a1d24;
+  --sidebar-bg: #14161c;
+  --input-bg: #20232b;
+  --border-color: rgba(255, 255, 255, 0.08);
+
+  /* App-level backgrounds - dark */
+  --app-bg: #0f1115;
+  --panel-bg: #1a1d24;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+
+  --button-bg: #ffffff;
+  --button-text: #111827;
+
+  /* Overlay and Modal - dark */
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+  --modal-bg: rgba(17, 19, 24, 0.92);
+  --card-bg-alpha: rgba(26, 29, 36, 0.8);
+
+  /* Accent colors - same in dark */
+  --accent-blue: #4F7DF3;
+  --accent-green: #10B981;
+
+  /* Legacy aliases for dark mode */
+  --color-bg: var(--bg-primary);
+  --color-bg-card: var(--card-bg);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-border: var(--border-color);
+  --color-input-bg: var(--input-bg);
+  --color-input-border: var(--border-color);
+  --color-header-bg: var(--bg-secondary);
+  --color-header-border: var(--border-color);
+  --color-glass: rgba(24, 24, 28, 0.85);
   --color-glass-border: rgba(255, 255, 255, 0.06);
-  --color-header-bg: rgba(17, 19, 21, 0.92);
-  --color-header-border: rgba(255, 255, 255, 0.06);
-  --color-hero-overlay: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.4));
+
+  /* Scrollbar Colors - Dark Mode */
+  --scrollbar-track: #111111;
+  --scrollbar-thumb: #ffffff;
+  --scrollbar-thumb-hover: #e5e5e5;
 }
 
 /* Global Resets */
@@ -320,23 +382,30 @@ body {
 .stagger-5 { animation-delay: 0.5s; }
 .stagger-6 { animation-delay: 0.6s; }
 
-/* Scrollbar Styling */
+/* Scrollbar Styling - Black & White Minimalist */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-deep-space);
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--color-space-light) 0%, var(--color-ai-blue) 100%);
-  border-radius: 3px;
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--color-ai-blue) 0%, var(--color-ai-blue-light) 100%);
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 /* Selection */
