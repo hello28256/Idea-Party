@@ -4,11 +4,14 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { Sun, Moon } from 'lucide-vue-next'
+import { register } from '@/api/auth'
 
 const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
+
+// === ALL REF DECLARATIONS FIRST (before any usage) ===
 
 // Form mode: true = register, false = login
 const isRegisterMode = ref(false)
@@ -16,43 +19,56 @@ const isRegisterMode = ref(false)
 // Animation state
 const isVisible = ref(false)
 
-// Check URL params on mount to set initial mode
-onMounted(() => {
-  if (route.query.mode === 'register') {
-    isRegisterMode.value = true
-  }
-  setTimeout(() => {
-    isVisible.value = true
-  }, 50)
-})
+// Password input readonly state to prevent browser autofill
+const isPasswordReadonly = ref(true)
 
-// Watch route query changes to sync isRegisterMode
-watch(() => route.query.mode, (newMode) => {
-  isRegisterMode.value = newMode === 'register'
-  error.value = ''
-})
-
-// Form fields
-const name = ref('')
-const email = ref('')
+// Form fields - login
+const identifier = ref('')
 const password = ref('')
+
+// Form fields - register
+const username = ref('')
+const email = ref('')
 const confirmPassword = ref('')
 
 // UI state
 const loading = ref(false)
 const error = ref('')
+const usernameError = ref('')
+const usernameAvailable = ref<boolean | null>(null)
 
-// Computed button text
-const submitButtonText = computed(() => {
-  if (loading.value) return isRegisterMode.value ? '创建中...' : '登录中...'
-  return isRegisterMode.value ? '创建账号' : '登录'
-})
+// === FUNCTIONS AFTER ALL REFS ARE DECLARED ===
+
+// Reset form function - clears all sensitive fields
+function resetForm() {
+  identifier.value = ''
+  password.value = ''
+  username.value = ''
+  email.value = ''
+  confirmPassword.value = ''
+  error.value = ''
+  usernameError.value = ''
+  usernameAvailable.value = null
+}
+
+// Handle password field focus - remove readonly to allow user input
+function onPasswordFocus() {
+  isPasswordReadonly.value = false
+}
+
+// Handle password field blur - if empty, restore readonly to prevent autofill
+function onPasswordBlur() {
+  if (!password.value) {
+    isPasswordReadonly.value = true
+  }
+}
 
 // Toggle between login and register
 function toggleMode() {
   const newMode = !isRegisterMode.value
   isRegisterMode.value = newMode
-  error.value = ''
+  // Reset all form fields including sensitive data
+  resetForm()
   // Update URL to reflect mode
   if (newMode) {
     router.push('/login?mode=register')
@@ -65,13 +81,9 @@ function toggleMode() {
 async function handleSubmit() {
   error.value = ''
 
-  if (!email.value || !password.value) {
-    error.value = '请填写所有字段'
-    return
-  }
-
   if (isRegisterMode.value) {
-    if (!name.value) {
+    // Register validation
+    if (!username.value) {
       error.value = '请输入用户名'
       return
     }
@@ -83,23 +95,99 @@ async function handleSubmit() {
       error.value = '两次输入的密码不一致'
       return
     }
+    if (usernameAvailable.value === false) {
+      error.value = '用户名已被占用'
+      return
+    }
+  } else {
+    // Login validation
+    if (!identifier.value) {
+      error.value = '请输入用户名或邮箱'
+      return
+    }
+    if (!password.value) {
+      error.value = '请输入密码'
+      return
+    }
   }
 
   loading.value = true
 
   try {
     if (isRegisterMode.value) {
-      await authStore.register(name.value, email.value, password.value)
+      // Call register API directly without saving auth state
+      await register({ username: username.value, email: email.value, password: password.value })
+      // Redirect to login page with username pre-filled
+      router.push({
+        path: '/login',
+        query: { username: username.value }
+      })
     } else {
-      await authStore.login(email.value, password.value)
+      await authStore.login(identifier.value, password.value)
+      router.push('/rooms')
     }
-    router.push('/rooms')
   } catch (err: any) {
-    error.value = err.response?.data?.message || (isRegisterMode.value ? '注册失败，请稍后重试' : '登录失败，请检查邮箱和密码')
+    error.value = err.response?.data?.message || (isRegisterMode.value ? '注册失败，请稍后重试' : '登录失败，请检查用户名和密码')
   } finally {
     loading.value = false
   }
 }
+
+// === COMPUTED AFTER FUNCTIONS ===
+// Computed button text
+const submitButtonText = computed(() => {
+  if (loading.value) return isRegisterMode.value ? '创建中...' : '登录中...'
+  return isRegisterMode.value ? '创建账号' : '登录'
+})
+
+// === WATCHES AND ONMOUNTED LAST ===
+// Watch route changes to clear password and pre-fill username on navigation
+watch(() => route.fullPath, (newPath) => {
+  if (route.path === '/login') {
+    // Only clear password, preserve identifier if already set
+    password.value = ''
+    confirmPassword.value = ''
+    isPasswordReadonly.value = true
+    // Pre-fill identifier from query params if present
+    if (route.query.username) {
+      identifier.value = route.query.username as string
+    }
+    // Allow user input after navigation settles
+    setTimeout(() => {
+      isPasswordReadonly.value = false
+    }, 300)
+  }
+}, { immediate: true })
+
+// Watch route query changes to sync isRegisterMode
+watch(() => route.query.mode, (newMode) => {
+  isRegisterMode.value = newMode === 'register'
+  error.value = ''
+})
+
+// Check URL params on mount to set initial mode
+onMounted(() => {
+  // Save username if present before reset
+  const savedUsername = route.query.username as string || ''
+  // Reset form but preserve identifier if it matches the query username
+  resetForm()
+  if (route.query.mode === 'register') {
+    isRegisterMode.value = true
+  }
+  // Pre-fill identifier from query params (e.g., after successful registration)
+  if (savedUsername) {
+    identifier.value = savedUsername
+  }
+  // Keep password readonly initially to prevent browser autofill
+  isPasswordReadonly.value = true
+  // Allow user input after a short delay
+  setTimeout(() => {
+    isPasswordReadonly.value = false
+  }, 300)
+  setTimeout(() => {
+    isVisible.value = true
+  }, 50)
+})
 </script>
 
 <template>
@@ -174,34 +262,69 @@ async function handleSubmit() {
             </div>
 
             <!-- Auth Form -->
-            <form @submit.prevent="handleSubmit" class="auth-form">
-              <!-- Name (Register only) -->
-              <div v-if="isRegisterMode">
+            <form @submit.prevent="handleSubmit" class="auth-form" autocomplete="off">
+              <!-- Login: Identifier -->
+              <div v-if="!isRegisterMode">
                 <input
-                  v-model="name"
+                  v-model="identifier"
+                  type="text"
+                  placeholder="用户名或邮箱"
+                  class="form-input"
+                  autocomplete="username"
+                />
+              </div>
+
+              <!-- Register: Username -->
+              <div v-if="isRegisterMode" class="username-field">
+                <input
+                  v-model="username"
                   type="text"
                   placeholder="用户名"
                   class="form-input"
+                  autocomplete="username"
                 />
+                <p v-if="username.length > 0" class="username-hint" :class="{ available: usernameAvailable === true, taken: usernameAvailable === false }">
+                  {{ usernameAvailable === true ? '✓ 用户名可用' : usernameAvailable === false ? '✗ 用户名已被占用' : '' }}
+                </p>
               </div>
 
-              <!-- Email -->
-              <div>
+              <!-- Email (Register only, optional) -->
+              <div v-if="isRegisterMode">
                 <input
                   v-model="email"
                   type="email"
-                  placeholder="邮箱地址"
+                  placeholder="邮箱地址（可选）"
                   class="form-input"
+                  autocomplete="email"
                 />
               </div>
 
-              <!-- Password -->
-              <div>
+              <!-- Password (login) -->
+              <div v-if="!isRegisterMode">
                 <input
                   v-model="password"
                   type="password"
                   placeholder="密码"
                   class="form-input"
+                  name="login_passcode"
+                  id="login_passcode"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  :readonly="isPasswordReadonly"
+                  @focus="onPasswordFocus"
+                  @blur="onPasswordBlur"
+                />
+              </div>
+
+              <!-- Password (register) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="password"
+                  type="password"
+                  placeholder="密码"
+                  class="form-input"
+                  autocomplete="new-password"
                 />
               </div>
 
@@ -212,6 +335,7 @@ async function handleSubmit() {
                   type="password"
                   placeholder="确认密码"
                   class="form-input"
+                  autocomplete="new-password"
                 />
               </div>
 
@@ -290,34 +414,66 @@ async function handleSubmit() {
             </div>
 
             <!-- Auth Form -->
-            <form @submit.prevent="handleSubmit" class="mobile-auth-form">
-              <!-- Name (Register only) -->
+            <form @submit.prevent="handleSubmit" class="mobile-auth-form" autocomplete="off">
+              <!-- Login: Identifier -->
+              <div v-if="!isRegisterMode">
+                <input
+                  v-model="identifier"
+                  type="text"
+                  placeholder="用户名或邮箱"
+                  class="mobile-form-input"
+                  autocomplete="username"
+                />
+              </div>
+
+              <!-- Register: Username -->
               <div v-if="isRegisterMode">
                 <input
-                  v-model="name"
+                  v-model="username"
                   type="text"
                   placeholder="用户名"
                   class="mobile-form-input"
+                  autocomplete="username"
                 />
               </div>
 
-              <!-- Email -->
-              <div>
+              <!-- Email (Register only, optional) -->
+              <div v-if="isRegisterMode">
                 <input
                   v-model="email"
                   type="email"
-                  placeholder="邮箱地址"
+                  placeholder="邮箱地址（可选）"
                   class="mobile-form-input"
+                  autocomplete="email"
                 />
               </div>
 
-              <!-- Password -->
-              <div>
+              <!-- Password (login) -->
+              <div v-if="!isRegisterMode">
                 <input
                   v-model="password"
                   type="password"
                   placeholder="密码"
                   class="mobile-form-input"
+                  name="login_passcode"
+                  id="login_passcode_mobile"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  :readonly="isPasswordReadonly"
+                  @focus="onPasswordFocus"
+                  @blur="onPasswordBlur"
+                />
+              </div>
+
+              <!-- Password (register) -->
+              <div v-if="isRegisterMode">
+                <input
+                  v-model="password"
+                  type="password"
+                  placeholder="密码"
+                  class="mobile-form-input"
+                  autocomplete="new-password"
                 />
               </div>
 
@@ -328,6 +484,7 @@ async function handleSubmit() {
                   type="password"
                   placeholder="确认密码"
                   class="mobile-form-input"
+                  autocomplete="new-password"
                 />
               </div>
 
@@ -645,6 +802,25 @@ async function handleSubmit() {
 .dark .form-input:focus {
   border-color: #A78BFA;
   box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.2), 0 0 20px rgba(167, 139, 250, 0.15);
+}
+
+/* Username field */
+.username-field {
+  position: relative;
+}
+
+.username-hint {
+  font-size: 12px;
+  margin: 4px 0 0 4px;
+  color: #A1A1AA;
+}
+
+.username-hint.available {
+  color: #059669;
+}
+
+.username-hint.taken {
+  color: #DC2626;
 }
 
 /* 提交按钮 */

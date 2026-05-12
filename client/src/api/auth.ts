@@ -46,5 +46,22 @@ export const login = (data: LoginRequest) =>
 export const register = (data: RegisterRequest) =>
   api.post<AuthResponse>('/auth/register', data)
 
+export interface UpdateProfileRequest {
+  username?: string
+  displayName?: string
+  email?: string
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+export const updateProfile = (data: UpdateProfileRequest) =>
+  api.put<AuthResponse>('/auth/profile', data)
+
+export const changePassword = (data: ChangePasswordRequest) =>
+  api.patch('/auth/change-password', data)
+
 // Export the configured axios instance for use in stores
 export { api }

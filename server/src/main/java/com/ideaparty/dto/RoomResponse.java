@@ -39,7 +39,7 @@ public class RoomResponse {
                 .name(room.getName())
                 .topic(room.getTopic())
                 .ownerId(room.getOwner().getId())
-                .ownerName(room.getOwner().getName())
+                .ownerName(room.getOwner().getDisplayName())
                 .characterCount(room.getCharacterCount())
                 .characters(characterList)
                 .createdAt(room.getCreatedAt())

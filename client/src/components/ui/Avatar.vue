@@ -22,7 +22,7 @@ const sizeClasses = {
   large: 'avatar-large',
 }
 
-const DEFAULT_AVATAR = '/default_touxiang.svg'
+const DEFAULT_AVATAR = '/image.png'
 
 const avatarSrc = computed(() => props.src || DEFAULT_AVATAR)
 const imageError = ref(false)

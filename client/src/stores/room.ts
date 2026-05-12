@@ -27,8 +27,9 @@ export const useRoomStore = defineStore('room', () => {
     try {
       rooms.value = await roomsApi.list()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to fetch rooms'
-      throw e
+      console.error('[DEBUG] fetchRooms failed:', e)
+      error.value = e instanceof Error ? e.message : '房间加载失败'
+      rooms.value = []
     } finally {
       loading.value = false
     }

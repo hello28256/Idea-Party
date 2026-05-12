@@ -1,9 +1,12 @@
 // User types for authentication
 export interface User {
   id: string
+  username: string
+  displayName: string
   email: string
-  name: string
   avatarUrl?: string
+  lastUsernameChangeAt?: string // ISO date string
+  createdAt?: string // ISO date string
 }
 
 // Authentication response from backend
@@ -14,17 +17,17 @@ export interface AuthResponse {
   user: User
 }
 
-// Login request payload
+// Login request payload - identifier can be username or email
 export interface LoginRequest {
-  email: string
+  identifier: string
   password: string
 }
 
 // Register request payload
 export interface RegisterRequest {
-  email: string
+  email?: string
   password: string
-  name: string
+  username: string
 }
 
 // API error response

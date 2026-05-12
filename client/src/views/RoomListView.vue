@@ -170,8 +170,8 @@ const recentChats = ref([
   { id: '3', name: '未来 AI 实验室', lastMessage: '马斯克: AI 将改变一切', time: '2小时前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9' },
 ])
 
-onMounted(async () => {
-  await roomStore.fetchRooms()
+onMounted(() => {
+  roomStore.fetchRooms()
   setTimeout(() => { mounted.value = true }, 50)
 })
 
@@ -190,9 +190,6 @@ function enterRoom(roomId: string) {
     <aside class="sidebar">
       <!-- Logo -->
       <div class="sidebar-logo">
-        <div class="logo-icon">
-          <img src="/favicon.svg" alt="Idea Party Logo" class="logo-img" />
-        </div>
         <span class="logo-text">Idea Party</span>
       </div>
 
@@ -462,9 +459,9 @@ function enterRoom(roomId: string) {
   display: grid;
   grid-template-columns: 260px 1fr 300px;
   min-height: 100vh;
-  background: #F6F7FB;
+  background: var(--app-bg);
   opacity: 0;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.4s ease, background-color 0.25s ease;
 }
 
 .page-layout.mounted {
@@ -473,8 +470,8 @@ function enterRoom(roomId: string) {
 
 /* ===== Left Sidebar ===== */
 .sidebar {
-  background: #f7f7f8;
-  border-right: 1px solid #E5E7EB;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   padding: 1rem;
@@ -482,6 +479,7 @@ function enterRoom(roomId: string) {
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .sidebar-logo {
@@ -492,33 +490,12 @@ function enterRoom(roomId: string) {
   margin-bottom: 0.875rem;
 }
 
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logo-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo-img {
-    filter: brightness(0) invert(1);
-  }
-}
-
 .logo-text {
   font-size: 1rem;
   font-weight: 700;
-  color: #1E293B;
+  color: var(--text-primary);
   letter-spacing: -0.02em;
+  transition: color 0.25s ease;
 }
 
 /* Create Button - Light & Minimal */
@@ -529,10 +506,10 @@ function enterRoom(roomId: string) {
   gap: 0.4rem;
   width: 100%;
   padding: 0.6rem 1rem;
-  background: #1E293B;
+  background: var(--button-bg);
   border: none;
   border-radius: 16px;
-  color: white;
+  color: var(--button-text);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -541,7 +518,7 @@ function enterRoom(roomId: string) {
 }
 
 .create-btn:hover {
-  background: #334155;
+  opacity: 0.85;
 }
 
 .create-btn svg {
@@ -562,7 +539,7 @@ function enterRoom(roomId: string) {
   gap: 0.6rem;
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
-  color: #64748B;
+  color: var(--text-secondary);
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 400;
@@ -570,13 +547,13 @@ function enterRoom(roomId: string) {
 }
 
 .nav-item:hover {
-  background: #e8e8ed;
-  color: #1E293B;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
-  background: #e8e8ed;
-  color: #1E293B;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
@@ -606,8 +583,9 @@ function enterRoom(roomId: string) {
   font-size: 0.7rem;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: #94A3B8;
+  color: var(--text-muted);
   text-transform: uppercase;
+  transition: color 0.25s ease;
 }
 
 .chat-list {
@@ -627,18 +605,18 @@ function enterRoom(roomId: string) {
 }
 
 .chat-item:hover {
-  background: #e8e8ed;
+  background: var(--bg-primary);
 }
 
 .chat-avatar {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: #e8e8ed;
+  background: var(--bg-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748B;
+  color: var(--text-secondary);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -652,7 +630,7 @@ function enterRoom(roomId: string) {
 .chat-avatar-placeholder {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #94A3B8;
+  color: var(--text-muted);
 }
 
 .chat-info {
@@ -666,18 +644,20 @@ function enterRoom(roomId: string) {
 .chat-name {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #1E293B;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.25s ease;
 }
 
 .chat-preview {
   font-size: 0.7rem;
-  color: #94A3B8;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.25s ease;
 }
 
 /* ===== Main Content ===== */
@@ -697,7 +677,8 @@ function enterRoom(roomId: string) {
 .page-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .search-bar {
@@ -705,8 +686,8 @@ function enterRoom(roomId: string) {
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 1rem;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
   border-radius: 999px;
   width: 320px;
   transition: all 0.25s ease;
@@ -719,7 +700,7 @@ function enterRoom(roomId: string) {
 }
 
 .search-icon {
-  color: #94A3B8;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -728,12 +709,12 @@ function enterRoom(roomId: string) {
   border: none;
   background: transparent;
   font-size: 0.9rem;
-  color: #1E293B;
+  color: var(--text-primary);
   outline: none;
 }
 
 .search-input::placeholder {
-  color: #94A3B8;
+  color: var(--text-muted);
 }
 
 /* Featured Section */
@@ -754,7 +735,8 @@ function enterRoom(roomId: string) {
   gap: 0.5rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .see-all {
@@ -788,9 +770,9 @@ function enterRoom(roomId: string) {
   align-items: center;
   gap: 0.6rem;
   padding: 1rem;
-  background: #FFFFFF;
+  background: var(--card-bg);
   border-radius: 16px;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--border-color);
   min-width: 100px;
   cursor: pointer;
   transition: all 0.25s ease;
@@ -811,7 +793,8 @@ function enterRoom(roomId: string) {
   height: 56px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #E5E7EB;
+  border: 2px solid var(--border-color);
+  transition: border-color 0.25s ease;
 }
 
 .online-indicator {
@@ -836,12 +819,14 @@ function enterRoom(roomId: string) {
 .character-name {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .character-role {
   font-size: 0.7rem;
-  color: #94A3B8;
+  color: var(--text-muted);
+  transition: color 0.25s ease;
 }
 
 /* Category Tabs */
@@ -863,20 +848,20 @@ function enterRoom(roomId: string) {
   align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 0.9rem;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
   border-radius: 999px;
   font-size: 0.85rem;
   font-weight: 500;
-  color: #64748B;
+  color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s ease;
 }
 
 .category-chip:hover {
-  background: #F1F5F9;
-  color: #1E293B;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .category-chip.active {
@@ -900,7 +885,8 @@ function enterRoom(roomId: string) {
 
 .room-count {
   font-size: 0.85rem;
-  color: #94A3B8;
+  color: var(--text-muted);
+  transition: color 0.25s ease;
 }
 
 /* Room Grid */
@@ -924,9 +910,9 @@ function enterRoom(roomId: string) {
 
 /* Room Card */
 .room-card {
-  background: #FFFFFF;
+  background: var(--card-bg);
   border-radius: 16px;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--border-color);
   overflow: hidden;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -980,13 +966,14 @@ function enterRoom(roomId: string) {
 .room-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text-primary);
   margin-bottom: 0.75rem;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  transition: color 0.25s ease;
 }
 
 .room-participants {
@@ -1015,17 +1002,19 @@ function enterRoom(roomId: string) {
 
 .participant-names {
   font-size: 0.8rem;
-  color: #64748B;
+  color: var(--text-secondary);
+  transition: color 0.25s ease;
 }
 
 .latest-message {
   display: flex;
   gap: 0.4rem;
   padding: 0.6rem 0.75rem;
-  background: #F8FAFC;
+  background: var(--panel-bg);
   border-radius: 8px;
   margin-bottom: 0.75rem;
   font-size: 0.8rem;
+  transition: background-color 0.25s ease;
 }
 
 .message-sender {
@@ -1034,7 +1023,7 @@ function enterRoom(roomId: string) {
 }
 
 .message-text {
-  color: #64748B;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1050,13 +1039,14 @@ function enterRoom(roomId: string) {
   align-items: center;
   gap: 0.35rem;
   font-size: 0.8rem;
-  color: #94A3B8;
+  color: var(--text-muted);
+  transition: color 0.25s ease;
 }
 
 /* ===== Right Sidebar ===== */
 .right-sidebar {
-  background: #FFFFFF;
-  border-left: 1px solid #E5E7EB;
+  background: var(--card-bg);
+  border-left: 1px solid var(--border-color);
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -1065,13 +1055,15 @@ function enterRoom(roomId: string) {
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 /* Widget */
 .widget {
-  background: #F8FAFC;
+  background: var(--panel-bg);
   border-radius: 14px;
   padding: 1rem;
+  transition: background-color 0.25s ease;
 }
 
 .widget-header {
@@ -1087,7 +1079,8 @@ function enterRoom(roomId: string) {
   gap: 0.5rem;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .live-dot {
@@ -1105,7 +1098,8 @@ function enterRoom(roomId: string) {
 
 .live-count {
   font-size: 0.75rem;
-  color: #94A3B8;
+  color: var(--text-muted);
+  transition: color 0.25s ease;
 }
 
 /* Activity Feed */
@@ -1135,8 +1129,9 @@ function enterRoom(roomId: string) {
 
 .activity-text {
   font-size: 0.8rem;
-  color: #64748B;
+  color: var(--text-secondary);
   line-height: 1.4;
+  transition: color 0.25s ease;
 }
 
 .activity-name {
@@ -1145,16 +1140,18 @@ function enterRoom(roomId: string) {
 
 .activity-room {
   font-size: 0.75rem;
-  color: #94A3B8;
+  color: var(--text-muted);
   margin-top: 0.15rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.25s ease;
 }
 
 .activity-time {
   font-size: 0.7rem;
-  color: #94A3B8;
+  color: var(--text-muted);
+  transition: color 0.25s ease;
 }
 
 /* Online List */
@@ -1189,7 +1186,7 @@ function enterRoom(roomId: string) {
   height: 10px;
   border-radius: 50%;
   background: #10B981;
-  border: 2px solid #F8FAFC;
+  border: 2px solid var(--card-bg);
 }
 
 .online-info {
@@ -1201,7 +1198,8 @@ function enterRoom(roomId: string) {
 .online-name {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .online-status-text {
@@ -1242,13 +1240,13 @@ function enterRoom(roomId: string) {
 }
 
 .action-btn.secondary {
-  background: #F1F5F9;
-  color: #64748B;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
 }
 
 .action-btn.secondary:hover {
-  background: #E2E8F0;
-  color: #1E293B;
+  background: var(--border-color);
+  color: var(--text-primary);
   box-shadow: none;
 }
 

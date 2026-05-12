@@ -23,14 +23,17 @@ public class User {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(unique = true, nullable = false)
+    @Column(unique = true)
     private String email;
+
+    @Column(unique = true, nullable = false)
+    private String username;
+
+    @Column(nullable = false)
+    private String displayName;
 
     @Column(nullable = false)
     private String password;
-
-    @Column(nullable = false)
-    private String name;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -40,6 +43,9 @@ public class User {
 
     @Column(name = "api_key")
     private String apiKey;
+
+    @Column(name = "last_username_change_at")
+    private Instant lastUsernameChangeAt;
 
     @PrePersist
     protected void onCreate() {

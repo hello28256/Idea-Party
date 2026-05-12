@@ -111,18 +111,19 @@ onUnmounted(() => {
         <img
           v-if="authStore.user?.avatarUrl && !avatarError"
           :src="authStore.user.avatarUrl"
-          :alt="authStore.user.name"
+          :alt="authStore.user?.displayName"
           @error="avatarError = true"
         />
         <img
           v-else
-          src="/default_touxiang.svg"
-          :alt="authStore.user?.name || '用户'"
+          src="/image.png"
+          :alt="authStore.user?.displayName || '用户'"
           @error="avatarError = true"
         />
       </div>
       <div class="user-info">
-        <span class="user-name">{{ authStore.user?.name || '访客' }}</span>
+        <span class="user-name">{{ authStore.user?.displayName || '访客' }}</span>
+        <span class="user-handle">@{{ authStore.user?.username || 'guest' }}</span>
       </div>
       <svg class="chevron" :class="{ open: isOpen }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 15l-6-6-6 6"/>
@@ -161,8 +162,8 @@ onUnmounted(() => {
 }
 
 .user-card:hover {
-  background: #e8e8ed;
-  border-color: #e0e0e5;
+  background: var(--bg-primary);
+  border-color: var(--border-color);
 }
 
 .user-avatar {
@@ -172,7 +173,7 @@ onUnmounted(() => {
   overflow: hidden;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  background: #f3f4f6;
+  background: var(--bg-primary);
 }
 
 .user-avatar img {
@@ -183,7 +184,7 @@ onUnmounted(() => {
 
 @media (prefers-color-scheme: dark) {
   .user-avatar {
-    background: #374151;
+    background: var(--bg-primary);
   }
 }
 
@@ -198,14 +199,24 @@ onUnmounted(() => {
 .user-name {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #1E293B;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.25s ease;
+}
+
+.user-handle {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.25s ease;
 }
 
 .chevron {
-  color: #94A3B8;
+  color: var(--text-muted);
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
@@ -220,12 +231,13 @@ onUnmounted(() => {
   bottom: calc(100% + 6px);
   left: 0;
   right: 0;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   z-index: 100;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .menu-items {
@@ -248,7 +260,7 @@ onUnmounted(() => {
 }
 
 .menu-item:hover:not(.disabled) {
-  background: #f5f5f7;
+  background: var(--bg-primary);
 }
 
 .menu-item.disabled {
@@ -273,7 +285,8 @@ onUnmounted(() => {
 .item-label {
   flex: 1;
   font-size: 0.8rem;
-  color: #1E293B;
+  color: var(--text-primary);
+  transition: color 0.25s ease;
 }
 
 .logout-item .item-label {
@@ -284,14 +297,15 @@ onUnmounted(() => {
 .item-soon {
   font-size: 0.65rem;
   font-weight: 500;
-  color: #94A3B8;
+  color: var(--text-muted);
   opacity: 0.7;
 }
 
 .menu-divider {
   height: 1px;
-  background: #E5E7EB;
+  background: var(--border-color);
   margin: 0.25rem 0;
+  transition: background-color 0.25s ease;
 }
 
 /* Animation */

@@ -1,0 +1,88 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="70" y1="52" x2="438" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE0A8"/>
+      <stop offset="1" stop-color="#B7F0D4"/>
+    </linearGradient>
+
+    <linearGradient id="fur" x1="144" y1="112" x2="370" y2="398" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E77832"/>
+      <stop offset="1" stop-color="#B94B24"/>
+    </linearGradient>
+
+    <linearGradient id="ear" x1="135" y1="95" x2="210" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F08A44"/>
+      <stop offset="1" stop-color="#B44724"/>
+    </linearGradient>
+
+    <linearGradient id="tail" x1="90" y1="330" x2="245" y2="455" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E87430"/>
+      <stop offset="1" stop-color="#A83D20"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#5C2A18" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+
+  <!-- tail -->
+  <g filter="url(#shadow)">
+    <path d="M134 330C83 345 60 390 80 423C105 464 181 459 230 420C259 397 266 360 244 337C220 312 173 318 134 330Z"
+          fill="url(#tail)"/>
+    <path d="M95 387C127 399 158 400 193 387" stroke="#F9C46B" stroke-width="20" stroke-linecap="round" opacity="0.9"/>
+    <path d="M104 434C139 433 173 421 205 397" stroke="#F9C46B" stroke-width="20" stroke-linecap="round" opacity="0.9"/>
+  </g>
+
+  <!-- ears -->
+  <g filter="url(#shadow)">
+    <path d="M151 184C118 148 117 104 148 85C181 65 218 95 224 143Z" fill="url(#ear)" stroke="#552719" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M361 184C394 148 395 104 364 85C331 65 294 95 288 143Z" fill="url(#ear)" stroke="#552719" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M162 150C148 132 148 111 163 103C180 94 198 110 203 135Z" fill="#FFE3B8" opacity="0.95"/>
+    <path d="M350 150C364 132 364 111 349 103C332 94 314 110 309 135Z" fill="#FFE3B8" opacity="0.95"/>
+
+    <!-- head -->
+    <path d="M256 120C181 120 127 177 127 254C127 333 183 390 256 390C329 390 385 333 385 254C385 177 331 120 256 120Z"
+          fill="url(#fur)" stroke="#552719" stroke-width="8"/>
+
+    <!-- face mask -->
+    <path d="M182 230C184 190 214 164 256 164C298 164 328 190 330 230C333 301 299 354 256 354C213 354 179 301 182 230Z"
+          fill="#FFF4E4"/>
+
+    <!-- white cheeks -->
+    <path d="M155 258C165 230 191 217 216 228C235 236 241 260 229 282C214 309 177 316 158 296C149 286 150 273 155 258Z"
+          fill="#FFF8EC"/>
+    <path d="M357 258C347 230 321 217 296 228C277 236 271 260 283 282C298 309 335 316 354 296C363 286 362 273 357 258Z"
+          fill="#FFF8EC"/>
+
+    <!-- eye patches -->
+    <path d="M172 237C184 207 214 198 236 214C253 226 252 253 236 270C216 291 181 286 170 263C166 254 168 245 172 237Z"
+          fill="#5A2C25"/>
+    <path d="M340 237C328 207 298 198 276 214C259 226 260 253 276 270C296 291 331 286 342 263C346 254 344 245 340 237Z"
+          fill="#5A2C25"/>
+
+    <!-- eyes -->
+    <circle cx="211" cy="247" r="13" fill="#171717"/>
+    <circle cx="301" cy="247" r="13" fill="#171717"/>
+    <circle cx="216" cy="242" r="4" fill="white"/>
+    <circle cx="306" cy="242" r="4" fill="white"/>
+
+    <!-- muzzle -->
+    <ellipse cx="256" cy="294" rx="48" ry="36" fill="#FFEBD2"/>
+    <path d="M242 286C242 278 248 273 256 273C264 273 270 278 270 286C270 294 263 299 256 299C249 299 242 294 242 286Z"
+          fill="#2C1814"/>
+    <path d="M256 299V313" stroke="#2C1814" stroke-width="5" stroke-linecap="round"/>
+    <path d="M238 318C248 327 264 327 274 318" stroke="#2C1814" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- eyebrows / markings -->
+    <path d="M192 210C205 198 222 197 236 205" stroke="#FFF4E4" stroke-width="9" stroke-linecap="round"/>
+    <path d="M320 210C307 198 290 197 276 205" stroke="#FFF4E4" stroke-width="9" stroke-linecap="round"/>
+
+    <!-- body -->
+    <path d="M173 430C187 390 218 367 256 367C294 367 325 390 339 430Z"
+          fill="#5A2C25"/>
+    <path d="M202 430C215 405 235 394 256 394C277 394 297 405 310 430Z"
+          fill="#FFF4E4"/>
+  </g>
+</svg>

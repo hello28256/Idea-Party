@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
@@ -28,7 +29,9 @@ public class AuthResponse {
     @AllArgsConstructor
     public static class UserResponse {
         private UUID id;
+        private String username;
+        private String displayName;
         private String email;
-        private String name;
+        private Instant lastUsernameChangeAt;
     }
 }

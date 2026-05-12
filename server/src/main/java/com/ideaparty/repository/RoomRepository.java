@@ -13,7 +13,8 @@ import java.util.UUID;
 @Repository
 public interface RoomRepository extends JpaRepository<Room, UUID> {
 
-    List<Room> findByOwnerId(UUID ownerId);
+    @Query("SELECT r FROM Room r JOIN FETCH r.owner WHERE r.owner.id = :ownerId")
+    List<Room> findByOwnerId(@Param("ownerId") UUID ownerId);
 
     @Query("SELECT r FROM Room r LEFT JOIN FETCH r.characters WHERE r.id = :id")
     Optional<Room> findWithCharactersById(@Param("id") UUID id);

@@ -11,7 +11,9 @@ export interface RoomApi {
 }
 
 export const roomsApi: RoomApi = {
-  list: () => api.get<Room[]>('/rooms').then(res => res.data),
+  list: () => api.get<Room[]>('/rooms')
+    .then(res => res.data)
+    .catch(() => []),
 
   getById: (id: string) => api.get<Room>(`/rooms/${id}`).then(res => res.data),
 

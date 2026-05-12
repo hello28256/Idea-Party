@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { register } from '@/api/auth'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
-const name = ref('')
+const username = ref('')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
@@ -14,8 +13,8 @@ const loading = ref(false)
 const error = ref('')
 
 async function handleSubmit() {
-  if (!name.value || !email.value || !password.value) {
-    error.value = '请填写所有字段'
+  if (!username.value || !password.value) {
+    error.value = '请填写用户名和密码'
     return
   }
 
@@ -33,8 +32,16 @@ async function handleSubmit() {
   error.value = ''
 
   try {
-    await authStore.register(name.value, email.value, password.value)
-    router.push('/rooms')
+    // Call register API directly without saving auth state
+    await register({ username: username.value, email: email.value, password: password.value })
+    // Clear password fields after successful registration
+    password.value = ''
+    confirmPassword.value = ''
+    // Redirect to login page with username pre-filled
+    router.push({
+      path: '/login',
+      query: { username: username.value }
+    })
   } catch (err: any) {
     error.value = err.response?.data?.message || '注册失败，请稍后重试'
   } finally {
@@ -58,7 +65,7 @@ function handleAppleLogin() {
       <div class="h-full px-10 flex items-center justify-between">
         <!-- Logo -->
         <div class="flex items-center gap-3">
-          <img src="/image.svg" alt="Idea Party" class="w-9 h-9" />
+          <img src="/image.png" alt="Idea Party" class="w-9 h-9" />
           <span class="text-xl font-bold text-gray-900">Idea Party</span>
         </div>
 
@@ -137,17 +144,18 @@ function handleAppleLogin() {
             <form @submit.prevent="handleSubmit" class="space-y-4">
               <div>
                 <input
-                  v-model="name"
+                  v-model="username"
                   type="text"
-                  placeholder="名称"
+                  placeholder="用户名"
                   class="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
+                <p v-if="usernameError" class="text-xs text-red-500 mt-1">{{ usernameError }}</p>
               </div>
               <div>
                 <input
                   v-model="email"
                   type="email"
-                  placeholder="邮箱地址"
+                  placeholder="邮箱地址（可选）"
                   class="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
               </div>
@@ -157,6 +165,7 @@ function handleAppleLogin() {
                   type="password"
                   placeholder="密码（至少6个字符）"
                   class="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  autocomplete="new-password"
                 />
               </div>
               <div>
@@ -165,6 +174,7 @@ function handleAppleLogin() {
                   type="password"
                   placeholder="确认密码"
                   class="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  autocomplete="new-password"
                 />
               </div>
 

@@ -12,7 +12,8 @@
 .app-container {
   position: relative;
   min-height: 100vh;
-  background: linear-gradient(180deg, var(--color-cream) 0%, var(--color-ivory) 100%);
+  background: var(--color-bg);
+  transition: var(--transition-theme);
 }
 
 html {
