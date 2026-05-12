@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
@@ -11,6 +11,7 @@ const roomStore = useRoomStore()
 const showCreateModal = ref(false)
 const showCreateDropdown = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
+const dropdownPosition = ref({ left: '0px', top: '0px' })
 const selectedCategory = ref('all')
 const searchQuery = ref('')
 const mounted = ref(false)
@@ -198,7 +199,15 @@ function enterRoom(roomId: string) {
   router.push(`/chat/${roomId}`)
 }
 
-function toggleCreateDropdown() {
+function toggleCreateDropdown(e: Event) {
+  e.stopPropagation()
+  if (!showCreateDropdown.value && dropdownRef.value) {
+    const rect = dropdownRef.value.getBoundingClientRect()
+    dropdownPosition.value = {
+      left: `${rect.right + 10}px`,
+      top: `${rect.top}px`
+    }
+  }
   showCreateDropdown.value = !showCreateDropdown.value
 }
 
@@ -230,29 +239,34 @@ function handleCreateRoom() {
       <div
         class="create-dropdown-wrapper"
         ref="dropdownRef"
-        @mouseenter="showCreateDropdown = true"
-        @mouseleave="closeCreateDropdown"
       >
-        <button class="create-btn" @click="toggleCreateDropdown">
+        <button class="create-btn" @click.stop="toggleCreateDropdown">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
           <span>创建</span>
         </button>
 
-        <!-- Dropdown Menu -->
-        <Transition name="dropdown">
-          <div v-if="showCreateDropdown" class="create-dropdown-menu" @click.stop>
-            <button class="dropdown-item" @click="handleCreateCharacter">
-              <span class="dropdown-icon">👤</span>
-              <span class="dropdown-label">创建角色</span>
-            </button>
-            <button class="dropdown-item" @click="handleCreateRoom">
-              <span class="dropdown-icon">💬</span>
-              <span class="dropdown-label">创建聊天室</span>
-            </button>
-          </div>
-        </Transition>
+        <!-- Dropdown Menu - Teleport to body to avoid clipping -->
+        <Teleport to="body">
+          <Transition name="dropdown">
+            <div
+              v-if="showCreateDropdown"
+              class="create-dropdown-menu create-dropdown-menu-teleported"
+              :style="dropdownPosition"
+              @click.stop
+            >
+              <button class="dropdown-item" @click="handleCreateCharacter">
+                <span class="dropdown-icon">👤</span>
+                <span class="dropdown-label">创建角色</span>
+              </button>
+              <button class="dropdown-item" @click="handleCreateRoom">
+                <span class="dropdown-icon">💬</span>
+                <span class="dropdown-label">创建聊天室</span>
+              </button>
+            </div>
+          </Transition>
+        </Teleport>
       </div>
 
       <!-- Navigation -->
@@ -532,7 +546,7 @@ function handleCreateRoom() {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  overflow: visible;
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
@@ -595,6 +609,13 @@ function handleCreateRoom() {
   padding: 6px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
   z-index: 999;
+}
+
+.create-dropdown-menu-teleported {
+  position: fixed;
+  left: unset;
+  top: unset;
+  z-index: 9999;
 }
 
 .dropdown-item {
