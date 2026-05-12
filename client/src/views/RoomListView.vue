@@ -227,8 +227,13 @@ function handleCreateRoom() {
       </div>
 
       <!-- Create Button with Dropdown -->
-      <div class="create-dropdown-wrapper" ref="dropdownRef">
-        <button class="create-btn" @click="toggleCreateDropdown" @mouseenter="showCreateDropdown = true">
+      <div
+        class="create-dropdown-wrapper"
+        ref="dropdownRef"
+        @mouseenter="showCreateDropdown = true"
+        @mouseleave="closeCreateDropdown"
+      >
+        <button class="create-btn" @click="toggleCreateDropdown">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -547,19 +552,19 @@ function handleCreateRoom() {
   transition: color 0.25s ease;
 }
 
-/* Create Button - Light & Minimal */
+/* Create Button - Compact */
 .create-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  width: 100%;
-  padding: 0.6rem 1rem;
+  width: 160px;
+  height: 42px;
   background: var(--button-bg);
   border: none;
-  border-radius: 16px;
+  border-radius: 14px;
   color: var(--button-text);
-  font-size: 0.85rem;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -582,17 +587,14 @@ function handleCreateRoom() {
 
 .create-dropdown-menu {
   position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  width: 180px;
-  background: rgba(24, 24, 27, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  left: calc(100% + 10px);
+  top: 0;
+  width: 170px;
+  background: #202020;
   border-radius: 14px;
   padding: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
-  z-index: 100;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  z-index: 999;
 }
 
 .dropdown-item {
@@ -600,7 +602,8 @@ function handleCreateRoom() {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 12px;
+  height: 44px;
+  padding: 0 14px;
   background: transparent;
   border: none;
   border-radius: 10px;
@@ -610,7 +613,7 @@ function handleCreateRoom() {
 }
 
 .dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .dropdown-icon {
@@ -634,7 +637,13 @@ function handleCreateRoom() {
 .dropdown-enter-from,
 .dropdown-leave-to {
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateX(-6px);
+}
+
+.dropdown-enter-to,
+.dropdown-leave {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 /* Navigation - Minimal & Light */
