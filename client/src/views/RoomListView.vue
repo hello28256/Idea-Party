@@ -2,12 +2,16 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
+import { useCharacterStore } from '@/stores/character'
+import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
 
 const router = useRouter()
 const route = useRoute()
 const roomStore = useRoomStore()
+const characterStore = useCharacterStore()
+const authStore = useAuthStore()
 
 const showCreateModal = ref(false)
 const showCreateDropdown = ref(false)
@@ -34,6 +38,33 @@ const activeNavId = computed(() => {
   if (path.startsWith('/chat')) return 'discover'
   return 'discover'
 })
+
+// Whether to show characters library content
+const isCharactersView = computed(() => {
+  return route.path.startsWith('/characters') && !route.path.includes('/create')
+})
+
+// Get current user's characters
+const myCharacters = computed(() => {
+  if (!authStore.user) return []
+  return characterStore.characters.filter(
+    c => c.creatorUserId === authStore.user!.id && !c.isPreset
+  )
+})
+
+// Format date
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+  if (days === 0) return '今天'
+  if (days === 1) return '昨天'
+  if (days < 7) return `${days}天前`
+  if (days < 30) return `${Math.floor(days / 7)}周前`
+  return date.toLocaleDateString('zh-CN')
+}
 
 // Navigation handler
 function handleNavClick(itemId: string) {
@@ -202,6 +233,7 @@ const recentChats = ref([
 
 onMounted(() => {
   roomStore.fetchRooms()
+  characterStore.fetchCharacters()
   setTimeout(() => { mounted.value = true }, 50)
 
   // Close dropdown when clicking outside
@@ -333,130 +365,188 @@ function handleCreateRoom() {
 
     <!-- Main Content -->
     <main class="main-content">
-      <!-- Header -->
-      <header class="content-header">
-        <h1 class="page-title">发现</h1>
-        <div class="search-bar">
-          <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="search-input"
-            placeholder="搜索角色、讨论、场景..."
-          />
-        </div>
-      </header>
+      <!-- Characters Library View -->
+      <template v-if="isCharactersView">
+        <header class="content-header">
+          <h1 class="page-title">角色库</h1>
+          <button class="create-btn-large" @click="router.push('/characters/create')">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            创建角色
+          </button>
+        </header>
 
-      <!-- Featured Characters -->
-      <section class="featured-section">
-        <div class="section-header">
-          <h2 class="section-title">推荐角色</h2>
-          <a href="#" class="see-all" @click.prevent>查看全部</a>
+        <!-- Empty State -->
+        <div v-if="myCharacters.length === 0" class="empty-state">
+          <div class="empty-icon">📚</div>
+          <h2 class="empty-title">还没有创建角色</h2>
+          <p class="empty-desc">创建你的第一个 AI 角色，开始对话吧！</p>
+          <button class="empty-btn" @click="router.push('/characters/create')">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            创建角色
+          </button>
         </div>
-        <div class="featured-scroll">
+
+        <!-- Character Grid -->
+        <div v-else class="character-grid">
           <div
-            v-for="char in featuredCharacters"
-            :key="char.id"
-            class="character-card"
+            v-for="character in myCharacters"
+            :key="character.id"
+            class="character-card-item"
           >
-            <div class="character-avatar-wrap">
-              <img :src="char.avatar" :alt="char.name" class="character-avatar" />
-              <span v-if="char.online" class="online-indicator"></span>
+            <div class="character-avatar">
+              <img
+                v-if="character.avatarUrl"
+                :src="character.avatarUrl"
+                :alt="character.name"
+              />
+              <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
             </div>
             <div class="character-info">
-              <span class="character-name">{{ char.name }}</span>
-              <span class="character-role">{{ char.role }}</span>
+              <h3 class="character-name">{{ character.name }}</h3>
+              <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
+              <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
+            <button class="edit-btn" @click="router.push(`/characters/edit/${character.id}`)">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              编辑
+            </button>
           </div>
         </div>
-      </section>
+      </template>
 
-      <!-- Category Tabs -->
-      <section class="category-tabs">
-        <button
-          v-for="cat in categories"
-          :key="cat.id"
-          class="category-chip"
-          :class="{ active: selectedCategory === cat.id }"
-          @click="selectedCategory = cat.id"
-          :style="selectedCategory === cat.id && cat.color ? { backgroundColor: cat.color + '20', borderColor: cat.color, color: cat.color } : {}"
-        >
-          <span class="chip-emoji">{{ cat.emoji }}</span>
-          <span class="chip-label">{{ cat.label }}</span>
-        </button>
-      </section>
+      <!-- Discover View -->
+      <template v-else>
+        <!-- Header -->
+        <header class="content-header">
+          <h1 class="page-title">发现</h1>
+          <div class="search-bar">
+            <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="search-input"
+              placeholder="搜索角色、讨论、场景..."
+            />
+          </div>
+        </header>
 
-      <!-- Hot Rooms -->
-      <section class="rooms-section">
-        <div class="section-header">
-          <h2 class="section-title">
-            <span class="hot-badge">🔥</span>
-            热门聊天室
-          </h2>
-          <span class="room-count">{{ roomCardsData.length }} 个房间</span>
-        </div>
+        <!-- Featured Characters -->
+        <section class="featured-section">
+          <div class="section-header">
+            <h2 class="section-title">推荐角色</h2>
+            <a href="#" class="see-all" @click.prevent>查看全部</a>
+          </div>
+          <div class="featured-scroll">
+            <div
+              v-for="char in featuredCharacters"
+              :key="char.id"
+              class="character-card"
+            >
+              <div class="character-avatar-wrap">
+                <img :src="char.avatar" :alt="char.name" class="character-avatar" />
+                <span v-if="char.online" class="online-indicator"></span>
+              </div>
+              <div class="character-info">
+                <span class="character-name">{{ char.name }}</span>
+                <span class="character-role">{{ char.role }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <!-- Room Grid -->
-        <div class="room-grid">
-          <div
-            v-for="room in roomCardsData"
-            :key="room.id"
-            class="room-card"
-            @click="enterRoom(room.id)"
+        <!-- Category Tabs -->
+        <section class="category-tabs">
+          <button
+            v-for="cat in categories"
+            :key="cat.id"
+            class="category-chip"
+            :class="{ active: selectedCategory === cat.id }"
+            @click="selectedCategory = cat.id"
+            :style="selectedCategory === cat.id && cat.color ? { backgroundColor: cat.color + '20', borderColor: cat.color, color: cat.color } : {}"
           >
-            <!-- Cover Image -->
-            <div class="room-cover">
-              <img :src="room.cover" :alt="room.title" class="cover-img" />
-              <div v-if="room.isHot" class="hot-tag">🔥 热门</div>
-              <div class="cover-overlay"></div>
-            </div>
+            <span class="chip-emoji">{{ cat.emoji }}</span>
+            <span class="chip-label">{{ cat.label }}</span>
+          </button>
+        </section>
 
-            <!-- Room Info -->
-            <div class="room-body">
-              <h3 class="room-title">{{ room.title }}</h3>
+        <!-- Hot Rooms -->
+        <section class="rooms-section">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span class="hot-badge">🔥</span>
+              热门聊天室
+            </h2>
+            <span class="room-count">{{ roomCardsData.length }} 个房间</span>
+          </div>
 
-              <!-- Participants -->
-              <div class="room-participants">
-                <div class="avatar-stack">
-                  <img
-                    v-for="(avatar, i) in room.participantAvatars"
-                    :key="i"
-                    :src="avatar"
-                    :alt="room.participants[i]"
-                    class="participant-avatar"
-                    :style="{ zIndex: 3 - i }"
-                  />
+          <!-- Room Grid -->
+          <div class="room-grid">
+            <div
+              v-for="room in roomCardsData"
+              :key="room.id"
+              class="room-card"
+              @click="enterRoom(room.id)"
+            >
+              <!-- Cover Image -->
+              <div class="room-cover">
+                <img :src="room.cover" :alt="room.title" class="cover-img" />
+                <div v-if="room.isHot" class="hot-tag">🔥 热门</div>
+                <div class="cover-overlay"></div>
+              </div>
+
+              <!-- Room Info -->
+              <div class="room-body">
+                <h3 class="room-title">{{ room.title }}</h3>
+
+                <!-- Participants -->
+                <div class="room-participants">
+                  <div class="avatar-stack">
+                    <img
+                      v-for="(avatar, i) in room.participantAvatars"
+                      :key="i"
+                      :src="avatar"
+                      :alt="room.participants[i]"
+                      class="participant-avatar"
+                      :style="{ zIndex: 3 - i }"
+                    />
+                  </div>
+                  <span class="participant-names">{{ room.participants.slice(0, 3).join('、') }}</span>
                 </div>
-                <span class="participant-names">{{ room.participants.slice(0, 3).join('、') }}</span>
-              </div>
 
-              <!-- Latest Message -->
-              <div class="latest-message">
-                <span class="message-sender">{{ room.latestMessage.sender }}:</span>
-                <span class="message-text">{{ room.latestMessage.text }}</span>
-              </div>
+                <!-- Latest Message -->
+                <div class="latest-message">
+                  <span class="message-sender">{{ room.latestMessage.sender }}:</span>
+                  <span class="message-text">{{ room.latestMessage.text }}</span>
+                </div>
 
-              <!-- Stats -->
-              <div class="room-stats">
-                <span class="stat">
-                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  {{ room.onlineCount }} 在线
-                </span>
-                <span class="stat">
-                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  {{ room.messageCount }} 条消息
-                </span>
+                <!-- Stats -->
+                <div class="room-stats">
+                  <span class="stat">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    {{ room.onlineCount }} 在线
+                  </span>
+                  <span class="stat">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    {{ room.messageCount }} 条消息
+                  </span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </template>
     </main>
 
     <!-- Right Sidebar -->
@@ -1449,5 +1539,168 @@ function handleCreateRoom() {
     gap: 1rem;
     align-items: stretch;
   }
+}
+
+/* ===== Character Library Styles ===== */
+.create-btn-large {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.create-btn-large:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+}
+
+.empty-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.empty-desc {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+
+.empty-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.empty-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(79, 125, 243, 0.35);
+}
+
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.25rem;
+}
+
+.character-card-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  transition: all 0.25s ease;
+}
+
+.character-card-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: #4F7DF3;
+}
+
+.character-card-item .character-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.character-card-item .character-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-card-item .avatar-placeholder {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.character-card-item .character-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.character-card-item .character-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.character-card-item .character-tagline {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.character-card-item .character-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.character-card-item .edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.character-card-item .edit-btn:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
 }
 </style>
