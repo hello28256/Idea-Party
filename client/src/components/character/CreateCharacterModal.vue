@@ -20,6 +20,7 @@ const emit = defineEmits<{
   close: []
   created: [character: Character]
   updated: [character: Character]
+  deleted: [characterId: string]
 }>()
 
 const characterStore = useCharacterStore()
@@ -43,6 +44,7 @@ const form = ref<CharacterForm>({
 })
 const loading = ref(false)
 const generatingPrompt = ref(false)
+const deleting = ref(false)
 const error = ref<string | null>(null)
 const uploadingAvatar = ref(false)
 const avatarPreview = ref<string | null>(null)
@@ -166,6 +168,26 @@ function handleClose() {
   emit('close')
 }
 
+async function handleDeleteCharacter() {
+  if (!isEditMode.value || !props.character?.id) return
+
+  const confirmed = window.confirm(`确定要删除角色「${props.character.name || ''}」吗？此操作不可恢复。`)
+  if (!confirmed) return
+
+  try {
+    deleting.value = true
+    error.value = null
+    await characterStore.deleteCharacter(props.character.id)
+    emit('deleted', props.character.id)
+    emit('close')
+  } catch (e: any) {
+    console.error('[DEBUG] handleDeleteCharacter failed:', e)
+    error.value = e.response?.data?.message || e.message || '删除角色失败'
+  } finally {
+    deleting.value = false
+  }
+}
+
 function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
@@ -213,64 +235,30 @@ async function handleAvatarFileChange(event: Event) {
     <Transition name="modal">
       <div
         v-if="show"
-        class="fixed inset-0 z-50 flex items-center justify-center"
+        class="character-modal-overlay"
+        @click.self="handleClose"
       >
-        <!-- Backdrop -->
-        <div
-          class="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          @click="handleClose"
-        ></div>
-
-        <!-- Modal Content -->
-        <div class="relative bg-gradient-to-b from-[var(--color-ivory)] to-[var(--color-cream)] rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+        <!-- Modal Container -->
+        <div class="character-modal">
           <!-- Header -->
-          <div class="flex items-center justify-between p-6 border-b border-[var(--color-border)]">
-            <h2 class="text-xl font-semibold text-[var(--color-navy)] font-['Playfair_Display']">
-              {{ isEditMode ? '编辑角色' : '创建角色' }}
-            </h2>
-            <button
-              @click="handleClose"
-              class="p-2 rounded-lg hover:bg-[var(--color-parchment)] transition-colors"
-            >
-              <svg class="w-5 h-5 text-[var(--color-text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <header class="character-modal-header">
+            <div>
+              <h2 class="character-modal-title">
+                {{ isEditMode ? '编辑角色' : '创建角色' }}
+              </h2>
+              <p class="character-modal-subtitle">完善角色资料、头像和提示词设定</p>
+            </div>
+            <button class="modal-close" @click="handleClose">
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-          </div>
+          </header>
 
-          <!-- Form -->
-          <div class="flex-1 overflow-y-auto p-6 space-y-5">
-            <!-- Name -->
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-navy)] mb-2">
-                角色名称 <span class="text-[var(--color-destructive)]">*</span>
-              </label>
-              <input
-                v-model="form.name"
-                type="text"
-                placeholder="请输入角色名称"
-                class="w-full px-4 py-2.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-gold)] focus:border-transparent bg-[var(--color-ivory)] text-[var(--color-text-primary)] transition-all"
-              />
-            </div>
-
-            <!-- Description -->
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-navy)] mb-2">
-                角色描述
-              </label>
-              <textarea
-                v-model="form.description"
-                rows="3"
-                placeholder="请输入角色描述"
-                class="w-full px-4 py-2.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-gold)] focus:border-transparent resize-none bg-[var(--color-ivory)] text-[var(--color-text-primary)] transition-all"
-              ></textarea>
-            </div>
-
-            <!-- Avatar -->
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-navy)] mb-2">
-                头像
-              </label>
+          <!-- Body -->
+          <div class="character-modal-body">
+            <div class="character-form">
+              <!-- Hidden file input -->
               <input
                 ref="fileInputRef"
                 type="file"
@@ -278,89 +266,129 @@ async function handleAvatarFileChange(event: Event) {
                 class="hidden"
                 @change="handleAvatarFileChange"
               />
-              <div class="flex items-center gap-4">
-                <div
-                  class="w-20 h-20 rounded-full border-2 border-dashed border-[var(--color-border)] overflow-hidden bg-[var(--color-parchment)] flex items-center justify-center cursor-pointer hover:border-[var(--color-gold)] transition-colors"
-                  :class="{ 'border-[var(--color-gold)]': avatarPreview }"
-                  @click="triggerAvatarUpload"
-                >
-                  <img
-                    v-if="avatarPreview"
-                    :src="avatarPreview"
-                    alt="Avatar preview"
-                    class="w-full h-full object-cover"
-                  />
-                  <svg v-else class="w-8 h-8 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div class="flex-1">
-                  <button
-                    type="button"
+
+              <!-- Name -->
+              <div class="form-group">
+                <label class="form-label">
+                  角色名称 <span class="required">*</span>
+                </label>
+                <input
+                  v-model="form.name"
+                  type="text"
+                  placeholder="请输入角色名称"
+                  class="form-input"
+                />
+              </div>
+
+              <!-- Description -->
+              <div class="form-group">
+                <label class="form-label">角色描述</label>
+                <textarea
+                  v-model="form.description"
+                  rows="3"
+                  placeholder="请输入角色描述"
+                  class="form-textarea"
+                ></textarea>
+              </div>
+
+              <!-- Avatar Upload -->
+              <div class="form-group">
+                <label class="form-label">角色头像</label>
+                <div class="avatar-upload-row">
+                  <div
+                    class="avatar-preview-circle"
                     @click="triggerAvatarUpload"
-                    :disabled="uploadingAvatar"
-                    class="px-4 py-2 text-sm font-medium text-[var(--color-gold-dark)] bg-[var(--color-gold)]/10 border border-[var(--color-gold)]/30 rounded-lg hover:bg-[var(--color-gold)]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {{ uploadingAvatar ? '上传中...' : '上传头像' }}
-                  </button>
-                  <p class="mt-1 text-xs text-[var(--color-text-muted)]">
-                    支持 JPEG、PNG、GIF、WebP，不超过 5MB
-                  </p>
+                    <img
+                      v-if="avatarPreview"
+                      :src="avatarPreview"
+                      alt="Avatar preview"
+                    />
+                    <svg v-else width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div class="avatar-upload-info">
+                    <span class="avatar-upload-title">点击上传头像</span>
+                    <span class="avatar-upload-desc">支持 JPEG、PNG、GIF、WebP，不超过 5MB</span>
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      @click="triggerAvatarUpload"
+                      :disabled="uploadingAvatar"
+                    >
+                      <svg v-if="uploadingAvatar" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {{ uploadingAvatar ? '上传中...' : '上传头像' }}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Prompt -->
-            <div>
-              <label class="block text-sm font-medium text-[var(--color-navy)] mb-2">
-                角色设定 (Prompt)
-              </label>
-              <textarea
-                v-model="form.prompt"
-                rows="4"
-                placeholder="输入角色设定，用于定义 AI 角色的行为和风格"
-                class="w-full px-4 py-2.5 text-sm border border-[var(--color-border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-gold)] focus:border-transparent resize-none bg-[var(--color-ivory)] text-[var(--color-text-primary)] transition-all"
-              ></textarea>
-              <button
-                type="button"
-                @click="handleGeneratePrompt"
-                :disabled="generatingPrompt"
-                class="mt-3 px-4 py-2 text-sm font-medium text-[var(--color-gold-dark)] bg-[var(--color-gold)]/10 border border-[var(--color-gold)]/30 rounded-lg hover:bg-[var(--color-gold)]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                <svg v-if="generatingPrompt" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {{ generatingPrompt ? '生成中...' : 'AI 生成提示词' }}
-              </button>
-              <p class="mt-2 text-xs text-[var(--color-text-muted)]">
-                根据角色名称联网生成，或根据描述内容智能生成
-              </p>
-            </div>
+              <!-- Prompt -->
+              <div class="form-group">
+                <label class="form-label">角色设定 (Prompt)</label>
+                <textarea
+                  v-model="form.prompt"
+                  rows="4"
+                  placeholder="输入角色设定，用于定义 AI 角色的行为和风格"
+                  class="form-textarea prompt-textarea"
+                ></textarea>
+                <button
+                  type="button"
+                  class="ai-generate-button"
+                  :class="{ spinning: generatingPrompt }"
+                  @click="handleGeneratePrompt"
+                  :disabled="generatingPrompt"
+                >
+                  <svg v-if="generatingPrompt" class="w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {{ generatingPrompt ? '生成中...' : 'AI 生成提示词' }}
+                </button>
+                <p class="form-hint">根据角色名称联网生成，或根据描述内容智能生成</p>
+              </div>
 
-            <!-- Error -->
-            <p v-if="error" class="text-sm text-[var(--color-destructive)]">
-              {{ error }}
-            </p>
+              <!-- Error -->
+              <p v-if="error" class="form-error">{{ error }}</p>
+            </div>
           </div>
 
           <!-- Footer -->
-          <div class="p-6 border-t border-[var(--color-border)] flex items-center justify-end gap-3">
-            <button
-              @click="handleClose"
-              class="px-5 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-navy)] transition-colors"
-            >
-              取消
-            </button>
-            <button
-              @click="handleSubmit"
-              :disabled="loading"
-              class="px-5 py-2.5 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style="background: var(--color-navy); color: white;"
-            >
-              {{ loading ? '处理中...' : (isEditMode ? '保存修改' : '创建角色') }}
-            </button>
-          </div>
+          <footer class="character-modal-footer">
+            <div class="footer-left">
+              <button
+                v-if="isEditMode"
+                type="button"
+                class="delete-character-button"
+                @click="handleDeleteCharacter"
+                :disabled="deleting"
+              >
+                {{ deleting ? '删除中...' : '删除角色' }}
+              </button>
+            </div>
+
+            <div class="footer-actions">
+              <button
+                type="button"
+                class="footer-cancel-btn"
+                @click="handleClose"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="footer-submit-btn"
+                @click="handleSubmit"
+                :disabled="loading"
+              >
+                {{ loading ? '处理中...' : (isEditMode ? '保存修改' : '创建角色') }}
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     </Transition>
@@ -368,13 +396,470 @@ async function handleAvatarFileChange(event: Event) {
 </template>
 
 <style scoped>
+/*** Light Mode Variables ***/
+.character-modal-overlay {
+  --overlay-bg: rgba(15, 23, 42, 0.06);
+  --modal-bg: #ffffff;
+  --modal-border: rgba(226, 232, 240, 0.95);
+  --modal-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
+  --header-bg: #ffffff;
+  --header-border: rgba(226, 232, 240, 0.9);
+  --footer-bg: #ffffff;
+  --footer-border: rgba(226, 232, 240, 0.9);
+  --body-bg: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: rgba(71, 85, 105, 0.85);
+  --text-muted: rgba(100, 116, 139, 0.8);
+  --input-bg: #f8fafc;
+  --input-border: rgba(203, 213, 225, 0.95);
+  --input-focus-border: #0f172a;
+  --input-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+  --avatar-box-bg: #f8fafc;
+  --avatar-box-border: rgba(148, 163, 184, 0.9);
+  --avatar-preview-bg: #f1f5f9;
+  --avatar-preview-color: #64748b;
+  --avatar-preview-border: rgba(226, 232, 240, 0.9);
+  --btn-primary-bg: #0f172a;
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: rgba(248, 250, 252, 0.72);
+  --btn-secondary-border: rgba(203, 213, 225, 0.55);
+  --btn-secondary-text: #334155;
+  --btn-ai-bg: rgba(234, 179, 8, 0.14);
+  --btn-ai-border: rgba(202, 138, 4, 0.32);
+  --btn-ai-text: #92400e;
+  --focus-ring: rgba(148, 163, 184, 0.12);
+  --error-color: #dc2626;
+  --close-hover-bg: rgba(148, 163, 184, 0.18);
+}
+
+/*** Dark Mode Variables ***/
+.dark .character-modal-overlay {
+  --overlay-bg: transparent;
+  --modal-bg: #0f172a;
+  --modal-border: rgba(71, 85, 105, 0.85);
+  --modal-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+  --header-bg: #0f172a;
+  --header-border: rgba(71, 85, 105, 0.85);
+  --footer-bg: #0f172a;
+  --footer-border: rgba(71, 85, 105, 0.85);
+  --body-bg: #0f172a;
+  --text-primary: #f8fafc;
+  --text-secondary: rgba(203, 213, 225, 0.72);
+  --text-muted: rgba(148, 163, 184, 0.68);
+  --input-bg: #1e293b;
+  --input-border: rgba(71, 85, 105, 0.95);
+  --input-focus-border: #94a3b8;
+  --input-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+  --avatar-box-bg: #1e293b;
+  --avatar-box-border: rgba(100, 116, 139, 0.95);
+  --avatar-preview-bg: #1e293b;
+  --avatar-preview-color: #94a3b8;
+  --avatar-preview-border: rgba(100, 116, 139, 0.95);
+  --btn-primary-bg: #f8fafc;
+  --btn-primary-text: #0f172a;
+  --btn-secondary-bg: #1e293b;
+  --btn-secondary-border: rgba(71, 85, 105, 0.95);
+  --btn-secondary-text: #f8fafc;
+  --btn-ai-bg: rgba(234, 179, 8, 0.16);
+  --btn-ai-border: rgba(234, 179, 8, 0.35);
+  --btn-ai-text: #facc15;
+  --focus-ring: rgba(148, 163, 184, 0.15);
+  --error-color: #fca5a5;
+  --close-hover-bg: rgba(255, 255, 255, 0.12);
+}
+
+/*** Overlay ***/
+.character-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/*** Modal Container ***/
+.character-modal {
+  position: relative;
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(860px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(226, 232, 240, 0.95) !important;
+  border-radius: 24px;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: hidden;
+}
+
+.character-modal::before,
+.character-modal::after {
+  display: none !important;
+}
+
+.character-modal-header,
+.character-modal-body,
+.character-modal-footer {
+  position: relative;
+  z-index: 1;
+}
+
+/*** Header ***/
+.character-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 32px 20px;
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9) !important;
+}
+
+.character-modal-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.character-modal-subtitle {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.modal-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.modal-close:hover {
+  background: var(--close-hover-bg);
+  color: var(--text-primary);
+}
+
+/*** Body ***/
+.character-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 28px;
+  background: #ffffff !important;
+}
+
+.character-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/*** Form Groups ***/
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form-label .required {
+  color: var(--error-color);
+  margin-left: 2px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.form-error {
+  font-size: 13px;
+  color: var(--error-color);
+}
+
+/*** Inputs & Textareas ***/
+.form-input,
+.form-textarea {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.95) !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.form-input::placeholder,
+.form-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.form-input:focus,
+.form-textarea:focus {
+  border-color: #0f172a !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+.form-textarea {
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.prompt-textarea {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+/*** Avatar Upload Row ***/
+.avatar-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.9) !important;
+  border-radius: 18px;
+  background: #f8fafc !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.avatar-preview-circle {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #f1f5f9 !important;
+  color: var(--avatar-preview-color);
+  font-size: 12px;
+  border: 2px solid rgba(226, 232, 240, 0.9) !important;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.avatar-preview-circle:hover {
+  border-color: var(--text-muted);
+}
+
+.avatar-preview-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-upload-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.avatar-upload-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.avatar-upload-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/*** Buttons ***/
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.secondary-button:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
+.secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-generate-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--btn-ai-border);
+  background: var(--btn-ai-bg);
+  color: var(--btn-ai-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-generate-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.ai-generate-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-generate-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ai-generate-button.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/*** Footer ***/
+.character-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 32px;
+  background: #ffffff !important;
+  border-top: 1px solid rgba(226, 232, 240, 0.9) !important;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-cancel-btn {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.footer-cancel-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.footer-submit-btn {
+  height: 42px;
+  padding: 0 20px;
+  border-radius: 14px;
+  border: none;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.footer-submit-btn:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.footer-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.delete-character-button {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: none;
+  background: #000000;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.delete-character-button:hover:not(:disabled) {
+  background: #111827;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+}
+
+.delete-character-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.delete-character-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/*** Transitions ***/
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity 0.3s ease;
 }
 
-.modal-enter-active .relative,
-.modal-leave-active .relative {
+.modal-enter-active .character-modal,
+.modal-leave-active .character-modal {
   transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
@@ -383,9 +868,114 @@ async function handleAvatarFileChange(event: Event) {
   opacity: 0;
 }
 
-.modal-enter-from .relative,
-.modal-leave-to .relative {
+.modal-enter-from .character-modal,
+.modal-leave-to .character-modal {
   transform: scale(0.95) translateY(10px);
   opacity: 0;
+}
+
+/*** Responsive ***/
+@media (max-width: 640px) {
+  .character-modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .character-modal {
+    width: 100vw;
+    max-height: 92vh;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .character-modal-header,
+  .character-modal-body,
+  .character-modal-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+/*** Dark mode explicit overrides (force opaque card) ***/
+.dark .character-modal-overlay {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dark .character-modal {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: rgba(71, 85, 105, 0.85) !important;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dark .character-modal::before,
+.dark .character-modal::after {
+  display: none !important;
+}
+
+.dark .character-modal-header {
+  background: #0f172a !important;
+  border-bottom-color: rgba(71, 85, 105, 0.85) !important;
+}
+
+.dark .character-modal-body {
+  background: #0f172a !important;
+}
+
+.dark .character-modal-footer {
+  background: #0f172a !important;
+  border-top-color: rgba(71, 85, 105, 0.85) !important;
+}
+
+.dark .form-input,
+.dark .form-textarea {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.95) !important;
+  color: #f8fafc !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dark .form-input:focus,
+.dark .form-textarea:focus {
+  border-color: #94a3b8 !important;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16) !important;
+}
+
+.dark .avatar-upload-row {
+  background: #1e293b !important;
+  border-color: rgba(100, 116, 139, 0.95) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dark .avatar-preview-circle {
+  background: #1e293b !important;
+  border-color: rgba(100, 116, 139, 0.95) !important;
+  color: #94a3b8 !important;
+}
+
+.dark .secondary-button {
+  background: #1e293b !important;
+  border-color: rgba(71, 85, 105, 0.95) !important;
+  color: #f8fafc !important;
+}
+
+.dark .footer-submit-btn {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.dark .delete-character-button {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .delete-character-button:hover:not(:disabled) {
+  background: #18181b !important;
 }
 </style>
