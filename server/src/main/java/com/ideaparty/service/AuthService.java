@@ -229,7 +229,9 @@ public class AuthService {
                         .username(user.getUsername())
                         .displayName(user.getDisplayName())
                         .email(user.getEmail())
+                        .avatarUrl(user.getAvatarUrl())
                         .lastUsernameChangeAt(user.getLastUsernameChangeAt())
+                        .themeMode(user.getThemeMode() != null ? user.getThemeMode() : "system")
                         .build())
                 .build();
     }
