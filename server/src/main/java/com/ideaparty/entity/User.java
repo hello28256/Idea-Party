@@ -47,6 +47,12 @@ public class User {
     @Column(name = "last_username_change_at")
     private Instant lastUsernameChangeAt;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Column(name = "theme_mode")
+    private String themeMode = "system";
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();
