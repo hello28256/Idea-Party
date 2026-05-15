@@ -50,6 +50,7 @@ public class User {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
+    @Builder.Default
     @Column(name = "theme_mode")
     private String themeMode = "system";
 
