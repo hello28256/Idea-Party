@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
 import { login as loginApi, register as registerApi, updateProfile as updateProfileApi } from '@/api/auth'
+import { getProfile, uploadAvatar as uploadAvatarApi } from '@/api/user'
+import { useThemeStore } from '@/stores/theme'
 
 // Generate a stable UUID-like ID
 function generateId(): string {
@@ -161,6 +163,38 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
+  async function fetchProfile(): Promise<void> {
+    try {
+      const response = await getProfile()
+      const userData = response.data
+      user.value = userData
+      localStorage.setItem('user', JSON.stringify(userData))
+
+      // Sync theme mode to theme store
+      const themeStore = useThemeStore()
+      if (userData.themeMode) {
+        themeStore.setThemeMode(userData.themeMode as 'system' | 'light' | 'dark')
+      }
+    } catch (e) {
+      console.error('[DEBUG] Failed to fetch profile:', e)
+    }
+  }
+
+  async function uploadAvatar(file: File): Promise<{ success: boolean; avatarUrl?: string; error?: string }> {
+    try {
+      const response = await uploadAvatarApi(file)
+      const avatarUrl = response.data.avatarUrl
+      if (user.value) {
+        user.value.avatarUrl = avatarUrl
+        localStorage.setItem('user', JSON.stringify(user.value))
+      }
+      return { success: true, avatarUrl }
+    } catch (e: any) {
+      const message = e?.response?.data?.message || e?.message || '头像上传失败'
+      return { success: false, error: message }
+    }
+  }
+
   // Update user profile - calls backend API and syncs localStorage
   async function updateProfile(updates: { username?: string; displayName?: string; email?: string }): Promise<{ success: boolean; error?: string }> {
     console.log('[settings save] authStore.user =', user.value)
@@ -241,6 +275,8 @@ export const useAuthStore = defineStore('auth', () => {
     generateUsername,
     isEmailFormat,
     updateProfile,
-    getUsers
+    getUsers,
+    fetchProfile,
+    uploadAvatar
   }
 })
