@@ -3,7 +3,7 @@ import type { AuthResponse, LoginRequest, RegisterRequest } from '@/types'
 
 // Base axios instance with configuration
 const api: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:8080/api',
+  baseURL: '/api',
   timeout: 60000 // 60 seconds for large file uploads
 })
 

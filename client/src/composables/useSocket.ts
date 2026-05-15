@@ -18,7 +18,8 @@ export interface UseSocketOptions {
   onError?: (error: string) => void
 }
 
-const DEFAULT_SERVER_URL = 'ws://localhost:8080'
+const SERVER_PORT = import.meta.env.VITE_SERVER_PROXY_PORT || '8080'
+const DEFAULT_SERVER_URL = `ws://localhost:${SERVER_PORT}`
 
 export function useSocket(roomId: string, options: UseSocketOptions = {}) {
   const {
