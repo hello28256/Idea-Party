@@ -32,6 +32,9 @@ public class AuthResponse {
         private String username;
         private String displayName;
         private String email;
+        private String avatarUrl;
         private Instant lastUsernameChangeAt;
+        @Builder.Default
+        private String themeMode = "system";
     }
 }
