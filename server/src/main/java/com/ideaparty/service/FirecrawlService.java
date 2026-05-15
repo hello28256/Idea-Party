@@ -30,9 +30,10 @@ public class FirecrawlService {
         String envKey = System.getenv("FIRECRAWL_API_KEY");
         this.apiKey = propKey != null ? propKey : envKey;
         if (this.apiKey == null || this.apiKey.isBlank()) {
-            throw new IllegalStateException("FIRECRAWL_API_KEY environment variable is not set");
+            log.warn("[Firecrawl] FIRECRAWL_API_KEY not configured, web scraping will use fallback content");
+        } else {
+            log.info("[DEBUG] FirecrawlService initialized with API key: present");
         }
-        log.info("[DEBUG] FirecrawlService initialized with API key: present");
     }
 
     /**

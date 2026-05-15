@@ -69,7 +69,6 @@ export interface Character {
   avatarUrl?: string
   prompt?: string
   ownerId?: string
-  creatorUserId?: string
   isPreset?: boolean
   preset?: boolean
   createdAt: string
@@ -81,7 +80,7 @@ export interface CharacterRequest {
   description?: string
   avatarUrl?: string
   prompt?: string
-  creatorUserId?: string
+  ownerId?: string
 }
 
 // Message types

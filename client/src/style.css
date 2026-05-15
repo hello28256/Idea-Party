@@ -27,7 +27,7 @@
   --card-bg-alpha: rgba(255, 255, 255, 0.7);
 
   /* Accent colors */
-  --accent-blue: #4F7DF3;
+  --accent-blue: #27272a;
   --accent-green: #10B981;
 
   /* Legacy color aliases for compatibility */
@@ -97,7 +97,7 @@ html[data-theme="dark"] {
   --card-bg-alpha: rgba(26, 29, 36, 0.8);
 
   /* Accent colors - same in dark */
-  --accent-blue: #4F7DF3;
+  --accent-blue: #27272a;
   --accent-green: #10B981;
 
   /* Legacy aliases for dark mode */

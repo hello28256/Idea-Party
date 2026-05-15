@@ -4,18 +4,19 @@ import type { AuthResponse, LoginRequest, RegisterRequest } from '@/types'
 // Base axios instance with configuration
 const api: AxiosInstance = axios.create({
   baseURL: 'http://localhost:8080/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  timeout: 60000 // 60 seconds for large file uploads
 })
 
-// Request interceptor: add JWT token from localStorage
+// Request interceptor: add JWT token and set Content-Type for non-FormData requests
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    // Set JSON content-type for non-FormData requests that have data
+    if (config.data && !(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json'
     }
     return config
   },

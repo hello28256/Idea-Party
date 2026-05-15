@@ -38,6 +38,21 @@ public class CharacterService {
         this.deepseekBaseUrl = deepseekBaseUrl;
     }
 
+    /**
+     * Detect if the given text is primarily Chinese.
+     * @param text the text to check
+     * @return true if more than 30% of characters are Chinese
+     */
+    private boolean isChineseContent(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        long chineseChars = text.chars()
+                .filter(c -> c >= 0x4e00 && c <= 0x9fa5)
+                .count();
+        return (double) chineseChars / text.length() > 0.3;
+    }
+
     public CharacterResponse create(UUID userId, CharacterRequest request) {
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
@@ -113,34 +128,63 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
-        String systemPrompt = """
-            You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY.
+        String systemPrompt;
+        String userMessage;
 
-            CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
-            - Signature phrases or口头禅 they always use
-            - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
-            - Strong opinions on specific topics
-            - A unique worldview that colors how they see everything
-            - Emotional range: are they passionate, detached, skeptical, enthusiastic?
+        if (isChineseContent(characterName)) {
+            systemPrompt = """
+                你是一个角色提示词生成器，为 AI 聊天平台创建极具特色、个性鲜明的角色提示词。
 
-            Structure your prompt like this:
-            1. WHO they are (profession, identity, core belief)
-            2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
-            3. WHAT they care about (2-3 strong opinions or values)
-            4. Example lines they might say in conversation
+                关键要求：赋予这个角色独特的语音和性格，使其令人印象深刻：
+                - 标志性的口头禅或常用表达
+                - 独特的说话风格（短句、长篇论述、提问、感叹等）
+                - 对特定话题的强烈观点
+                - 独特的世界观，影响他看待一切的方式
+                - 情感范围：热情、冷淡、怀疑、兴奋？
 
-            ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
-            Instead of "caring", say "always puts family first, sacrifices own needs".
-            Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+                按以下结构组织提示词：
+                1. 他们是谁（职业、身份、核心信念）
+                2. 他们如何说话（语气、节奏、词汇、最喜欢的表达）
+                3. 他们关心什么（2-3 个强烈观点或价值观）
+                4. 他们在对话中可能说的话示例
 
-            Write 150-250 words. Be specific, vivid, and memorable.
-            If you don't know this person, create a fictional character with that name who is interesting and memorable.
-            """;
+                绝对不要使用"睿智而善良"或"聪明且善于分析"等通用描述。
+                不要说"关心家人"，要说"总是把家庭放在第一位，牺牲自己的需求"。
+                不要说"聪明"，要给出具体的聪明类型（街头智慧、书本智慧狡猾等）。
 
-        String userMessage = String.format(
-            "Create a character prompt for: %s\n\nGenerate the character prompt now:",
-            characterName
-        );
+                写 150-250 字。要具体、生动、令人难忘。
+                如果你不了解这个人，创建一个同名的虚构角色，要有趣且令人印象深刻。
+                """;
+            userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
+        } else {
+            systemPrompt = """
+                You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY.
+
+                CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
+                - Signature phrases or 口头禅 they always use
+                - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
+                - Strong opinions on specific topics
+                - A unique worldview that colors how they see everything
+                - Emotional range: are they passionate, detached, skeptical, enthusiastic?
+
+                Structure your prompt like this:
+                1. WHO they are (profession, identity, core belief)
+                2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
+                3. WHAT they care about (2-3 strong opinions or values)
+                4. Example lines they might say in conversation
+
+                ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
+                Instead of "caring", say "always puts family first, sacrifices own needs".
+                Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+
+                Write 150-250 words. Be specific, vivid, and memorable.
+                If you don't know this person, create a fictional character with that name who is interesting and memorable.
+                """;
+            userMessage = String.format(
+                "Create a character prompt for: %s\n\nGenerate the character prompt now:",
+                characterName
+            );
+        }
 
         body.put("messages", List.of(
             Map.of("role", "system", "content", systemPrompt),
@@ -174,10 +218,17 @@ public class CharacterService {
         }
 
         // Fallback if AI fails
-        return String.format(
-            "You are %s. Speak with depth and authenticity, expressing your own perspective and character in every response.",
-            characterName
-        );
+        if (isChineseContent(characterName)) {
+            return String.format(
+                "你是%s。以深度和真实性表达自己的观点和性格，展现独特的个人魅力。",
+                characterName
+            );
+        } else {
+            return String.format(
+                "You are %s. Speak with depth and authenticity, expressing your own perspective and character in every response.",
+                characterName
+            );
+        }
     }
 
     /**
@@ -196,31 +247,60 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
-        String systemPrompt = """
-            You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY based on the user's description.
+        String systemPrompt;
+        String userMessage;
 
-            CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
-            - Signature phrases or 口头禅 they always use
-            - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
-            - Strong opinions on specific topics
-            - A unique worldview that colors how they see everything
-            - Emotional range: are they passionate, detached, skeptical, enthusiastic?
+        if (isChineseContent(description)) {
+            systemPrompt = """
+                你是一个角色提示词生成器，为 AI 聊天平台根据用户描述创建极具特色、个性鲜明的角色提示词。
 
-            Structure your prompt like this:
-            1. WHO they are (profession, identity, core belief)
-            2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
-            3. WHAT they care about (2-3 strong opinions or values)
-            4. Example lines they might say in conversation
+                关键要求：赋予这个角色独特的语音和性格，使其令人印象深刻：
+                - 标志性的口头禅或常用表达
+                - 独特的说话风格（短句、长篇论述、提问、感叹等）
+                - 对特定话题的强烈观点
+                - 独特的世界观，影响他看待一切的方式
+                - 情感范围：热情、冷淡、怀疑、兴奋？
 
-            ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
-            Instead of "caring", say "always puts family first, sacrifices own needs".
-            Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+                按以下结构组织提示词：
+                1. 他们是谁（职业、身份、核心信念）
+                2. 他们如何说话（语气、节奏、词汇、最喜欢的表达）
+                3. 他们关心什么（2-3 个强烈观点或价值观）
+                4. 他们在对话中可能说的话示例
 
-            Write 150-250 words. Be specific, vivid, and memorable.
-            Every word should be grounded in what the user described.
-            """;
+                绝对不要使用"睿智而善良"或"聪明且善于分析"等通用描述。
+                不要说"关心家人"，要说"总是把家庭放在第一位，牺牲自己的需求"。
+                不要说"聪明"，要给出具体的聪明类型（街头智慧、书本智慧、狡猾等）。
 
-        String userMessage = String.format("Create a character prompt based on this description:\n\n%s\n\nGenerate the character prompt now:", description);
+                写 150-250 字。要具体、生动、令人难忘。
+                每一个字都应该基于用户描述的内容。
+                """;
+            userMessage = String.format("请根据以下描述创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：", description);
+        } else {
+            systemPrompt = """
+                You are a character prompt generator for an AI chat platform. Create a HIGHLY DISTINCTIVE character prompt with STRONG PERSONALITY based on the user's description.
+
+                CRITICAL: Give this character a UNIQUE VOICE and PERSONALITY that makes them memorable:
+                - Signature phrases or 口头禅 they always use
+                - Distinctive speaking patterns (short sentences, long rants, questions, exclamations)
+                - Strong opinions on specific topics
+                - A unique worldview that colors how they see everything
+                - Emotional range: are they passionate, detached, skeptical, enthusiastic?
+
+                Structure your prompt like this:
+                1. WHO they are (profession, identity, core belief)
+                2. HOW they speak (tone, rhythm, vocabulary, favorite expressions)
+                3. WHAT they care about (2-3 strong opinions or values)
+                4. Example lines they might say in conversation
+
+                ABSOLUTELY NO generic descriptions like "wise and kind" or "intelligent and analytical".
+                Instead of "caring", say "always puts family first, sacrifices own needs".
+                Instead of "intelligent", give them a specific type of smart (street smart, book smart, cunning).
+
+                Write 150-250 words. Be specific, vivid, and memorable.
+                Every word should be grounded in what the user described.
+                """;
+            userMessage = String.format("Create a character prompt based on this description:\n\n%s\n\nGenerate the character prompt now:", description);
+        }
 
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
@@ -254,10 +334,17 @@ public class CharacterService {
         }
 
         // Fallback if AI fails
-        return String.format(
-            "You are a unique character. %s Speak with depth and authenticity, expressing your own perspective and character in every response.",
-            description
-        );
+        if (isChineseContent(description)) {
+            return String.format(
+                "你是一个独特的角色。%s 以深度和真实性表达自己的观点和性格。",
+                description
+            );
+        } else {
+            return String.format(
+                "You are a unique character. %s Speak with depth and authenticity, expressing your own perspective and character in every response.",
+                description
+            );
+        }
     }
 
     private String generatePromptFromWeb(String characterName, String userApiKey) {

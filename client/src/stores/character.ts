@@ -14,9 +14,9 @@ export const useCharacterStore = defineStore('character', () => {
   const userCharacters = computed(() => characters.value.filter(c => !c.isPreset))
 
   // Check if user already has a character with the same name
-  function hasDuplicateName(creatorUserId: string, name: string, excludeId?: string): boolean {
+  function hasDuplicateName(ownerId: string, name: string, excludeId?: string): boolean {
     return characters.value.some(c =>
-      c.creatorUserId === creatorUserId &&
+      c.ownerId === ownerId &&
       c.name.toLowerCase() === name.toLowerCase() &&
       c.id !== excludeId
     )

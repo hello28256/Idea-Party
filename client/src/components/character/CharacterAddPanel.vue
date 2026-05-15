@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
+import { useAuthStore } from '@/stores/auth'
 import { charactersApi } from '@/api/characters'
 import CharacterCard from './CharacterCard.vue'
 import Button from '@/components/ui/Button.vue'
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const characterStore = useCharacterStore()
+const authStore = useAuthStore()
 
 // Form state
 interface CharacterForm {
@@ -82,9 +84,20 @@ async function handleSave() {
   try {
     let result: Character | null = null
     if (mode.value === 'edit' && props.editingCharacter) {
-      result = await characterStore.updateCharacter(props.editingCharacter.id, form.value)
+      result = await characterStore.updateCharacter(props.editingCharacter.id, {
+        name: form.value.name,
+        description: form.value.description,
+        avatarUrl: form.value.avatarUrl,
+        prompt: form.value.prompt
+      })
     } else {
-      result = await characterStore.createCharacter(form.value)
+      result = await characterStore.createCharacter({
+        name: form.value.name,
+        description: form.value.description,
+        avatarUrl: form.value.avatarUrl,
+        prompt: form.value.prompt,
+        ownerId: authStore.user?.id
+      })
     }
 
     if (result) {
@@ -128,6 +141,26 @@ async function handleGeneratePrompt() {
 
 function handleClose() {
   emit('close')
+}
+
+async function handleDelete() {
+  if (!props.editingCharacter) return
+
+  if (!confirm('确定要删除这个角色吗？')) return
+
+  loading.value = true
+  error.value = null
+
+  try {
+    const success = await characterStore.deleteCharacter(props.editingCharacter.id)
+    if (success) {
+      emit('close')
+    } else {
+      error.value = characterStore.error || '删除失败'
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 function triggerAvatarUpload() {
@@ -330,14 +363,33 @@ async function handleAvatarFileChange(event: Event) {
 
         <!-- Footer -->
         <div class="p-5 border-t border-[var(--color-border)]">
-          <Button
-            @click="handleSave"
-            :loading="loading"
-            variant="primary"
-            class="w-full"
-          >
-            {{ mode === 'create' ? '创建' : '保存修改' }}
-          </Button>
+          <div class="flex items-center justify-between">
+            <button
+              v-if="mode === 'edit'"
+              @click="handleDelete"
+              class="px-4 py-2.5 text-sm font-medium rounded-xl transition-colors"
+              style="background: #111; color: white;"
+              onmouseover="this.style.background='#333'"
+              onmouseout="this.style.background='#111'"
+            >
+              删除角色
+            </button>
+            <div class="flex gap-3" :class="{ 'ml-auto': mode === 'create' }">
+              <button
+                @click="handleClose"
+                class="px-4 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-navy)] transition-colors"
+              >
+                取消
+              </button>
+              <Button
+                @click="handleSave"
+                :loading="loading"
+                variant="primary"
+              >
+                {{ mode === 'create' ? '创建' : '保存修改' }}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </Transition>

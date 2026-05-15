@@ -4,12 +4,16 @@ import { useRouter } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
 import type { Character } from '@/types'
+import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 
 const router = useRouter()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
 const mounted = ref(false)
+const showCreateModal = ref(false)
+const showEditModal = ref(false)
+const editingCharacter = ref<Character | null>(null)
 
 onMounted(() => {
   characterStore.fetchCharacters()
@@ -19,17 +23,51 @@ onMounted(() => {
 // Get current user's characters
 const myCharacters = computed(() => {
   if (!authStore.user) return []
-  return characterStore.characters.filter(
-    c => c.creatorUserId === authStore.user!.id && !c.isPreset
+  const filtered = characterStore.characters.filter(
+    c => c.ownerId === authStore.user!.id && !c.isPreset
   )
+  console.log('[DEBUG] myCharacters过滤:', {
+    totalCharacters: characterStore.characters.length,
+    userId: authStore.user.id,
+    filteredCount: filtered.length,
+    filtered
+  })
+  return filtered
 })
 
-function goToCreate() {
-  router.push('/characters/create')
+function openCreateModal() {
+  showCreateModal.value = true
 }
 
-function goToEdit(character: Character) {
-  router.push(`/characters/edit/${character.id}`)
+function closeCreateModal() {
+  showCreateModal.value = false
+}
+
+async function handleCharacterCreated(character: any) {
+  if (character) {
+    characterStore.characters.unshift(character)
+  }
+  await characterStore.fetchCharacters()
+  closeCreateModal()
+}
+
+function openEditModal(character: Character) {
+  editingCharacter.value = character
+  showEditModal.value = true
+}
+
+function closeEditModal() {
+  showEditModal.value = false
+  editingCharacter.value = null
+}
+
+function handleCharacterUpdated(updatedCharacter: Character) {
+  // Update the character in the list
+  const index = characterStore.characters.findIndex(c => c.id === updatedCharacter.id)
+  if (index !== -1) {
+    characterStore.characters[index] = updatedCharacter
+  }
+  closeEditModal()
 }
 
 function formatDate(dateStr: string): string {
@@ -57,7 +95,7 @@ function formatDate(dateStr: string): string {
       </div>
 
       <!-- Create Button -->
-      <button class="create-btn" @click="goToCreate">
+      <button class="create-btn" @click="openCreateModal">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
@@ -112,7 +150,7 @@ function formatDate(dateStr: string): string {
     <main class="main-content">
       <header class="content-header">
         <h1 class="page-title">我的角色库</h1>
-        <button class="create-btn-large" @click="goToCreate">
+        <button class="create-btn-large" @click="openCreateModal">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -125,7 +163,7 @@ function formatDate(dateStr: string): string {
         <div class="empty-icon">📚</div>
         <h2 class="empty-title">还没有创建角色</h2>
         <p class="empty-desc">创建你的第一个 AI 角色，开始对话吧！</p>
-        <button class="empty-btn" @click="goToCreate">
+        <button class="empty-btn" @click="openCreateModal">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -153,7 +191,7 @@ function formatDate(dateStr: string): string {
             <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
             <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
           </div>
-          <button class="edit-btn" @click="goToEdit(character)">
+          <button class="edit-btn" @click.stop="openEditModal(character)">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
@@ -162,6 +200,23 @@ function formatDate(dateStr: string): string {
         </div>
       </div>
     </main>
+
+    <!-- Create Character Modal -->
+    <CreateCharacterModal
+      :show="showCreateModal"
+      @close="closeCreateModal"
+      @created="handleCharacterCreated"
+    />
+
+    <!-- Edit Character Modal -->
+    <CreateCharacterModal
+      v-if="showEditModal"
+      :show="showEditModal"
+      mode="edit"
+      :character="editingCharacter"
+      @close="closeEditModal"
+      @updated="handleCharacterUpdated"
+    />
   </div>
 </template>
 
@@ -298,7 +353,7 @@ function formatDate(dateStr: string): string {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -310,7 +365,7 @@ function formatDate(dateStr: string): string {
 
 .create-btn-large:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
 }
 
 .empty-state {
@@ -345,7 +400,7 @@ function formatDate(dateStr: string): string {
   align-items: center;
   gap: 0.5rem;
   padding: 0.875rem 1.5rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 12px;
   color: white;
@@ -357,7 +412,7 @@ function formatDate(dateStr: string): string {
 
 .empty-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(79, 125, 243, 0.35);
+  box-shadow: 0 6px 16px rgba(24, 24, 27, 0.35);
 }
 
 .character-grid {
@@ -380,7 +435,7 @@ function formatDate(dateStr: string): string {
 .character-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  border-color: #4F7DF3;
+  border-color: #3f3f46;
 }
 
 .character-avatar {

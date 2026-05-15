@@ -32,7 +32,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         log.error("[DEBUG] Unexpected error: ", ex);
-        ErrorResponse error = new ErrorResponse(500, "Internal Server Error", ex.getMessage());
+        String detailedMessage = ex.getMessage() != null ? ex.getMessage() : "Unknown error";
+        // Return more detailed error message for debugging
+        ErrorResponse error = new ErrorResponse(500, "Internal Server Error",
+            ex.getClass().getSimpleName() + ": " + detailedMessage);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }

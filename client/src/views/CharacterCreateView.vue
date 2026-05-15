@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
 import { charactersApi } from '@/api/characters'
 
 const router = useRouter()
+const route = useRoute()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
@@ -17,6 +18,9 @@ const error = ref<string | null>(null)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+const isEditMode = computed(() => !!route.params.id)
+const editingCharacterId = computed(() => route.params.id as string | undefined)
+
 const form = ref({
   name: '',
   description: '',
@@ -24,8 +28,22 @@ const form = ref({
   prompt: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
   setTimeout(() => { mounted.value = true }, 50)
+
+  // Load existing character if in edit mode
+  if (isEditMode.value && editingCharacterId.value) {
+    const character = characterStore.getCharacterById(editingCharacterId.value)
+    if (character) {
+      form.value = {
+        name: character.name,
+        description: character.description || '',
+        avatarUrl: character.avatarUrl || '',
+        prompt: character.prompt || ''
+      }
+      avatarPreview.value = character.avatarUrl || null
+    }
+  }
 })
 
 async function handleSubmit() {
@@ -39,8 +57,8 @@ async function handleSubmit() {
     return
   }
 
-  // Check for duplicate name
-  if (characterStore.hasDuplicateName(authStore.user.id, form.value.name.trim())) {
+  // Check for duplicate name (only in create mode)
+  if (!isEditMode.value && characterStore.hasDuplicateName(authStore.user.id, form.value.name.trim())) {
     error.value = '你已经创建过这个角色了'
     return
   }
@@ -49,18 +67,31 @@ async function handleSubmit() {
   error.value = null
 
   try {
-    const result = await characterStore.createCharacter({
-      name: form.value.name.trim(),
-      description: form.value.description.trim(),
-      avatarUrl: form.value.avatarUrl,
-      prompt: form.value.prompt.trim(),
-      creatorUserId: authStore.user.id
-    })
+    let result = null
+
+    if (isEditMode.value && editingCharacterId.value) {
+      // Update existing character
+      result = await characterStore.updateCharacter(editingCharacterId.value, {
+        name: form.value.name.trim(),
+        description: form.value.description.trim(),
+        avatarUrl: form.value.avatarUrl,
+        prompt: form.value.prompt.trim()
+      })
+    } else {
+      // Create new character
+      result = await characterStore.createCharacter({
+        name: form.value.name.trim(),
+        description: form.value.description.trim(),
+        avatarUrl: form.value.avatarUrl,
+        prompt: form.value.prompt.trim(),
+        ownerId: authStore.user.id
+      })
+    }
 
     if (result) {
       router.push('/characters')
     } else {
-      error.value = characterStore.error || '创建角色失败'
+      error.value = characterStore.error || (isEditMode.value ? '更新角色失败' : '创建角色失败')
     }
   } finally {
     loading.value = false
@@ -189,7 +220,7 @@ async function handleAvatarFileChange(event: Event) {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 class="page-title">创建角色</h1>
+          <h1 class="page-title">{{ isEditMode ? '编辑角色' : '创建角色' }}</h1>
         </header>
 
         <form @submit.prevent="handleSubmit" class="character-form">
@@ -287,7 +318,7 @@ async function handleAvatarFileChange(event: Event) {
               取消
             </button>
             <button type="submit" class="submit-btn" :disabled="loading">
-              {{ loading ? '创建中...' : '创建角色' }}
+              {{ loading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '创建角色') }}
             </button>
           </div>
         </form>
@@ -490,8 +521,8 @@ async function handleAvatarFileChange(event: Event) {
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #4F7DF3;
-  box-shadow: 0 0 0 3px rgba(79, 125, 243, 0.1);
+  border-color: #3f3f46;
+  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.1);
 }
 
 .form-input::placeholder,
@@ -529,12 +560,12 @@ async function handleAvatarFileChange(event: Event) {
 }
 
 .avatar-preview:hover {
-  border-color: #4F7DF3;
+  border-color: #3f3f46;
 }
 
 .avatar-preview.has-image {
   border-style: solid;
-  border-color: #4F7DF3;
+  border-color: #3f3f46;
 }
 
 .avatar-preview img {
@@ -586,7 +617,7 @@ async function handleAvatarFileChange(event: Event) {
   width: 100%;
   padding: 0.75rem;
   margin-top: 0.75rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -598,7 +629,7 @@ async function handleAvatarFileChange(event: Event) {
 
 .generate-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
 }
 
 .generate-btn:disabled {
@@ -647,7 +678,7 @@ async function handleAvatarFileChange(event: Event) {
 
 .submit-btn {
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -659,7 +690,7 @@ async function handleAvatarFileChange(event: Event) {
 
 .submit-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
 }
 
 .submit-btn:disabled {

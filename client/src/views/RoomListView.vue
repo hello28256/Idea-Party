@@ -17,6 +17,8 @@ const authStore = useAuthStore()
 const showCreateModal = ref(false)
 const showCreateCharacterModal = ref(false)
 const showCreateDropdown = ref(false)
+const showEditCharacterModal = ref(false)
+const editingCharacter = ref<any>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
 const searchQuery = ref('')
@@ -50,7 +52,7 @@ const isCharactersView = computed(() => {
 const myCharacters = computed(() => {
   if (!authStore.user) return []
   return characterStore.characters.filter(
-    c => c.creatorUserId === authStore.user!.id && !c.isPreset
+    c => c.ownerId === authStore.user!.id && !c.isPreset
   )
 })
 
@@ -66,6 +68,26 @@ function formatDate(dateStr: string): string {
   if (days < 7) return `${days}天前`
   if (days < 30) return `${Math.floor(days / 7)}周前`
   return date.toLocaleDateString('zh-CN')
+}
+
+// Edit character modal functions
+function openEditCharacterModal(character: any) {
+  editingCharacter.value = { ...character }
+  showEditCharacterModal.value = true
+}
+
+function closeEditCharacterModal() {
+  showEditCharacterModal.value = false
+  editingCharacter.value = null
+}
+
+function handleCharacterUpdated(updatedCharacter: any) {
+  // Update the character in the store
+  const index = characterStore.characters.findIndex((c: any) => c.id === updatedCharacter.id)
+  if (index !== -1) {
+    characterStore.characters[index] = updatedCharacter
+  }
+  closeEditCharacterModal()
 }
 
 // Navigation handler
@@ -274,9 +296,12 @@ function handleCreateCharacter() {
   showCreateCharacterModal.value = true
 }
 
-function handleCharacterCreated(_character: any) {
-  characterStore.fetchCharacters()
-  router.push('/characters')
+async function handleCharacterCreated(character: any) {
+  showCreateCharacterModal.value = false
+  if (character) {
+    characterStore.characters.unshift(character)
+  }
+  await characterStore.fetchCharacters()
 }
 
 function handleCreateRoom() {
@@ -376,7 +401,7 @@ function handleCreateRoom() {
       <template v-if="isCharactersView">
         <header class="content-header">
           <h1 class="page-title">角色库</h1>
-          <button class="create-btn-large" @click="router.push('/characters/create')">
+          <button class="create-btn-large" @click="showCreateCharacterModal = true">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
@@ -389,7 +414,7 @@ function handleCreateRoom() {
           <div class="empty-icon">📚</div>
           <h2 class="empty-title">还没有创建角色</h2>
           <p class="empty-desc">创建你的第一个 AI 角色，开始对话吧！</p>
-          <button class="empty-btn" @click="router.push('/characters/create')">
+          <button class="empty-btn" @click="showCreateCharacterModal = true">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
@@ -417,7 +442,7 @@ function handleCreateRoom() {
               <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
               <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
-            <button class="edit-btn" @click="router.push(`/characters/edit/${character.id}`)">
+            <button class="edit-btn" @click.stop="openEditCharacterModal(character)">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -639,6 +664,16 @@ function handleCreateRoom() {
       :show="showCreateCharacterModal"
       @close="showCreateCharacterModal = false"
       @created="handleCharacterCreated"
+    />
+
+    <!-- Edit Character Modal -->
+    <CreateCharacterModal
+      v-if="showEditCharacterModal"
+      :show="showEditCharacterModal"
+      mode="edit"
+      :character="editingCharacter"
+      @close="closeEditCharacterModal"
+      @updated="handleCharacterUpdated"
     />
   </div>
 </template>
@@ -965,8 +1000,8 @@ function handleCreateRoom() {
 }
 
 .search-bar:focus-within {
-  border-color: #4F7DF3;
-  box-shadow: 0 0 0 3px rgba(79, 125, 243, 0.1);
+  border-color: #27272a;
+  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.1);
 }
 
 .search-icon {
@@ -1012,7 +1047,7 @@ function handleCreateRoom() {
 .see-all {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #4F7DF3;
+  color: #18181b;
   text-decoration: none;
 }
 
@@ -1051,7 +1086,7 @@ function handleCreateRoom() {
 .character-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  border-color: #4F7DF3;
+  border-color: #27272a;
 }
 
 .character-avatar-wrap {
@@ -1136,8 +1171,8 @@ function handleCreateRoom() {
 
 .category-chip.active {
   background: #EEF2FF;
-  border-color: #4F7DF3;
-  color: #4F7DF3;
+  border-color: #27272a;
+  color: #18181b;
 }
 
 .chip-emoji {
@@ -1191,7 +1226,7 @@ function handleCreateRoom() {
 .room-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
-  border-color: #4F7DF3;
+  border-color: #27272a;
 }
 
 .room-cover {
@@ -1289,7 +1324,7 @@ function handleCreateRoom() {
 
 .message-sender {
   font-weight: 600;
-  color: #4F7DF3;
+  color: #18181b;
 }
 
 .message-text {
@@ -1494,7 +1529,7 @@ function handleCreateRoom() {
   gap: 0.5rem;
   width: 100%;
   padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -1506,7 +1541,7 @@ function handleCreateRoom() {
 
 .action-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
 }
 
 .action-btn.secondary {
@@ -1561,7 +1596,7 @@ function handleCreateRoom() {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 10px;
   color: white;
@@ -1573,7 +1608,7 @@ function handleCreateRoom() {
 
 .create-btn-large:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(79, 125, 243, 0.3);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
 }
 
 .empty-state {
@@ -1608,7 +1643,7 @@ function handleCreateRoom() {
   align-items: center;
   gap: 0.5rem;
   padding: 0.875rem 1.5rem;
-  background: linear-gradient(135deg, #4F7DF3 0%, #6B7FFF 100%);
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   border: none;
   border-radius: 12px;
   color: white;
@@ -1620,7 +1655,7 @@ function handleCreateRoom() {
 
 .empty-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(79, 125, 243, 0.35);
+  box-shadow: 0 6px 16px rgba(24, 24, 27, 0.35);
 }
 
 .character-grid {
@@ -1643,7 +1678,7 @@ function handleCreateRoom() {
 .character-card-item:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  border-color: #4F7DF3;
+  border-color: #27272a;
 }
 
 .character-card-item .character-avatar {
