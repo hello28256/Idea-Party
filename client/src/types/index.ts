@@ -7,6 +7,7 @@ export interface User {
   avatarUrl?: string
   lastUsernameChangeAt?: string // ISO date string
   createdAt?: string // ISO date string
+  themeMode?: 'system' | 'light' | 'dark'
 }
 
 // Authentication response from backend
