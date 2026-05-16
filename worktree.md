@@ -28,5 +28,5 @@ git worktree remove -f ../your-project-voice
 4. 修复损坏的工作树（偶尔遇到）
 git worktree repair
 
-# ####我是张山
-helo你好
+## git
+一个worktree下的分支会共享
