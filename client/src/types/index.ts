@@ -50,6 +50,7 @@ export interface Room {
   maxDiscussionRounds: number
   createdAt: string
   updatedAt: string
+  lastEnterTime?: string
 }
 
 export interface CreateRoomRequest {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { roomsApi } from '@/api/rooms'
+import { roomsApi, type RoomMemberResponse } from '@/api/rooms'
 import type { Room, CreateRoomRequest, UpdateRoomModeRequest } from '@/types'
 
 export const useRoomStore = defineStore('room', () => {
@@ -9,7 +9,11 @@ export const useRoomStore = defineStore('room', () => {
   const currentRoom = ref<Room | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const isDiscussing = ref(false) // 讨论模式下的持续讨论状态
+  const isDiscussing = ref(false)
+  const myRooms = ref<Room[]>([])
+  const myRoomsLoading = ref(false)
+  const roomMembers = ref<RoomMemberResponse[]>([])
+  const roomMembersLoading = ref(false)
 
   // Computed
   const sortedRooms = computed(() => {
@@ -17,6 +21,14 @@ export const useRoomStore = defineStore('room', () => {
       const dateA = new Date(a.updatedAt).getTime()
       const dateB = new Date(b.updatedAt).getTime()
       return dateB - dateA
+    })
+  })
+
+  const sortedMyRooms = computed(() => {
+    return [...myRooms.value].sort((a, b) => {
+      const timeA = new Date(a.lastEnterTime || a.updatedAt || a.createdAt || 0).getTime()
+      const timeB = new Date(b.lastEnterTime || b.updatedAt || b.createdAt || 0).getTime()
+      return timeB - timeA
     })
   })
 
@@ -32,6 +44,18 @@ export const useRoomStore = defineStore('room', () => {
       rooms.value = []
     } finally {
       loading.value = false
+    }
+  }
+
+  async function fetchMyRooms() {
+    myRoomsLoading.value = true
+    try {
+      myRooms.value = await roomsApi.getMyRooms()
+    } catch (e) {
+      console.error('[DEBUG] fetchMyRooms failed:', e)
+      myRooms.value = []
+    } finally {
+      myRoomsLoading.value = false
     }
   }
 
@@ -54,6 +78,44 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  async function fetchRoomMembers(roomId: string | null | undefined) {
+    if (!roomId || roomId === 'null' || roomId === 'undefined') {
+      console.warn('[Room] skip fetchRoomMembers: invalid roomId', roomId)
+      roomMembers.value = []
+      return
+    }
+    roomMembersLoading.value = true
+    try {
+      roomMembers.value = await roomsApi.getRoomMembers(roomId)
+    } catch (e) {
+      console.error('[DEBUG] fetchRoomMembers failed:', e)
+      roomMembers.value = []
+    } finally {
+      roomMembersLoading.value = false
+    }
+  }
+
+  async function inviteRoomMember(roomId: string | null | undefined, keyword: string) {
+    if (!roomId || roomId === 'null' || roomId === 'undefined') {
+      throw new Error('当前聊天室不存在，无法邀请成员')
+    }
+    if (!keyword || !keyword.trim()) {
+      throw new Error('请输入用户名或邮箱')
+    }
+    try {
+      const member = await roomsApi.inviteMember(roomId, keyword.trim())
+      await fetchRoomMembers(roomId)
+      return member
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        '邀请失败，请稍后重试'
+      throw new Error(msg)
+    }
+  }
+
   async function createRoom(name: string, topic?: string): Promise<Room> {
     loading.value = true
     error.value = null
@@ -61,6 +123,7 @@ export const useRoomStore = defineStore('room', () => {
       const request: CreateRoomRequest = { name, topic }
       const room = await roomsApi.create(request)
       rooms.value.push(room)
+      myRooms.value.unshift(room)
       return room
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to create room'
@@ -76,6 +139,7 @@ export const useRoomStore = defineStore('room', () => {
     try {
       await roomsApi.remove(id)
       rooms.value = rooms.value.filter(r => r.id !== id)
+      myRooms.value = myRooms.value.filter(r => r.id !== id)
       if (currentRoom.value?.id === id) {
         currentRoom.value = null
       }
@@ -135,17 +199,22 @@ export const useRoomStore = defineStore('room', () => {
   }
 
   return {
-    // State
     rooms,
     currentRoom,
     loading,
     error,
     isDiscussing,
-    // Computed
+    myRooms,
+    myRoomsLoading,
+    roomMembers,
+    roomMembersLoading,
     sortedRooms,
-    // Actions
+    sortedMyRooms,
     fetchRooms,
+    fetchMyRooms,
     fetchRoomById,
+    fetchRoomMembers,
+    inviteRoomMember,
     createRoom,
     deleteRoom,
     addCharacterToRoom,

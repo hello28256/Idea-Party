@@ -9,11 +9,15 @@ interface Props {
   show: boolean
   mode?: 'create' | 'edit'
   character?: Character | null
+  context?: 'character-library' | 'room'
+  roomId?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   mode: 'create',
-  character: null
+  character: null,
+  context: 'character-library',
+  roomId: null
 })
 
 const emit = defineEmits<{
@@ -21,6 +25,7 @@ const emit = defineEmits<{
   created: [character: Character]
   updated: [character: Character]
   deleted: [characterId: string]
+  addedToRoom: [character: Character]
 }>()
 
 const characterStore = useCharacterStore()
@@ -50,10 +55,14 @@ const uploadingAvatar = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+// Tab state for room context
+const activeTab = ref<'create' | 'library'>('create')
+
 // Reset form when shown
 watch(() => props.show, (newShow) => {
   if (newShow) {
     error.value = null
+    activeTab.value = 'create'
     // In edit mode, initialize form with character data
     if (isEditMode.value && props.character) {
       console.log('[edit modal] initializing with character:', props.character)
@@ -188,6 +197,13 @@ async function handleDeleteCharacter() {
   }
 }
 
+function handleSelectFromLibrary(character: Character) {
+  if (props.context === 'room' && props.roomId) {
+    emit('addedToRoom', character)
+    emit('close')
+  }
+}
+
 function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
@@ -244,9 +260,11 @@ async function handleAvatarFileChange(event: Event) {
           <header class="character-modal-header">
             <div>
               <h2 class="character-modal-title">
-                {{ isEditMode ? '编辑角色' : '创建角色' }}
+                {{ isEditMode ? '编辑角色' : (context === 'room' ? '添加角色' : '创建角色') }}
               </h2>
-              <p class="character-modal-subtitle">完善角色资料、头像和提示词设定</p>
+              <p class="character-modal-subtitle">
+                {{ isEditMode ? '完善角色资料、头像和提示词设定' : (context === 'room' ? '创建新角色或从角色库选择' : '完善角色资料、头像和提示词设定') }}
+              </p>
             </div>
             <button class="modal-close" @click="handleClose">
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,9 +273,28 @@ async function handleAvatarFileChange(event: Event) {
             </button>
           </header>
 
+          <!-- Tabs (only in room context) -->
+          <div v-if="context === 'room' && !isEditMode" class="modal-tabs">
+            <button
+              class="modal-tab"
+              :class="{ active: activeTab === 'create' }"
+              @click="activeTab = 'create'"
+            >
+              创建角色
+            </button>
+            <button
+              class="modal-tab"
+              :class="{ active: activeTab === 'library' }"
+              @click="activeTab = 'library'"
+            >
+              角色库
+            </button>
+          </div>
+
           <!-- Body -->
           <div class="character-modal-body">
-            <div class="character-form">
+            <!-- Create Tab / Edit Mode -->
+            <div v-if="activeTab === 'create' || isEditMode" class="character-form">
               <!-- Hidden file input -->
               <input
                 ref="fileInputRef"
@@ -355,10 +392,33 @@ async function handleAvatarFileChange(event: Event) {
               <!-- Error -->
               <p v-if="error" class="form-error">{{ error }}</p>
             </div>
+
+            <!-- Library Tab (for room context) -->
+            <div v-if="context === 'room' && activeTab === 'library' && !isEditMode" class="character-library">
+              <p class="library-hint">选择一个已有角色添加到聊天室：</p>
+              <div class="library-list">
+                <div
+                  v-for="char in characterStore.characters.filter(c => c.ownerId === authStore.user?.id)"
+                  :key="char.id"
+                  class="library-character-card"
+                  @click="handleSelectFromLibrary(char)"
+                >
+                  <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" class="library-char-avatar" />
+                  <div v-else class="library-char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
+                  <div class="library-char-info">
+                    <strong>{{ char.name }}</strong>
+                    <span>{{ char.description || '暂无描述' }}</span>
+                  </div>
+                </div>
+                <div v-if="characterStore.characters.filter(c => c.ownerId === authStore.user?.id).length === 0" class="library-empty">
+                  还没有创建过角色，请先创建角色
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Footer -->
-          <footer class="character-modal-footer">
+          <footer v-if="activeTab === 'create' || isEditMode" class="character-modal-footer">
             <div class="footer-left">
               <button
                 v-if="isEditMode"
@@ -551,6 +611,123 @@ async function handleAvatarFileChange(event: Event) {
 .modal-close:hover {
   background: var(--close-hover-bg);
   color: var(--text-primary);
+}
+
+/* Tabs */
+.modal-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 0 32px;
+  background: var(--header-bg);
+}
+
+.modal-tab {
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+
+.modal-tab:hover {
+  color: var(--text-primary);
+}
+
+.modal-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+
+/* Library */
+.character-library {
+  padding: 8px 0;
+}
+
+.library-hint {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.library-character-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.library-character-card:hover {
+  border-color: var(--text-muted);
+  transform: translateY(-1px);
+}
+
+.library-char-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.library-char-avatar-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--avatar-preview-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.library-char-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.library-char-info strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.library-char-info span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-empty {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 /*** Body ***/

@@ -7,7 +7,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -42,6 +44,10 @@ public class Room {
     @Builder.Default
     private Set<Character> characters = new HashSet<>();
 
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<RoomMember> members = new ArrayList<>();
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -70,5 +76,9 @@ public class Room {
 
     public int getCharacterCount() {
         return characters != null ? characters.size() : 0;
+    }
+
+    public int getMemberCount() {
+        return members != null ? members.size() : 0;
     }
 }

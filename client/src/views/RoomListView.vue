@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
+import ChatRoomPanel from '@/components/chat/ChatRoomPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,10 +20,128 @@ const showCreateCharacterModal = ref(false)
 const showCreateDropdown = ref(false)
 const showEditCharacterModal = ref(false)
 const editingCharacter = ref<any>(null)
+
+// Create character in room context state
+const createCharacterRoomId = ref<string | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
 const searchQuery = ref('')
 const mounted = ref(false)
+
+// Selected room for chat panel (my-rooms tab two-column layout)
+const selectedRoomId = ref<string | null>(null)
+
+// Three-way collapsible layout state
+const SIDEBAR_STATE_KEY = 'idea-party-chat-layout-state'
+const isGlobalSidebarCollapsed = ref(false)
+const isRoomListCollapsed = ref(true)
+const isRolePanelCollapsed = ref(true)
+
+// Members panel state
+const showMembersTab = ref(false)
+const showInviteModal = ref(false)
+const inviteKeyword = ref('')
+const inviteLoading = ref(false)
+const inviteError = ref<string | null>(null)
+
+// Resolve avatar URL for member avatars
+function resolveAvatarUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/api/')) return url
+  if (url.startsWith('/uploads/')) return url
+  if (url.startsWith('/')) return url
+  return url
+}
+
+// Handle avatar load error
+function handleAvatarError(event: Event) {
+  const img = event.target as HTMLImageElement
+  img.style.display = 'none'
+  const placeholder = img.parentElement?.querySelector('.member-avatar-placeholder') as HTMLElement
+  if (placeholder) {
+    placeholder.style.display = 'flex'
+  }
+}
+
+// Get initial from name for avatar placeholder
+function getNameInitial(name: string | null | undefined): string {
+  if (!name) return 'U'
+  return name.charAt(0).toUpperCase()
+}
+
+// Load saved collapse state from localStorage
+function loadLayoutState() {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_STATE_KEY)
+    if (saved) {
+      const state = JSON.parse(saved)
+      isGlobalSidebarCollapsed.value = !!state.isGlobalSidebarCollapsed
+      isRoomListCollapsed.value = state.isRoomListCollapsed ?? true
+      isRolePanelCollapsed.value = state.isRolePanelCollapsed ?? true
+    }
+  } catch (e) {
+    console.error('[DEBUG] Failed to load layout state:', e)
+  }
+}
+
+// Save collapse state to localStorage
+function saveLayoutState() {
+  try {
+    localStorage.setItem(
+      SIDEBAR_STATE_KEY,
+      JSON.stringify({
+        isGlobalSidebarCollapsed: isGlobalSidebarCollapsed.value,
+        isRoomListCollapsed: isRoomListCollapsed.value,
+        isRolePanelCollapsed: isRolePanelCollapsed.value
+      })
+    )
+  } catch (e) {
+    console.error('[DEBUG] Failed to save layout state:', e)
+  }
+}
+
+// Watch for collapse state changes
+watch(
+  [isGlobalSidebarCollapsed, isRoomListCollapsed, isRolePanelCollapsed],
+  () => {
+    saveLayoutState()
+  }
+)
+
+// Current room characters - read from currentRoom which is updated by addCharacterToRoom
+const currentRoomCharacters = computed(() => {
+  if (!selectedRoomId.value) return []
+  if (roomStore.currentRoom?.id === selectedRoomId.value) {
+    return roomStore.currentRoom.characters || []
+  }
+  const room = roomStore.myRooms.find(r => r.id === selectedRoomId.value)
+  return room?.characters || []
+})
+
+// Sync selectedRoomId with URL query
+watch(
+  () => route.query.roomId as string | undefined,
+  (roomId) => {
+    if (roomId && roomId !== 'null' && roomId !== 'undefined' && roomId.trim() !== '') {
+      selectedRoomId.value = roomId
+    } else {
+      selectedRoomId.value = null
+    }
+  },
+  { immediate: true }
+)
+
+// Auto-expand room list when entering my-rooms tab without a selected room
+watch(
+  [() => route.query.tab, () => route.query.roomId],
+  ([tab, roomId]) => {
+    if ((tab === 'my-rooms' || tab === 'recent') && !roomId) {
+      isRoomListCollapsed.value = false
+    }
+  },
+  { immediate: true }
+)
 
 // Navigation items - only 5 primary nav items
 const navItems = [
@@ -37,6 +156,9 @@ const navItems = [
 // Active nav item based on current route
 const activeNavId = computed(() => {
   const path = route.path
+  const tab = route.query.tab as string
+  if (tab === 'my-rooms') return 'my-rooms'
+  if (tab === 'recent') return 'recent'
   if (path === '/rooms' || path === '/') return 'discover'
   if (path.startsWith('/characters')) return 'characters'
   if (path.startsWith('/chat')) return 'discover'
@@ -47,6 +169,22 @@ const activeNavId = computed(() => {
 const isCharactersView = computed(() => {
   return route.path.startsWith('/characters') && !route.path.includes('/create')
 })
+
+// Whether to show my rooms content
+const isMyRoomsView = computed(() => {
+  return activeNavId.value === 'my-rooms' || activeNavId.value === 'recent'
+})
+
+// Watch for tab changes to fetch my rooms
+watch(
+  () => route.query.tab as string | undefined,
+  (tab) => {
+    if (tab === 'my-rooms' || tab === 'recent') {
+      roomStore.fetchMyRooms()
+    }
+  },
+  { immediate: true }
+)
 
 // Get current user's characters
 const myCharacters = computed(() => {
@@ -131,24 +269,6 @@ const featuredCharacters = [
   { id: 7, name: '苏格拉底', role: '哲学先驱', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1', category: 'philosopher', online: false },
   { id: 8, name: '牛顿', role: '科学巨匠', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd', category: 'scientist', online: true },
 ]
-
-// Live activities
-const liveActivities = ref([
-  { id: 1, character: '马斯克', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', action: '加入了', room: '「未来 AI 实验室」', time: '刚刚', color: '#FB923C' },
-  { id: 2, character: '爱因斯坦', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', action: '发言', room: '「相对论探讨」', time: '2分钟前', color: '#4F7DF3' },
-  { id: 3, character: '莎士比亚', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', action: '回复了', room: '「文学沙龙」', time: '5分钟前', color: '#34D399' },
-  { id: 4, character: '梅西', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', action: '正在讨论', room: '「天赋与努力」', time: '8分钟前', color: '#10B981' },
-  { id: 5, character: '宫崎骏', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', action: '发布了新观点', room: '「创作的意义」', time: '12分钟前', color: '#EC4899' },
-])
-
-// Online users
-const onlineUsers = ref([
-  { name: '爱因斯坦', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', status: '讨论中' },
-  { name: '马斯克', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', status: '发言中' },
-  { name: '莎士比亚', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', status: '思考中' },
-  { name: '宫崎骏', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', status: '创作中' },
-  { name: '梅西', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', status: '在线' },
-])
 
 // Room cards data
 const roomCardsData = [
@@ -262,6 +382,9 @@ onMounted(() => {
 
   // Close dropdown when clicking outside
   document.addEventListener('click', handleClickOutside)
+
+  // Load saved collapse state
+  loadLayoutState()
 })
 
 onUnmounted(() => {
@@ -275,9 +398,29 @@ function handleClickOutside(e: MouseEvent) {
 }
 
 function handleRoomCreated(roomId: string) {
-  router.push(`/chat/${roomId}`)
+  // Navigate to my-rooms tab with the new room selected
+  router.replace({
+    path: '/rooms',
+    query: {
+      tab: 'my-rooms',
+      roomId: roomId
+    }
+  })
 }
 
+function selectRoom(roomId: string) {
+  selectedRoomId.value = roomId
+  router.replace({
+    path: '/rooms',
+    query: {
+      ...route.query,
+      tab: 'my-rooms',
+      roomId: roomId
+    }
+  })
+}
+
+// For demo/placeholder rooms in Discover view - still uses old navigation
 function enterRoom(roomId: string) {
   router.push(`/chat/${roomId}`)
 }
@@ -298,22 +441,87 @@ function handleCreateCharacter() {
 
 async function handleCharacterCreated(character: any) {
   showCreateCharacterModal.value = false
-  if (character) {
+  // First fetch to sync with server
+  await characterStore.fetchCharacters()
+  // Ensure the newly created character is in the store (in case API response doesn't include it yet)
+  if (character && !characterStore.characters.find(c => c.id === character.id)) {
     characterStore.characters.unshift(character)
   }
-  await characterStore.fetchCharacters()
+  // If created from room context, add to room
+  if (createCharacterRoomId.value && character) {
+    await roomStore.addCharacterToRoom(createCharacterRoomId.value, character.id)
+    await roomStore.fetchRoomById(createCharacterRoomId.value)
+    createCharacterRoomId.value = null
+  }
 }
 
 function handleCreateRoom() {
   closeCreateDropdown()
   showCreateModal.value = true
 }
+
+async function handleAddedToRoom(character: any) {
+  showCreateCharacterModal.value = false
+  // Refresh characters list from API
+  await characterStore.fetchCharacters()
+  if (selectedRoomId.value && character) {
+    await roomStore.addCharacterToRoom(selectedRoomId.value, character.id)
+    await roomStore.fetchRoomById(selectedRoomId.value)
+  }
+}
+
+function openAddCharacterModal() {
+  createCharacterRoomId.value = selectedRoomId.value
+  showCreateCharacterModal.value = true
+}
+
+async function handleInviteMember() {
+  if (!inviteKeyword.value.trim() || !selectedRoomId.value) return
+  inviteLoading.value = true
+  inviteError.value = null
+  try {
+    await roomStore.inviteRoomMember(selectedRoomId.value, inviteKeyword.value.trim())
+    showInviteModal.value = false
+    inviteKeyword.value = ''
+  } catch (e: any) {
+    inviteError.value = e.message
+  } finally {
+    inviteLoading.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="page-layout" :class="{ mounted }">
+  <div
+    class="page-layout"
+    :class="{
+      mounted,
+      'global-collapsed': isGlobalSidebarCollapsed,
+      'room-list-collapsed': isRoomListCollapsed,
+      'role-panel-collapsed': isRolePanelCollapsed
+    }"
+    :style="{
+      '--global-sidebar-width': isGlobalSidebarCollapsed ? '72px' : '260px',
+      '--room-list-width': isRoomListCollapsed ? '0px' : '320px',
+      '--role-panel-width': isRolePanelCollapsed ? '0px' : '280px'
+    }"
+  >
     <!-- Left Sidebar -->
     <aside class="sidebar">
+      <!-- Collapse Button -->
+      <button
+        class="sidebar-collapse-btn"
+        @click="isGlobalSidebarCollapsed = !isGlobalSidebarCollapsed"
+        :aria-label="isGlobalSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
+      >
+        <svg v-if="isGlobalSidebarCollapsed" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+        </svg>
+        <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+        </svg>
+      </button>
+
       <!-- Logo -->
       <div class="sidebar-brand">
         <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
@@ -452,6 +660,224 @@ function handleCreateRoom() {
         </div>
       </template>
 
+      <!-- My Rooms View - Three Column Layout -->
+      <template v-else-if="isMyRoomsView">
+        <div class="rooms-chat-shell">
+          <!-- Left: Room List Panel -->
+          <aside class="rooms-list-panel">
+            <!-- Collapse handle when room list is collapsed AND a room is selected -->
+            <button
+              v-if="isRoomListCollapsed && selectedRoomId"
+              class="room-list-toggle-btn"
+              @click="isRoomListCollapsed = false"
+              aria-label="展开聊天室列表"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            <div class="rooms-list-header">
+              <div>
+                <h2>我的聊天室</h2>
+                <p>最近进入优先</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button class="icon-create-room-button" @click="showCreateModal = true" aria-label="创建聊天室">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+                <button
+                  v-if="!isRoomListCollapsed && selectedRoomId"
+                  class="icon-close-room-list-button"
+                  @click="isRoomListCollapsed = true"
+                  aria-label="收起聊天室列表"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Search -->
+            <div class="rooms-search">
+              <input v-model="searchQuery" type="text" placeholder="搜索聊天室..." />
+            </div>
+
+            <!-- Loading -->
+            <div v-if="roomStore.myRoomsLoading" class="rooms-loading">
+              <div class="loading-spinner"></div>
+              <span>加载中...</span>
+            </div>
+
+            <!-- Empty State -->
+            <div v-else-if="roomStore.sortedMyRooms.length === 0" class="rooms-empty">
+              <div class="empty-icon">💬</div>
+              <h3>还没有聊天室</h3>
+              <p>创建一个聊天室，邀请多个 AI 角色一起讨论。</p>
+              <button class="empty-btn" @click="showCreateModal = true">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                创建聊天室
+              </button>
+            </div>
+
+            <!-- Room List -->
+            <div v-else class="rooms-list-scroll">
+              <button
+                v-for="room in roomStore.sortedMyRooms"
+                :key="room.id"
+                class="room-list-item"
+                :class="{ active: selectedRoomId === room.id }"
+                @click="selectRoom(room.id)"
+              >
+                <div class="room-list-icon">💬</div>
+                <div class="room-list-content">
+                  <div class="room-list-title-row">
+                    <strong>{{ room.name }}</strong>
+                    <span>{{ formatDate(room.updatedAt) }}</span>
+                  </div>
+                  <p>{{ room.topic || '暂无主题' }}</p>
+                  <small>{{ room.characterCount }} 个角色</small>
+                </div>
+              </button>
+            </div>
+          </aside>
+
+          <!-- Center: Chat Panel -->
+          <main class="chat-main-panel">
+            <template v-if="selectedRoomId">
+              <ChatRoomPanel
+                :room-id="selectedRoomId"
+                :embedded="true"
+                :show-room-list-toggle="true"
+                :show-role-panel-toggle="true"
+                :on-toggle-room-list="() => isRoomListCollapsed = !isRoomListCollapsed"
+                :on-toggle-role-panel="() => isRolePanelCollapsed = !isRolePanelCollapsed"
+              />
+            </template>
+
+            <div v-else class="chat-empty-state">
+              <div class="chat-empty-icon">💬</div>
+              <h2>选择一个聊天室</h2>
+              <p>从左侧列表选择聊天室，开始对话。</p>
+            </div>
+          </main>
+
+          <!-- Right: Characters Panel -->
+          <aside class="room-characters-panel">
+            <!-- Tab Switcher -->
+            <div class="panel-tabs">
+              <button
+                class="panel-tab"
+                :class="{ active: !showMembersTab }"
+                @click="showMembersTab = false"
+              >
+                聊天室角色
+              </button>
+              <button
+                class="panel-tab"
+                :class="{ active: showMembersTab }"
+                @click="showMembersTab = true; roomStore.fetchRoomMembers(selectedRoomId!)"
+              >
+                成员
+                <span v-if="roomStore.roomMembers.length" class="tab-badge">{{ roomStore.roomMembers.length }}</span>
+              </button>
+            </div>
+
+            <!-- Characters Tab -->
+            <template v-if="!showMembersTab">
+              <div class="characters-panel-header">
+                <div>
+                  <h3>聊天室角色</h3>
+                  <p>{{ currentRoomCharacters.length }} 个角色参与讨论</p>
+                </div>
+              <div class="flex items-center gap-2">
+                <button @click="openAddCharacterModal" class="add-char-btn">+</button>
+                <button
+                  class="icon-close-role-panel-button"
+                  @click="isRolePanelCollapsed = true"
+                  aria-label="收起角色面板"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="currentRoomCharacters.length === 0" class="characters-empty">
+              <div class="empty-role-icon">👥</div>
+              <h4>还没有角色</h4>
+              <p>添加角色后，就可以开始多角色对话。</p>
+              <button @click="openAddCharacterModal">添加角色</button>
+            </div>
+
+            <div v-else class="characters-list">
+              <div v-for="char in currentRoomCharacters" :key="char.id" class="character-chip-card">
+                <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" />
+                <div v-else class="char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
+                <div>
+                  <strong>{{ char.name }}</strong>
+                  <span>{{ char.description || '暂无描述' }}</span>
+                </div>
+              </div>
+            </div>
+            </template>
+
+            <!-- Members Tab -->
+            <template v-if="showMembersTab">
+              <div class="members-panel-content">
+                <div class="members-list">
+                  <div v-if="roomStore.roomMembersLoading" class="members-loading">
+                    加载中...
+                  </div>
+                  <div v-else-if="roomStore.roomMembers.length === 0" class="members-empty">
+                    暂无成员
+                  </div>
+                  <div v-else v-for="member in roomStore.roomMembers" :key="member.userId" class="member-item">
+                    <div class="member-avatar-wrapper">
+                      <img
+                        v-if="member.avatarUrl"
+                        :src="resolveAvatarUrl(member.avatarUrl)"
+                        :alt="member.displayName"
+                        class="member-avatar"
+                        @error="handleAvatarError"
+                      />
+                      <div v-show="!member.avatarUrl || true" class="member-avatar-placeholder">
+                        {{ getNameInitial(member.displayName) }}
+                      </div>
+                    </div>
+                    <div class="member-info">
+                      <strong>{{ member.displayName }}</strong>
+                      <span class="member-role">{{ member.role === 'owner' ? '创建者' : member.role === 'admin' ? '管理员' : '成员' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="members-footer">
+                  <button class="invite-member-btn" @click="showInviteModal = true">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    邀请成员
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <div class="conversation-mode-card">
+              <h4>对话模式</h4>
+              <button class="mode-option" :class="{ active: true }">
+                角色响应一次结束
+              </button>
+            </div>
+          </aside>
+        </div>
+      </template>
+
       <!-- Discover View -->
       <template v-else>
         <!-- Header -->
@@ -581,76 +1007,6 @@ function handleCreateRoom() {
       </template>
     </main>
 
-    <!-- Right Sidebar -->
-    <aside class="right-sidebar">
-      <!-- Live Activity -->
-      <div class="widget">
-        <div class="widget-header">
-          <span class="widget-title">
-            <span class="live-dot"></span>
-            实时动态
-          </span>
-          <span class="live-count">{{ liveActivities.length }} 个在线</span>
-        </div>
-        <div class="activity-feed">
-          <div
-            v-for="activity in liveActivities"
-            :key="activity.id"
-            class="activity-item"
-          >
-            <img :src="activity.avatar" :alt="activity.character" class="activity-avatar" />
-            <div class="activity-content">
-              <p class="activity-text">
-                <span class="activity-name" :style="{ color: activity.color }">{{ activity.character }}</span>
-                {{ activity.action }}
-              </p>
-              <p class="activity-room">{{ activity.room }}</p>
-              <span class="activity-time">{{ activity.time }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Online Now -->
-      <div class="widget">
-        <div class="widget-header">
-          <span class="widget-title">在线角色</span>
-        </div>
-        <div class="online-list">
-          <div
-            v-for="user in onlineUsers"
-            :key="user.name"
-            class="online-item"
-          >
-            <div class="online-avatar-wrap">
-              <img :src="user.avatar" :alt="user.name" class="online-avatar" />
-              <span class="online-status"></span>
-            </div>
-            <div class="online-info">
-              <span class="online-name">{{ user.name }}</span>
-              <span class="online-status-text">{{ user.status }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="widget quick-actions">
-        <button class="action-btn" @click="showCreateModal = true">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          创建聊天室
-        </button>
-        <button class="action-btn secondary" @click="router.push('/settings')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-          设置
-        </button>
-      </div>
-    </aside>
 
     <!-- Create Room Modal -->
     <CreateRoomModal
@@ -662,8 +1018,11 @@ function handleCreateRoom() {
     <!-- Create Character Modal -->
     <CreateCharacterModal
       :show="showCreateCharacterModal"
+      :context="createCharacterRoomId ? 'room' : 'character-library'"
+      :room-id="createCharacterRoomId"
       @close="showCreateCharacterModal = false"
       @created="handleCharacterCreated"
+      @added-to-room="handleAddedToRoom"
     />
 
     <!-- Edit Character Modal -->
@@ -675,6 +1034,41 @@ function handleCreateRoom() {
       @close="closeEditCharacterModal"
       @updated="handleCharacterUpdated"
     />
+
+    <!-- Invite Member Modal -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="showInviteModal" class="invite-modal-overlay" @click.self="showInviteModal = false">
+          <div class="invite-modal">
+            <header class="invite-modal-header">
+              <h2>邀请成员</h2>
+              <button class="modal-close-btn" @click="showInviteModal = false">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </header>
+            <div class="invite-modal-body">
+              <p class="invite-hint">输入用户名或邮箱邀请用户加入当前聊天室</p>
+              <input
+                v-model="inviteKeyword"
+                type="text"
+                placeholder="用户名或邮箱"
+                class="invite-input"
+                @keyup.enter="handleInviteMember"
+              />
+              <p v-if="inviteError" class="invite-error">{{ inviteError }}</p>
+            </div>
+            <footer class="invite-modal-footer">
+              <button class="invite-cancel-btn" @click="showInviteModal = false">取消</button>
+              <button class="invite-submit-btn" @click="handleInviteMember" :disabled="inviteLoading || !inviteKeyword.trim()">
+                {{ inviteLoading ? '邀请中...' : '邀请' }}
+              </button>
+            </footer>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -682,12 +1076,12 @@ function handleCreateRoom() {
 /* ===== Page Layout ===== */
 .page-layout {
   display: grid;
-  grid-template-columns: 260px 1fr 300px;
+  grid-template-columns: var(--global-sidebar-width) 1fr;
   min-height: 100vh;
   background: var(--app-bg);
   opacity: 0;
   overflow: visible;
-  transition: opacity 0.4s ease, background-color 0.25s ease;
+  transition: opacity 0.4s ease, background-color 0.25s ease, grid-template-columns 0.22s ease;
 }
 
 .page-layout.mounted {
@@ -706,6 +1100,88 @@ function handleCreateRoom() {
   height: 100vh;
   overflow: visible;
   transition: background-color 0.25s ease, border-color 0.25s ease;
+  width: var(--global-sidebar-width);
+  min-width: var(--global-sidebar-width);
+}
+
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 1rem;
+  right: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transform: scale(1.1);
+}
+
+.sidebar .logo-text,
+.sidebar .nav-label,
+.sidebar .recent-chat-text,
+.sidebar .user-info-text {
+  transition: opacity 0.2s ease;
+}
+
+.page-layout.global-collapsed .sidebar .logo-text,
+.page-layout.global-collapsed .sidebar .nav-label,
+.page-layout.global-collapsed .sidebar .recent-chat-text,
+.page-layout.global-collapsed .sidebar .user-info-text {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.page-layout.global-collapsed .sidebar {
+  padding: 0.75rem 0.5rem;
+}
+
+.page-layout.global-collapsed .sidebar-brand {
+  justify-content: center;
+  padding: 0.25rem;
+}
+
+.page-layout.global-collapsed .create-dropdown-wrapper {
+  width: 100%;
+}
+
+.page-layout.global-collapsed .create-btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  justify-content: center;
+  margin: 0 auto 0.75rem;
+}
+
+.page-layout.global-collapsed .create-btn span {
+  display: none;
+}
+
+.page-layout.global-collapsed .nav-item {
+  justify-content: center;
+  padding: 0.6rem;
+}
+
+.page-layout.global-collapsed .nav-emoji {
+  margin: 0;
+}
+
+.page-layout.global-collapsed .recent-chats {
+  display: none;
 }
 
 .sidebar-brand {
@@ -1348,224 +1824,7 @@ function handleCreateRoom() {
   transition: color 0.25s ease;
 }
 
-/* ===== Right Sidebar ===== */
-.right-sidebar {
-  background: var(--card-bg);
-  border-left: 1px solid var(--border-color);
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-  transition: background-color 0.25s ease, border-color 0.25s ease;
-}
-
-/* Widget */
-.widget {
-  background: var(--panel-bg);
-  border-radius: 14px;
-  padding: 1rem;
-  transition: background-color 0.25s ease;
-}
-
-.widget-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.widget-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  transition: color 0.25s ease;
-}
-
-.live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #10B981;
-  animation: livePulse 2s ease-in-out infinite;
-}
-
-@keyframes livePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.live-count {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  transition: color 0.25s ease;
-}
-
-/* Activity Feed */
-.activity-feed {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.activity-item {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.activity-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.activity-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.activity-text {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  transition: color 0.25s ease;
-}
-
-.activity-name {
-  font-weight: 600;
-}
-
-.activity-room {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: 0.15rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: color 0.25s ease;
-}
-
-.activity-time {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  transition: color 0.25s ease;
-}
-
-/* Online List */
-.online-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.online-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.online-avatar-wrap {
-  position: relative;
-}
-
-.online-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.online-status {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #10B981;
-  border: 2px solid var(--card-bg);
-}
-
-.online-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.online-name {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: color 0.25s ease;
-}
-
-.online-status-text {
-  font-size: 0.75rem;
-  color: #10B981;
-}
-
-/* Quick Actions */
-.quick-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: auto;
-  background: transparent;
-  padding: 0;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
-  border: none;
-  border-radius: 10px;
-  color: white;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
-}
-
-.action-btn.secondary {
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-}
-
-.action-btn.secondary:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-  box-shadow: none;
-}
-
 /* ===== Responsive ===== */
-@media (max-width: 1200px) {
-  .page-layout {
-    grid-template-columns: 260px 1fr;
-  }
-
-  .right-sidebar {
-    display: none;
-  }
-}
-
 @media (max-width: 768px) {
   .page-layout {
     grid-template-columns: 1fr;
@@ -1751,5 +2010,1292 @@ function handleCreateRoom() {
 .character-card-item .edit-btn:hover {
   background: var(--border-color);
   color: var(--text-primary);
+}
+
+/* ===== My Rooms Styles ===== */
+.page-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  gap: 1rem;
+  color: var(--text-muted);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.my-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.my-room-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.my-room-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+  border-color: #27272a;
+}
+
+.my-room-item:hover .room-enter-hint {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.room-avatar-group {
+  display: flex;
+  align-items: center;
+}
+
+.room-char-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 2px solid var(--card-bg);
+  margin-left: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.room-char-avatar:first-child {
+  margin-left: 0;
+}
+
+.room-char-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.room-char-avatar .avatar-placeholder {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.room-char-avatar.empty {
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+}
+
+.room-char-avatar.empty span {
+  font-size: 1.2rem;
+}
+
+.room-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.room-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.room-topic {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.room-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.room-enter-hint {
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: all 0.2s ease;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Dark mode for my rooms */
+.dark .my-room-item:hover {
+  border-color: rgba(71, 85, 105, 0.85);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* ===== My Rooms Three-Column Layout ===== */
+.rooms-chat-shell {
+  height: calc(100vh - 3rem);
+  display: grid;
+  grid-template-columns: var(--room-list-width) minmax(0, 1fr) var(--role-panel-width);
+  background: #f6f7fb;
+  margin: -1.5rem -2rem;
+  overflow: hidden;
+  transition: grid-template-columns 0.22s ease;
+}
+
+.dark .rooms-chat-shell {
+  background: #020617;
+}
+
+/* Left: Room List Panel */
+.rooms-list-panel {
+  min-width: 0;
+  background: #ffffff;
+  border-right: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.dark .rooms-list-panel {
+  background: #0f172a;
+  border-right-color: rgba(71, 85, 105, 0.85);
+}
+
+.page-layout.room-list-collapsed .rooms-list-panel {
+  border-right: none;
+}
+
+.room-list-toggle-btn {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.room-list-toggle-btn:hover {
+  background: #f1f5f9;
+  transform: translateY(-50%) scale(1.1);
+}
+
+.dark .room-list-toggle-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-color: rgba(71, 85, 105, 0.85);
+}
+
+.icon-close-room-list-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.icon-close-room-list-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .icon-close-room-list-button:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+.rooms-list-header {
+  height: 88px;
+  padding: 20px 18px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dark .rooms-list-header {
+  border-bottom-color: rgba(71, 85, 105, 0.85);
+}
+
+.rooms-list-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dark .rooms-list-header h2 {
+  color: #f1f5f9;
+}
+
+.rooms-list-header p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.icon-create-room-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-create-room-button:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+.dark .icon-create-room-button {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.dark .icon-create-room-button:hover {
+  background: #e2e8f0;
+}
+
+.rooms-search {
+  padding: 0 14px 12px;
+}
+
+.rooms-search input {
+  width: 100%;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 0 14px;
+  outline: none;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.dark .rooms-search input {
+  background: #1e293b;
+  border-color: rgba(71, 85, 105, 0.85);
+  color: #f1f5f9;
+}
+
+.rooms-search input::placeholder {
+  color: #94a3b8;
+}
+
+.rooms-search input:focus {
+  border-color: #d6a84f;
+}
+
+.rooms-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: #94a3b8;
+}
+
+.rooms-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.rooms-empty .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.rooms-empty h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dark .rooms-empty h3 {
+  color: #f1f5f9;
+}
+
+.rooms-empty p {
+  margin: 8px 0 1.5rem;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.rooms-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px 16px;
+}
+
+.room-list-item {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  padding: 14px 12px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.room-list-item:hover {
+  background: #f1f5f9;
+}
+
+.dark .room-list-item:hover {
+  background: #1e293b;
+}
+
+.room-list-item.active {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.dark .room-list-item.active {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.dark .room-list-item.active p,
+.dark .room-list-item.active small,
+.dark .room-list-item.active span {
+  color: inherit;
+  opacity: 0.7;
+}
+
+.room-list-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.dark .room-list-icon {
+  background: #1e293b;
+}
+
+.room-list-item.active .room-list-icon {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dark .room-list-item.active .room-list-icon {
+  background: #0f172a;
+}
+
+.room-list-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.room-list-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.room-list-title-row strong {
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.room-list-title-row span {
+  font-size: 12px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.room-list-content p {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-list-content small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Center: Chat Main Panel */
+.chat-main-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top, rgba(214, 168, 79, 0.08), transparent 280px), #f8fafc;
+}
+
+.dark .chat-main-panel {
+  background: radial-gradient(circle at top, rgba(214, 168, 79, 0.05), transparent 280px), #020617;
+}
+
+.chat-empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #64748b;
+}
+
+.chat-empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
+  border: 1px solid rgba(214, 168, 79, 0.45);
+  color: #d6a84f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  margin-bottom: 18px;
+}
+
+.chat-empty-state h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dark .chat-empty-state h2 {
+  color: #f1f5f9;
+}
+
+.chat-empty-state p {
+  margin-top: 10px;
+  font-size: 15px;
+  color: #64748b;
+  max-width: 320px;
+}
+
+/* Right: Characters Panel */
+.room-characters-panel {
+  min-width: 0;
+  background: #ffffff;
+  border-left: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
+  overflow: hidden;
+}
+
+.dark .room-characters-panel {
+  background: #0f172a;
+  border-left-color: rgba(71, 85, 105, 0.85);
+}
+
+.page-layout.role-panel-collapsed .room-characters-panel {
+  border-left: none;
+}
+
+/* Panel Tabs */
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dark .panel-tabs {
+  border-bottom-color: rgba(71, 85, 105, 0.85);
+}
+
+.panel-tab {
+  flex: 1;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.panel-tab:hover {
+  color: #0f172a;
+}
+
+.panel-tab.active {
+  color: #0f172a;
+  border-bottom-color: #0f172a;
+}
+
+.dark .panel-tab:hover,
+.dark .panel-tab.active {
+  color: #f1f5f9;
+}
+
+.dark .panel-tab.active {
+  border-bottom-color: #f1f5f9;
+}
+
+.tab-badge {
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.dark .tab-badge {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+/* Members Panel */
+.members-panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.members-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.members-loading,
+.members-empty {
+  text-align: center;
+  padding: 24px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.member-item:hover {
+  background: #f8fafc;
+}
+
+.dark .member-item:hover {
+  background: #1e293b;
+}
+
+.member-avatar-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.member-avatar-wrapper .member-avatar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.member-avatar-wrapper .member-avatar-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.dark .member-avatar-wrapper .member-avatar-placeholder {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+.member-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.member-avatar-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.dark .member-avatar-placeholder {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+.member-info {
+  flex: 1;
+}
+
+.member-info strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dark .member-info strong {
+  color: #f1f5f9;
+}
+
+.member-role {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.members-footer {
+  padding: 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dark .members-footer {
+  border-top-color: rgba(71, 85, 105, 0.85);
+}
+
+.invite-member-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s;
+}
+
+.invite-member-btn:hover {
+  border-color: #0f172a;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.dark .invite-member-btn:hover {
+  border-color: #f1f5f9;
+  color: #f1f5f9;
+  background: #1e293b;
+}
+
+/* Invite Modal */
+.invite-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(4px);
+}
+
+.dark .invite-modal-overlay {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.invite-modal {
+  width: 420px;
+  max-width: 100%;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.dark .invite-modal {
+  background: #0f172a;
+}
+
+.invite-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dark .invite-modal-header {
+  border-bottom-color: rgba(71, 85, 105, 0.85);
+}
+
+.invite-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dark .invite-modal-header h2 {
+  color: #f1f5f9;
+}
+
+.modal-close-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .modal-close-btn:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+.invite-modal-body {
+  padding: 24px;
+}
+
+.invite-hint {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.invite-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s;
+}
+
+.invite-input:focus {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+
+.dark .invite-input {
+  background: #1e293b;
+  border-color: rgba(71, 85, 105, 0.85);
+  color: #f1f5f9;
+}
+
+.dark .invite-input:focus {
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+}
+
+.invite-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #dc2626;
+}
+
+.invite-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dark .invite-modal-footer {
+  border-top-color: rgba(71, 85, 105, 0.85);
+}
+
+.invite-cancel-btn {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.invite-cancel-btn:hover {
+  background: #f8fafc;
+}
+
+.dark .invite-cancel-btn {
+  border-color: rgba(71, 85, 105, 0.85);
+  color: #94a3b8;
+}
+
+.dark .invite-cancel-btn:hover {
+  background: #1e293b;
+}
+
+.invite-submit-btn {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.invite-submit-btn:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+.invite-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dark .invite-submit-btn {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.dark .invite-submit-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.characters-panel-header {
+  height: 76px;
+  padding: 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dark .characters-panel-header {
+  border-bottom-color: rgba(71, 85, 105, 0.85);
+}
+
+.characters-panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dark .characters-panel-header h3 {
+  color: #f1f5f9;
+}
+
+.characters-panel-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.add-char-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-char-btn:hover {
+  background: #1e293b;
+}
+
+.dark .add-char-btn {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.dark .add-char-btn:hover {
+  background: #e2e8f0;
+}
+
+.icon-close-role-panel-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.icon-close-role-panel-button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.dark .icon-close-role-panel-button:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+.characters-empty {
+  margin: 18px;
+  padding: 24px 16px;
+  border-radius: 20px;
+  border: 1px dashed #cbd5e1;
+  text-align: center;
+  color: #64748b;
+}
+
+.dark .characters-empty {
+  border-color: rgba(71, 85, 105, 0.85);
+}
+
+.characters-empty h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dark .characters-empty h4 {
+  color: #f1f5f9;
+}
+
+.characters-empty p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.characters-empty button {
+  margin-top: 14px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: none;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.characters-empty button:hover {
+  background: #1e293b;
+}
+
+.dark .characters-empty button {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.dark .characters-empty button:hover {
+  background: #e2e8f0;
+}
+
+.characters-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.character-chip-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .character-chip-card {
+  background: #1e293b;
+  border-color: rgba(71, 85, 105, 0.85);
+}
+
+.character-chip-card img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.char-avatar-placeholder {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.dark .char-avatar-placeholder {
+  background: #0f172a;
+  color: #94a3b8;
+}
+
+.character-chip-card strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dark .character-chip-card strong {
+  color: #f1f5f9;
+}
+
+.character-chip-card span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-mode-card {
+  margin: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .conversation-mode-card {
+  background: #1e293b;
+  border-color: rgba(71, 85, 105, 0.85);
+}
+
+.conversation-mode-card h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.mode-option {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dark .mode-option {
+  background: #0f172a;
+  border-color: rgba(71, 85, 105, 0.85);
+  color: #94a3b8;
+}
+
+.mode-option.active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+.dark .mode-option.active {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .rooms-chat-shell {
+    grid-template-columns: var(--room-list-width, 300px) minmax(0, 1fr);
+  }
+
+  .room-characters-panel {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--role-panel-width, 280px);
+    z-index: 1000;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+
+  .page-layout:not(.role-panel-collapsed) .room-characters-panel {
+    transform: translateX(0);
+  }
+
+  .page-layout.role-panel-collapsed .room-characters-panel {
+    transform: translateX(100%);
+  }
+
+  .page-layout.room-list-collapsed .rooms-list-panel {
+    transform: translateX(-100%);
+  }
+
+  .room-list-toggle-btn {
+    display: flex;
+  }
+}
+
+@media (max-width: 768px) {
+  .rooms-chat-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .rooms-list-panel {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--room-list-width, 300px);
+    z-index: 1000;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .page-layout:not(.room-list-collapsed) .rooms-list-panel {
+    transform: translateX(0);
+  }
+
+  .page-layout.room-list-collapsed .rooms-list-panel {
+    transform: translateX(-100%);
+  }
+
+  .chat-main-panel {
+    height: 100%;
+  }
+
+  .room-list-toggle-btn {
+    left: auto;
+    right: -14px;
+  }
 }
 </style>

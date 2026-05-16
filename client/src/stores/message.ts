@@ -52,7 +52,12 @@ export const useMessageStore = defineStore('message', () => {
     thinkingCharacterId.value = null
   }
 
-  async function loadMessages(roomId: string) {
+  async function loadMessages(roomId: string | null | undefined) {
+    if (!roomId || roomId === 'null' || roomId === 'undefined') {
+      console.warn('[MessageStore] skip loadMessages: invalid roomId', roomId)
+      messages.value = []
+      return
+    }
     loading.value = true
     error.value = null
     try {

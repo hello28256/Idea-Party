@@ -4,8 +4,10 @@ import com.ideaparty.dto.CreateRoomRequest;
 import com.ideaparty.dto.RoomResponse;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Room;
+import com.ideaparty.entity.RoomMember;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
+import com.ideaparty.repository.RoomMemberRepository;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final CharacterRepository characterRepository;
+    private final RoomMemberRepository roomMemberRepository;
 
     public RoomResponse create(UUID userId, CreateRoomRequest request) {
         log.info("[DEBUG] Creating room for user: {}", userId);
@@ -41,6 +44,16 @@ public class RoomService {
                 .build();
 
         Room saved = roomRepository.save(room);
+
+        // Add owner as a member
+        RoomMember ownerMember = RoomMember.builder()
+                .room(saved)
+                .user(owner)
+                .role("owner")
+                .status("active")
+                .build();
+        roomMemberRepository.save(ownerMember);
+
         log.info("[DEBUG] Room created with id: {}", saved.getId());
 
         return RoomResponse.fromEntity(saved);
@@ -50,7 +63,7 @@ public class RoomService {
     public List<RoomResponse> findByUserId(UUID userId) {
         log.info("[DEBUG] Finding rooms for user: {}", userId);
 
-        return roomRepository.findByOwnerId(userId).stream()
+        return roomRepository.findRoomsByMemberUserId(userId).stream()
                 .map(RoomResponse::fromEntity)
                 .collect(Collectors.toList());
     }
@@ -76,9 +89,10 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        if (!room.getOwner().getId().equals(userId)) {
-            log.warn("[DEBUG] User {} is not owner of room {}", userId, roomId);
-            throw new AccessDeniedException("You are not the owner of this room");
+        // Check if user is a member
+        if (!roomMemberRepository.isMember(roomId, userId)) {
+            log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not a member of this room");
         }
 
         Character character = characterRepository.findById(characterId)
@@ -105,9 +119,10 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        if (!room.getOwner().getId().equals(userId)) {
-            log.warn("[DEBUG] User {} is not owner of room {}", userId, roomId);
-            throw new AccessDeniedException("You are not the owner of this room");
+        // Check if user is a member
+        if (!roomMemberRepository.isMember(roomId, userId)) {
+            log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not a member of this room");
         }
 
         if (chatMode != null) {

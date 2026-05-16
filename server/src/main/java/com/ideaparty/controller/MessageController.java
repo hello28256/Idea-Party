@@ -8,6 +8,7 @@ import com.ideaparty.service.ModerationService;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,37 +28,62 @@ public class MessageController {
     }
 
     @GetMapping
-    public ResponseEntity<List<MessageResponse>> getMessages(@PathVariable String roomId) {
-        List<MessageResponse> messages = messageService.getMessagesByRoomId(UUID.fromString(roomId))
-            .stream()
-            .map(MessageResponse::fromEntity)
-            .collect(Collectors.toList());
-        return ResponseEntity.ok(messages);
+    public ResponseEntity<?> getMessages(@PathVariable String roomId) {
+        if (roomId == null || roomId.isBlank() || "null".equals(roomId) || "undefined".equals(roomId)) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "聊天室 ID 不能为空"));
+        }
+        try {
+            List<MessageResponse> messages = messageService.getMessagesByRoomId(UUID.fromString(roomId))
+                .stream()
+                .map(MessageResponse::fromEntity)
+                .collect(Collectors.toList());
+            return ResponseEntity.ok(messages);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "无效的聊天室 ID 格式"));
+        }
     }
 
     @GetMapping("/paginated")
-    public ResponseEntity<Page<MessageResponse>> getMessagesPaginated(
+    public ResponseEntity<?> getMessagesPaginated(
             @PathVariable String roomId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        Page<Message> messages = messageService.getMessagesPaginated(UUID.fromString(roomId), page, size);
-        Page<MessageResponse> response = messages.map(MessageResponse::fromEntity);
-        return ResponseEntity.ok(response);
+        if (roomId == null || roomId.isBlank() || "null".equals(roomId) || "undefined".equals(roomId)) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "聊天室 ID 不能为空"));
+        }
+        try {
+            Page<Message> messages = messageService.getMessagesPaginated(UUID.fromString(roomId), page, size);
+            Page<MessageResponse> response = messages.map(MessageResponse::fromEntity);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "无效的聊天室 ID 格式"));
+        }
     }
 
     @PostMapping
     public ResponseEntity<?> sendMessage(
+            Authentication auth,
             @PathVariable String roomId,
             @RequestBody SendMessageRequest request) {
-        ModerationService.ModerationResult result = moderationService.moderate(request.getContent());
-        if (!result.isAllowed()) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(java.util.Map.of("error", result.getReason()));
+        if (auth == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(java.util.Map.of("message", "请先登录"));
         }
-
+        if (roomId == null || roomId.isBlank() || "null".equals(roomId) || "undefined".equals(roomId)) {
+            return ResponseEntity.badRequest()
+                .body(java.util.Map.of("message", "聊天室 ID 不能为空"));
+        }
         try {
-            Message.SenderType senderType = Message.SenderType.valueOf(request.getSenderType());
+            UUID userId = UUID.fromString(auth.getName());
             UUID roomUuid = UUID.fromString(roomId);
+
+            ModerationService.ModerationResult result = moderationService.moderate(request.getContent());
+            if (!result.isAllowed()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(java.util.Map.of("message", result.getReason()));
+            }
+
+            Message.SenderType senderType = Message.SenderType.valueOf(request.getSenderType());
             UUID characterUuid = request.getCharacterId() != null ? UUID.fromString(request.getCharacterId()) : null;
             Message message = messageService.saveMessage(
                 roomUuid,
@@ -66,6 +92,9 @@ public class MessageController {
                 request.getContent()
             );
             return ResponseEntity.ok(MessageResponse.fromEntity(message));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                .body(java.util.Map.of("message", "无效的请求参数: " + e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }

@@ -20,7 +20,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: `http://localhost:${env.SERVER_PROXY_PORT || '8080'}`,
+        target: `http://127.0.0.1:${env.SERVER_PROXY_PORT || '8080'}`,
+        changeOrigin: true
+      },
+      '/uploads': {
+        target: `http://127.0.0.1:${env.SERVER_PROXY_PORT || '8080'}`,
         changeOrigin: true
       }
     }
