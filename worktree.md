@@ -32,3 +32,4 @@ git worktree repair
 helo你好
 Idea-party
 idea-party-ui
+idea-party-backend
