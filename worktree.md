@@ -33,5 +33,8 @@ helo你好
 Idea-party
 idea-party-ui
 idea-party-backend
-
-test-ui
+test-dev
+test-dev2
+test-main
+test-dev3
+test-dev4
