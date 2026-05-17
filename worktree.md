@@ -30,3 +30,4 @@ git worktree repair
 
 # ####我是张山
 helo你好
+idea-party-backend
