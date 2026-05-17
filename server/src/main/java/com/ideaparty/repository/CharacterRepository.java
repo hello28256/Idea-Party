@@ -2,6 +2,7 @@ package com.ideaparty.repository;
 
 import com.ideaparty.entity.Character;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -18,4 +19,14 @@ public interface CharacterRepository extends JpaRepository<Character, UUID> {
     Optional<Character> findByIdAndOwnerId(UUID id, UUID ownerId);
 
     boolean existsByIdAndOwnerId(UUID id, UUID ownerId);
+
+    @Query(value = """
+        SELECT c.*, COUNT(rc.room_id) as usage_count
+        FROM characters c
+        LEFT JOIN room_characters rc ON c.id = rc.character_id
+        GROUP BY c.id
+        ORDER BY usage_count DESC
+        LIMIT :limit
+        """, nativeQuery = true)
+    List<Character> findTopByUsageCount(int limit);
 }

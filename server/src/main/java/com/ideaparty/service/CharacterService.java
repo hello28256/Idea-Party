@@ -656,4 +656,11 @@ public class CharacterService {
     public boolean isOwner(UUID characterId, UUID userId) {
         return characterRepository.existsByIdAndOwnerId(characterId, userId);
     }
+
+    public List<CharacterResponse> findRecommended(int limit) {
+        return characterRepository.findTopByUsageCount(limit)
+                .stream()
+                .map(CharacterResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
 }

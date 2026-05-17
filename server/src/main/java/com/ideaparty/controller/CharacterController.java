@@ -40,6 +40,12 @@ public class CharacterController {
         return ResponseEntity.ok(presets);
     }
 
+    @GetMapping("/recommended")
+    public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters() {
+        List<CharacterResponse> recommended = characterService.findRecommended(10);
+        return ResponseEntity.ok(recommended);
+    }
+
     @PostMapping("/generate-prompt")
     @ResponseBody
     public GeneratePromptResponse generatePrompt(

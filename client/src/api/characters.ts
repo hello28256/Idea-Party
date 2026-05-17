@@ -6,6 +6,8 @@ export const charactersApi = {
 
   getPresets: () => api.get<Character[]>('/characters/presets'),
 
+  getRecommended: () => api.get<Character[]>('/characters/recommended'),
+
   getById: (id: string) => api.get<Character>(`/characters/${id}`),
 
   create: (data: CharacterRequest) => api.post<Character>('/characters', data),

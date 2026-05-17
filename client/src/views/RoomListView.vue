@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { charactersApi } from '@/api/characters'
 import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
@@ -258,17 +259,28 @@ const categories = [
   { id: 'historical', label: '历史人物', emoji: '🏛️', color: '#D4AF6A' },
 ]
 
-// Featured characters with AI-style avatar URLs
-const featuredCharacters = [
-  { id: 1, name: '爱因斯坦', role: '物理学家', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4', category: 'scientist', online: true },
-  { id: 2, name: '梅西', role: '足球巨星', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede', category: 'athlete', online: true },
-  { id: 3, name: '马斯克', role: '科技先锋', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9', category: 'entrepreneur', online: true },
-  { id: 4, name: '泰勒·斯威夫特', role: '音乐天后', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=ffd5dc', category: 'star', online: false },
-  { id: 5, name: '宫崎骏', role: '动画大师', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf', category: 'anime', online: true },
-  { id: 6, name: '莎士比亚', role: '文学巨匠', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc', category: 'writer', online: true },
-  { id: 7, name: '苏格拉底', role: '哲学先驱', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1', category: 'philosopher', online: false },
-  { id: 8, name: '牛顿', role: '科学巨匠', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd', category: 'scientist', online: true },
-]
+// Featured characters - loaded from API
+const featuredCharacters = ref<any[]>([])
+const featuredCharactersLoading = ref(false)
+
+async function fetchFeaturedCharacters() {
+  featuredCharactersLoading.value = true
+  try {
+    const characters = await charactersApi.getRecommended()
+    featuredCharacters.value = characters.data.map((char: any) => ({
+      id: char.id,
+      name: char.name,
+      role: char.description || 'AI 角色',
+      avatar: char.avatarUrl || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(char.name)}&backgroundColor=c0aede`,
+      online: false
+    }))
+  } catch (e) {
+    console.error('[DEBUG] Failed to fetch featured characters:', e)
+    featuredCharacters.value = []
+  } finally {
+    featuredCharactersLoading.value = false
+  }
+}
 
 // Room cards data
 const roomCardsData = [
@@ -378,6 +390,7 @@ const recentChats = ref([
 onMounted(() => {
   roomStore.fetchRooms()
   characterStore.fetchCharacters()
+  fetchFeaturedCharacters()
   setTimeout(() => { mounted.value = true }, 50)
 
   // Close dropdown when clicking outside
@@ -902,7 +915,13 @@ async function handleInviteMember() {
             <h2 class="section-title">推荐角色</h2>
             <a href="#" class="see-all" @click.prevent>查看全部</a>
           </div>
-          <div class="featured-scroll">
+          <div v-if="featuredCharactersLoading" class="featured-loading">
+            <div class="loading-spinner"></div>
+          </div>
+          <div v-else-if="featuredCharacters.length === 0" class="featured-empty">
+            暂无推荐角色
+          </div>
+          <div v-else class="featured-scroll">
             <div
               v-for="char in featuredCharacters"
               :key="char.id"
@@ -1543,6 +1562,19 @@ async function handleInviteMember() {
 
 .featured-scroll::-webkit-scrollbar {
   display: none;
+}
+
+.featured-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+}
+
+.featured-empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
 }
 
 .character-card {
