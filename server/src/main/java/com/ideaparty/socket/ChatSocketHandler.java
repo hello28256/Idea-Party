@@ -6,9 +6,13 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.service.AuthService;
 import com.ideaparty.service.ModeratorAgent;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.socket.CloseStatus;
@@ -16,7 +20,9 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,23 +32,18 @@ import java.util.Map;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ChatSocketHandler extends TextWebSocketHandler {
 
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> sessionUsers = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MessageService messageService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
     private final ModeratorAgent moderatorAgent;
-
-    public ChatSocketHandler(MessageService messageService, ModerationService moderationService,
-                             RoomRepository roomRepository, ModeratorAgent moderatorAgent) {
-        this.messageService = messageService;
-        this.moderationService = moderationService;
-        this.roomRepository = roomRepository;
-        this.moderatorAgent = moderatorAgent;
-    }
+    private final AuthService authService;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
@@ -99,7 +100,29 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
     private void handleJoinRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
+
+        // Authenticate via JWT if provided
+        String userId = null;
+        if (data.has("token") && !data.get("token").isNull()) {
+            String token = data.get("token").asText();
+            try {
+                UUID validatedUserId = authService.validateToken(token);
+                userId = validatedUserId.toString();
+                // Set SecurityContext for this WebSocket session
+                UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(
+                        userId, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.info("[WS] Authenticated user {} for session {}", userId, session.getId());
+            } catch (Exception e) {
+                log.warn("[WS] JWT validation failed for session {}: {}", session.getId(), e.getMessage());
+            }
+        }
+
         joinRoom(roomId, session);
+        if (userId != null) {
+            sessionUsers.put(session.getId(), userId);
+        }
         session.sendMessage(new TextMessage("42[\"room-joined\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
@@ -156,15 +179,23 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         // Trigger AI response for user messages
         if ("USER".equals(senderType)) {
-            triggerAIForRoom(roomId, content);
+            // Get userId from sessionUsers map (set during join room)
+            String userId = sessionUsers.get(session.getId());
+            log.info("[WS] handleChatMessage - roomId: {}, userId from session: {}", roomId, userId);
+            triggerAIForRoom(roomId, content, userId);
         }
     }
 
-    @Transactional
-    public void triggerAIForRoom(String roomId, String userMessage) {
+    public void triggerAIForRoom(String roomId, String userMessage, String userId) {
+        log.info("[WS] triggerAIForRoom START - roomId: {}, message: {}, userId: {}", roomId, userMessage, userId);
+
+        // userId is now passed directly from handleChatMessage (retrieved from sessionUsers map during join room)
+
+        // Even if userId is null, continue - we'll use system API key in that case
         try {
             Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
             if (room == null || room.getCharacters().isEmpty()) {
+                log.warn("[WS] triggerAIForRoom - room is null or has no characters");
                 return;
             }
 
@@ -172,19 +203,46 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             boolean isContinuous = "discussion".equals(room.getChatMode());
             int maxRounds = room.getMaxDiscussionRounds() != null ? room.getMaxDiscussionRounds() : 5;
 
-            moderatorAgent.processMessage(roomId, userMessage, characters, isContinuous, maxRounds,
+            log.info("[WS] Calling moderatorAgent.processMessage - charCount: {}, isContinuous: {}",
+                characters.size(), isContinuous);
+
+            moderatorAgent.processMessage(roomId, userId, userMessage, characters, isContinuous, maxRounds,
                 // onThinking: 角色开始思考
-                characterName -> {
+                characterId -> {
                     try {
-                        String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
+                        log.info("[WS] onThinking callback - characterId: {}", characterId);
+                        String event = "42[\"character thinking\",{\"characterId\":\"" + characterId + "\"}]";
                         broadcastToRoom(roomId, event);
                     } catch (Exception e) {
                         log.warn("[WS] Failed to send thinking event: {}", e.getMessage());
                     }
                 },
-                // onResponse: 收到角色回复
+                // onChunk: 流式内容 - 立即发送到前端
                 fragment -> {
                     try {
+                        if (!fragment.isComplete()) {
+                            // 这是流式内容，立即广播
+                            Map<String, Object> chunkData = new java.util.HashMap<>();
+                            chunkData.put("content", fragment.getContent());
+                            chunkData.put("senderType", "CHARACTER");
+                            chunkData.put("characterId", fragment.getCharacterId());
+                            chunkData.put("characterName", fragment.getCharacterName());
+                            chunkData.put("roomId", roomId);
+                            chunkData.put("streaming", true);
+                            String chunkEvent = "42[\"message stream\","
+                                + objectMapper.writeValueAsString(chunkData)
+                                + "]";
+                            broadcastToRoom(roomId, chunkEvent);
+                        }
+                    } catch (Exception e) {
+                        log.warn("[WS] onChunk callback failed: {}", e.getMessage());
+                    }
+                },
+                // onResponse: 收到角色完整回复
+                fragment -> {
+                    try {
+                        log.info("[WS] onResponse callback - characterId: {}, content length: {}, isComplete: {}",
+                            fragment.getCharacterId(), fragment.getContent().length(), fragment.isComplete());
                         // 保存消息到数据库
                         UUID characterUuid = UUID.fromString(fragment.getCharacterId());
                         Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
@@ -198,16 +256,21 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         responseData.put("characterName", fragment.getCharacterName());
                         responseData.put("roomId", roomId);
                         responseData.put("id", savedMessage.getId());
+                        responseData.put("streaming", false);
                         String responseEvent = "42[\"chat message\","
                             + objectMapper.writeValueAsString(responseData)
                             + "]";
+                        log.info("[WS] Broadcasting final response to room: {}, event: {}", roomId, responseEvent);
                         broadcastToRoom(roomId, responseEvent);
                     } catch (Exception e) {
-                        log.warn("[WS] Failed to send response event: {}", e.getMessage());
+                        log.error("[WS] Failed to send response event: {}", e.getMessage(), e);
                     }
                 }
             );
+
+            log.info("[WS] triggerAIForRoom - moderatorAgent.processMessage called, returning");
         } catch (Exception e) {
+            log.error("[WS] triggerAIForRoom - exception: {}", e.getMessage(), e);
             // Broadcast AI error to room
             try {
                 String errorEvent = "42[\"error\","
@@ -226,6 +289,22 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         String userMessage = data.has("message") ? data.get("message").asText() : "";
 
+        // Get userId from SecurityContext (set during join room)
+        String userId = null;
+        try {
+            var auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() != null) {
+                userId = auth.getPrincipal().toString();
+            }
+        } catch (Exception e) {
+            log.error("[WS] handleTriggerAI - failed to get userId: {}", e.getMessage());
+        }
+
+        if (userId == null) {
+            session.sendMessage(new TextMessage("42[\"error\",{\"message\":\"User not authenticated\"}]"));
+            return;
+        }
+
         Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
             session.sendMessage(new TextMessage("42[\"error\",{\"message\":\"Room not found\"}]"));
@@ -242,10 +321,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         int maxRounds = room.getMaxDiscussionRounds() != null ? room.getMaxDiscussionRounds() : 5;
 
         // 使用 ModeratorAgent 进行智能发言编排和流式响应
-        moderatorAgent.processMessage(roomId, userMessage, characters, isContinuous, maxRounds,
+        moderatorAgent.processMessage(roomId, userId, userMessage, characters, isContinuous, maxRounds,
             // onThinking: 角色开始思考
-            characterName -> {
-                String event = "42[\"character thinking\",{\"characterName\":\"" + characterName + "\"}]";
+            characterId -> {
+                String event = "42[\"character thinking\",{\"characterId\":\"" + characterId + "\"}]";
                 broadcastToRoom(roomId, event);
             },
             // onResponse: 收到角色回复
@@ -292,6 +371,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         if (roomId != null) {
             leaveRoom(roomId, session);
         }
+        // Remove user mapping
+        sessionUsers.remove(session.getId());
+        // Clear SecurityContext for this session
+        SecurityContextHolder.clearContext();
     }
 
     public void joinRoom(String roomId, WebSocketSession session) {

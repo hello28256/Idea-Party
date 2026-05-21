@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 import type { ChatMessage } from '@/composables/useSocket'
@@ -9,39 +9,27 @@ const props = defineProps<{
   messages: ChatMessage[]
   thinkingCharacterId: string | null
   characters: Character[]
+  streamingMessages?: Map<string, string>
 }>()
 
-const messagesContainer = ref<HTMLElement | null>(null)
+// Compute streaming message bubbles
+const streamingMessageBubbles = computed(() => {
+  if (!props.streamingMessages || props.streamingMessages.size === 0) return []
 
-function scrollToBottom() {
-  nextTick(() => {
-    const el = messagesContainer.value
-    if (el) {
-      el.scrollTop = el.scrollHeight
-      console.log('[DEBUG] Scrolling to bottom. scrollTop:', el.scrollTop, 'scrollHeight:', el.scrollHeight)
-    } else {
-      console.log('[DEBUG] messagesContainer is null')
-    }
-    // Double ensure after layout
-    setTimeout(() => {
-      const el = messagesContainer.value
-      if (el) {
-        el.scrollTop = el.scrollHeight
-      }
-    }, 50)
+  const bubbles: ChatMessage[] = []
+  props.streamingMessages.forEach((content, characterId) => {
+    bubbles.push({
+      id: `streaming-${characterId}`,
+      roomId: '',
+      characterId,
+      characterName: getCharacterName(characterId),
+      senderType: 'CHARACTER',
+      content,
+      avatarUrl: null,
+      createdAt: new Date().toISOString()
+    })
   })
-}
-
-onMounted(() => {
-  scrollToBottom()
-})
-
-watch(() => props.messages, () => {
-  scrollToBottom()
-}, { deep: true })
-
-watch(() => props.thinkingCharacterId, () => {
-  scrollToBottom()
+  return bubbles
 })
 
 function getCharacterName(characterId: string | null): string {
@@ -50,42 +38,61 @@ function getCharacterName(characterId: string | null): string {
   return char?.name || 'AI'
 }
 
-const hasMessages = () => props.messages.length > 0
+const hasMessages = () => props.messages.length > 0 || streamingMessageBubbles.value.length > 0
+
+// 滚动层引用
+const scrollContainer = ref<HTMLDivElement | null>(null)
+
+// 滚动到底部
+function scrollToBottom() {
+  nextTick(() => {
+    if (!scrollContainer.value) return
+    scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+  })
+}
+
+defineExpose({ scrollToBottom })
 </script>
 
 <template>
-  <div class="message-list" ref="messagesContainer">
-    <!-- Decorative header -->
+  <div class="message-list">
     <div class="messages-header">
       <div class="header-flourish left"></div>
       <span class="header-text">思想交流</span>
       <div class="header-flourish right"></div>
     </div>
 
-    <!-- Empty state -->
-    <div v-if="!hasMessages()" class="empty-state">
-      <div class="empty-icon">
-        <svg class="w-16 h-16 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
+    <div ref="scrollContainer" class="messages">
+      <div v-if="!hasMessages()" class="empty-state">
+        <div class="empty-icon">
+          <svg class="w-16 h-16 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        </div>
+        <h3 class="empty-title">思想的火花等待点燃</h3>
+        <p class="empty-body">发送消息，开启与历史伟人的对话</p>
       </div>
-      <h3 class="empty-title">思想的火花等待点燃</h3>
-      <p class="empty-body">发送消息，开启与历史伟人的对话</p>
-    </div>
 
-    <!-- Messages -->
-    <div v-else class="messages">
-      <MessageBubble
-        v-for="msg in messages"
-        :key="msg.id"
-        :message="msg"
-        :is-own="msg.senderType === 'USER'"
-      />
-    </div>
+      <template v-else>
+        <MessageBubble
+          v-for="msg in messages"
+          :key="msg.id"
+          :message="msg"
+          :is-own="msg.senderType === 'USER'"
+        />
+        <MessageBubble
+          v-for="msg in streamingMessageBubbles"
+          :key="msg.id"
+          :message="msg"
+          :is-own="false"
+          :is-streaming="true"
+        />
+        <div v-if="thinkingCharacterId" class="thinking-area">
+          <ThinkingIndicator :character-name="getCharacterName(thinkingCharacterId)" />
+        </div>
+      </template>
 
-    <!-- Thinking indicator -->
-    <div v-if="thinkingCharacterId" class="thinking-area">
-      <ThinkingIndicator :character-name="getCharacterName(thinkingCharacterId)" />
+      <div class="bottom-anchor"></div>
     </div>
   </div>
 </template>
@@ -93,22 +100,22 @@ const hasMessages = () => props.messages.length > 0
 <style scoped>
 .message-list {
   flex: 1;
-  min-height: 0;
   height: 100%;
-  overflow-y: auto;
-  padding: 1.5rem 1.75rem;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
-  box-sizing: border-box;
 }
 
 .messages-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 1.25rem;
-  padding: 0.75rem 0 1.5rem;
+  padding: 0.75rem 0 1rem;
   opacity: 0.5;
 }
 
@@ -153,20 +160,48 @@ const hasMessages = () => props.messages.length > 0
   left: -2px;
 }
 
+/* 关键：height: 0 让 flex: 1 计算出真实剩余高度 */
 .messages {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 1.125rem;
+  padding: 0 1.5rem 1rem;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gold) var(--color-parchment);
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: var(--color-parchment);
+  border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
+  border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 100%);
 }
 
 .empty-state {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   padding: 4rem 2rem;
+  min-height: 200px;
 }
 
 .empty-icon {
@@ -176,12 +211,8 @@ const hasMessages = () => props.messages.length > 0
 }
 
 @keyframes gentleFloat {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 .empty-title {
@@ -202,15 +233,12 @@ const hasMessages = () => props.messages.length > 0
 }
 
 .thinking-area {
-  padding: 1rem 0;
+  padding: 1rem 0 0;
+  flex-shrink: 0;
 }
 
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
+.bottom-anchor {
+  height: 1px;
+  flex-shrink: 0;
 }
 </style>

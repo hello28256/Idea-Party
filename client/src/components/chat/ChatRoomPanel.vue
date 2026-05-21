@@ -4,6 +4,7 @@ import { useSocket, type ChatMessage } from '@/composables/useSocket'
 import { useMessageStore } from '@/stores/message'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
+import { useAuthStore } from '@/stores/auth'
 import type { Character } from '@/types'
 import MessageList from '@/components/chat/MessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
@@ -24,6 +25,7 @@ const props = defineProps<{
 const messageStore = useMessageStore()
 const roomStore = useRoomStore()
 const characterStore = useCharacterStore()
+const authStore = useAuthStore()
 
 // Local state
 const showCharacterPanel = ref(false)
@@ -33,6 +35,22 @@ const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
 const connectionError = ref<string | null>(null)
+
+// 消息列表 ref
+const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
+
+// 滚动到底部（仅在用户主动发送消息时调用）
+function scrollToBottom() {
+  messageListRef.value?.scrollToBottom()
+}
+
+// 监听消息变化，自动滚动（仅用于流式消息时的实时跟进）
+watch(
+  () => [messageStore.streamingMessages?.size, messageStore.thinkingCharacterId],
+  () => {
+    scrollToBottom()
+  }
+)
 
 const { isConnected, sendMessage, leaveRoom } = useSocket(props.roomId, {
   onMessage: (msg: ChatMessage) => {
@@ -51,7 +69,7 @@ const { isConnected, sendMessage, leaveRoom } = useSocket(props.roomId, {
     connectionError.value = error
     console.error('[DEBUG] Socket error:', error)
   }
-})
+}, authStore.accessToken)
 
 // Computed
 const currentRoom = computed(() => roomStore.currentRoom)
@@ -255,7 +273,7 @@ async function handleCharacterAdded(character: Character) {
     </div>
 
     <!-- Main content area -->
-    <div class="flex-1 flex overflow-hidden">
+    <div class="flex-1 flex min-h-0">
       <!-- Character sidebar (hidden when embedded, handled by external panel) -->
       <CharacterSidebar
         v-if="!props.embedded"
@@ -272,24 +290,22 @@ async function handleCharacterAdded(character: Character) {
       />
 
       <!-- Message area -->
-      <main class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--color-cream)]">
+      <main class="h-full flex-1 flex flex-col min-h-0 min-w-0 bg-[var(--color-cream)] overflow-hidden">
         <!-- Connection warning -->
-        <div v-if="!isConnected" class="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-sm flex items-center gap-2">
+        <div v-if="!isConnected" class="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-sm flex items-center gap-2 shrink-0 flex-shrink-0">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           连接中... 消息暂存本地
         </div>
-        <!-- Messages -->
-        <div class="flex-1 min-h-0 overflow-hidden">
-          <MessageList
-            :messages="messages"
-            :thinking-character-id="thinkingCharacterId"
-            :characters="characters"
-          />
-        </div>
-
-        <!-- Chat input -->
+        <MessageList
+          ref="messageListRef"
+          :messages="messages"
+          :thinking-character-id="thinkingCharacterId"
+          :characters="characters"
+          :streaming-messages="messageStore.streamingMessages"
+        />
+        <!-- Chat input - fixed footer -->
         <div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-ivory)]">
           <ChatInput
             :disabled="false"
@@ -324,11 +340,44 @@ async function handleCharacterAdded(character: Character) {
 
 <style scoped>
 .chat-panel {
-  contain: layout style;
+  /* contain: layout style; */
+}
+
+/* 消息滚动区域样式 */
+:deep(.message-scroll-container) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gold) var(--color-parchment);
+}
+
+:deep(.message-scroll-container)::-webkit-scrollbar {
+  width: 8px;
+}
+
+:deep(.message-scroll-container)::-webkit-scrollbar-track {
+  background: var(--color-parchment);
+  border-radius: 4px;
+}
+
+:deep(.message-scroll-container)::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
+  border-radius: 4px;
+}
+
+:deep(.message-scroll-container)::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 100%);
+}
+
+:deep(.dark) .message-scroll-container {
+  scrollbar-color: var(--color-gold) var(--color-space);
+}
+
+:deep(.dark) .message-scroll-container::-webkit-scrollbar-track {
+  background: var(--color-space);
 }
 
 .header {
   height: 68px;
+  flex-shrink: 0;
   padding: 0 1.25rem;
   display: flex;
   align-items: center;

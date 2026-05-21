@@ -35,20 +35,32 @@ public class SettingsService {
 
     public String getApiKey() {
         UUID userId = UUID.fromString(getCurrentUserId());
-        String apiKey = userRepository.findById(userId)
+        return getApiKeyById(userId.toString());
+    }
+
+    public String getApiKeyById(String userIdStr) {
+        log.info("[AI Config] Getting API key for userId={}", userIdStr);
+        String apiKey = userRepository.findById(UUID.fromString(userIdStr))
                 .map(User::getApiKey)
                 .orElse(null);
 
         // Decrypt if encryption is enabled and we have an encrypted value
         if (apiKey != null && encryptionUtil.isPresent() && encryptionUtil.get().isEncryptionEnabled()) {
             try {
-                return encryptionUtil.get().decrypt(apiKey);
+                String decrypted = encryptionUtil.get().decrypt(apiKey);
+                log.info("[AI Config] Using user API key (encrypted, decrypted) for userId={}, keyPreview={}***",
+                    userIdStr, apiKey.length() > 8 ? apiKey.substring(0, 4) : "****");
+                return decrypted;
             } catch (RuntimeException e) {
                 log.warn("Failed to decrypt API key, returning as-is: {}", e.getMessage());
                 return apiKey;
             }
         }
 
+        if (apiKey != null && !apiKey.isBlank()) {
+            log.info("[AI Config] Using user API key for userId={}, keyPreview={}***",
+                userIdStr, apiKey.length() > 8 ? apiKey.substring(0, 4) : "****");
+        }
         return apiKey;
     }
 

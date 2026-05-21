@@ -5,6 +5,7 @@ import com.ideaparty.entity.Message;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.service.FirecrawlService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import org.springframework.beans.factory.DisposableBean;
@@ -17,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import org.springframework.security.core.context.SecurityContext;
 
 /**
  * Moderator Agent for multi-round group discussion orchestration.
@@ -33,6 +35,7 @@ public class ModeratorAgent implements DisposableBean {
     private final AIService aiService;
     private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
+    private final SettingsService settingsService;
 
     // Maximum discussion rounds
     private static final int MAX_ROUNDS = 3;
@@ -40,35 +43,71 @@ public class ModeratorAgent implements DisposableBean {
     // Delay between rounds (milliseconds) to let responses propagate
     private static final long ROUND_DELAY_MS = 1500;
 
-    // Executor for async operations
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    // Executor for async operations - propagates SecurityContext to child threads
+    private final ExecutorService executor;
 
     // Room-level futures tracking for cancellation
     private final ConcurrentHashMap<String, List<CompletableFuture<?>>> roomFutures = new ConcurrentHashMap<>();
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
+        this.settingsService = settingsService;
+        // Wrap executor so SecurityContext is inherited by async threads
+        this.executor = Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r);
+            // Inherit SecurityContext from the thread that submits the task
+            SecurityContext ctx = SecurityContextHolder.getContext();
+            t.setContextClassLoader(null);
+            return new Thread(ctx != null ? new SecurityContextAwareThread(ctx, t) : t);
+        });
+    }
+
+    // Wraps a Thread to set SecurityContext before run()
+    private static class SecurityContextAwareThread extends Thread {
+        private final SecurityContext context;
+
+        SecurityContextAwareThread(SecurityContext context, Thread delegate) {
+            super(delegate);
+            this.context = context;
+        }
+
+        @Override
+        public void run() {
+            try {
+                SecurityContextHolder.setContext(context);
+                SecurityContextHolder.getContext().setAuthentication(context.getAuthentication());
+                super.run();
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        }
     }
 
     /**
      * Process a user message and orchestrate AI character discussion.
      *
      * @param roomId The room ID
+     * @param userId The user ID (passed explicitly to avoid SecurityContext threading issues)
      * @param userMessage The user's message
      * @param characters List of characters in the room
      * @param isContinuous If true, run multiple rounds (discussion mode); if false, single round (dialogue mode)
      * @param maxRounds Maximum rounds for continuous mode
      * @param onThinking Callback for "thinking" state
-     * @param onResponse Callback for each character's response
+     * @param onChunk Callback for streaming chunks (called as content is generated)
+     * @param onResponse Callback for each character's complete response
      */
-    public void processMessage(String roomId, String userMessage, List<Character> characters,
+    public void processMessage(String roomId, String userId, String userMessage, List<Character> characters,
                                boolean isContinuous, int maxRounds,
-                               Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
+                               Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
+                               Consumer<ResponseFragment> onResponse) {
         if (characters == null || characters.isEmpty()) {
             return;
         }
+
+        log.info("[Moderator] processMessage - roomId: {}, userId: {}, charCount: {}, isContinuous: {}",
+            roomId, userId, characters.size(), isContinuous);
 
         // Build initial context with user message
         String initialContext = buildInitialContext(userMessage);
@@ -76,38 +115,78 @@ public class ModeratorAgent implements DisposableBean {
         // Track responses for each round
         Map<Integer, List<ResponseFragment>> roundResponses = new ConcurrentHashMap<>();
 
-        if (isContinuous) {
-            // Discussion mode: multi-round
-            runDiscussionRound(roomId, userMessage, initialContext, characters, 1,
-                maxRounds, roundResponses, onThinking, onResponse);
-        } else {
-            // Dialogue mode: single round only
-            runSingleRound(roomId, userMessage, initialContext, characters,
-                roundResponses, onThinking, onResponse);
+        try {
+            if (isContinuous) {
+                // Discussion mode: multi-round
+                runDiscussionRound(roomId, userId, userMessage, initialContext, characters, 1,
+                    maxRounds, roundResponses, onThinking, onChunk, onResponse);
+            } else {
+                // Dialogue mode: single round only
+                runSingleRound(roomId, userId, userMessage, initialContext, characters,
+                    roundResponses, onThinking, onChunk, onResponse);
+            }
+        } catch (Exception e) {
+            log.error("[Moderator] processMessage caught exception: {}", e.getMessage(), e);
         }
     }
 
     /**
      * Run a single dialogue round (dialogue mode).
      */
-    private void runSingleRound(String roomId, String userMessage, String context,
+    private void runSingleRound(String roomId, String userId, String userMessage, String context,
                                 List<Character> characters,
                                 Map<Integer, List<ResponseFragment>> roundResponses,
-                                Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
+                                Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
+                                Consumer<ResponseFragment> onResponse) {
 
-        // Notify thinking for all characters
+        log.info("[Moderator] runSingleRound - roomId: {}, userId: {}, characters: {}, isContinuous: false",
+            roomId, userId, characters.size());
+
+        // Get API key in main thread before async tasks (avoids SecurityContext threading issues)
+        String userApiKey = null;
+        try {
+            userApiKey = settingsService.getApiKeyById(userId);
+            log.info("[Moderator] Got API key for userId: {}", userId);
+        } catch (Exception e) {
+            log.error("[Moderator] Failed to get API key for userId {}: {}", userId, e.getMessage());
+        }
+        final String userApiKeyFinal = userApiKey;
+
+        // Notify thinking for all characters first
         for (Character character : characters) {
-            onThinking.accept(character.getName());
+            log.info("[Moderator] Notifying thinking for character: {} ({})", character.getName(), character.getId());
+            onThinking.accept(character.getId().toString());
         }
 
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
         List<ResponseFragment> thisRoundResponses = Collections.synchronizedList(new ArrayList<>());
         roundResponses.put(1, thisRoundResponses);
 
-        for (Character character : characters) {
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+        // Process characters sequentially with random delay between them
+        for (int i = 0; i < characters.size(); i++) {
+            Character character = characters.get(i);
+
+            // Random delay between 1-5 seconds before each character starts
+            if (i > 0) {
+                int delayMs = 1000 + (int) (Math.random() * 4000); // 1-5 seconds
+                log.info("[Moderator] [{}] Waiting {}ms before starting (character {})",
+                    character.getName(), delayMs, i + 1);
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+
+            log.info("[Moderator] [{}] Starting AI generation", character.getName());
+
+            // Build character prompt and generate response synchronously (blocking)
+            try {
                 String characterPrompt = buildCharacterPrompt(character);
                 String fullPrompt = characterPrompt + "\n\n" + context;
+
+                log.info("[Moderator] [{}] Prompt built, length: {}, calling AI service",
+                    character.getName(), fullPrompt.length());
 
                 StringBuilder fullResponse = new StringBuilder();
                 CountDownLatch latch = new CountDownLatch(1);
@@ -115,9 +194,26 @@ public class ModeratorAgent implements DisposableBean {
                 aiService.generateResponseStream(
                     fullPrompt,
                     userMessage,
-                    chunk -> fullResponse.append(chunk),
+                    userApiKeyFinal,
+                    chunk -> {
+                        fullResponse.append(chunk);
+                        // Stream each chunk to frontend immediately
+                        try {
+                            onChunk.accept(new ResponseFragment(
+                                character.getId().toString(),
+                                character.getName(),
+                                fullResponse.toString(),
+                                false
+                            ));
+                        } catch (Exception e) {
+                            log.warn("[Moderator] [{}] onChunk callback failed: {}",
+                                character.getName(), e.getMessage());
+                        }
+                    },
                     completeResponse -> {
                         String responseText = fullResponse.toString();
+                        log.info("[Moderator] [{}] onComplete - response length: {}",
+                            character.getName(), responseText.length());
                         thisRoundResponses.add(new ResponseFragment(
                             character.getId().toString(),
                             character.getName(),
@@ -127,6 +223,7 @@ public class ModeratorAgent implements DisposableBean {
                         latch.countDown();
                     },
                     error -> {
+                        log.error("[Moderator] [{}] onError: {}", character.getName(), error.getMessage());
                         thisRoundResponses.add(new ResponseFragment(
                             character.getId().toString(),
                             character.getName(),
@@ -137,38 +234,74 @@ public class ModeratorAgent implements DisposableBean {
                     }
                 );
 
-                try {
-                    latch.await(60, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                log.info("[Moderator] [{}] Waiting for AI response (60s timeout)", character.getName());
+                boolean latchReleased = latch.await(60, TimeUnit.SECONDS);
+                if (!latchReleased) {
+                    log.warn("[Moderator] [{}] Latch timed out after 60s", character.getName());
+                    String responseText = fullResponse.toString();
+                    if (responseText.isEmpty()) {
+                        responseText = "Error: Response timed out (60s)";
+                    }
+                    thisRoundResponses.add(new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        responseText,
+                        true
+                    ));
+                } else {
+                    log.info("[Moderator] [{}] AI response completed", character.getName());
                 }
-            }, executor);
-            futures.add(future);
-            // Track future for room-level cancellation
-            roomFutures.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>()).add(future);
+
+                // Send final complete response
+                ResponseFragment finalFragment = thisRoundResponses.get(thisRoundResponses.size() - 1);
+                try {
+                    onResponse.accept(finalFragment);
+                } catch (Exception e) {
+                    log.error("[Moderator] [{}] onResponse callback failed: {}",
+                        character.getName(), e.getMessage(), e);
+                }
+
+            } catch (Exception e) {
+                log.error("[Moderator] [{}] Unexpected error: {}", character.getName(), e.getMessage(), e);
+                thisRoundResponses.add(new ResponseFragment(
+                    character.getId().toString(),
+                    character.getName(),
+                    "Error: " + e.getMessage(),
+                    true
+                ));
+            }
         }
 
-        // Wait for all characters and send responses
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenAccept(v -> {
-            for (ResponseFragment fragment : thisRoundResponses) {
-                onResponse.accept(fragment);
-            }
-            // Remove futures from tracking after completion
-            roomFutures.remove(roomId, futures);
-        });
+        log.info("[Moderator] All characters completed, total responses: {}", thisRoundResponses.size());
     }
 
     /**
      * Run a single discussion round (for continuous discussion mode).
      */
-    private void runDiscussionRound(String roomId, String userMessage, String context,
+    private void runDiscussionRound(String roomId, String userId, String userMessage, String context,
                                    List<Character> characters, int roundNum, int maxRounds,
                                    Map<Integer, List<ResponseFragment>> roundResponses,
-                                   Consumer<String> onThinking, Consumer<ResponseFragment> onResponse) {
+                                   Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
+                                   Consumer<ResponseFragment> onResponse) {
+
+        log.info("[Moderator] runDiscussionRound - roomId: {}, userId: {}, round: {}/{}, characters: {}",
+            roomId, userId, roundNum, maxRounds, characters.size());
+
+        // Get API key in main thread before async tasks (avoids SecurityContext threading issues)
+        String userApiKey = null;
+        try {
+            userApiKey = settingsService.getApiKeyById(userId);
+            log.info("[Moderator] Got API key for userId: {} in round {}", userId, roundNum);
+        } catch (Exception e) {
+            log.error("[Moderator] Failed to get API key for userId {}: {}", userId, e.getMessage());
+        }
+        final String userApiKeyFinal = userApiKey;
 
         // Notify thinking for all characters
         for (Character character : characters) {
-            onThinking.accept(character.getName());
+            log.info("[Moderator] [Round {}] Notifying thinking for character: {} ({})",
+                roundNum, character.getName(), character.getId());
+            onThinking.accept(character.getId().toString());
         }
 
         // Collect completions for this round
@@ -178,44 +311,92 @@ public class ModeratorAgent implements DisposableBean {
 
         for (Character character : characters) {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                String characterPrompt = buildCharacterPrompt(character);
-                String fullPrompt = characterPrompt + "\n\n" + context;
+                log.info("[Moderator] [Round {}] [{}] Starting async task", roundNum, character.getName());
+                try {
+                    String characterPrompt = buildCharacterPrompt(character);
+                    String fullPrompt = characterPrompt + "\n\n" + context;
 
-                StringBuilder fullResponse = new StringBuilder();
-                CountDownLatch latch = new CountDownLatch(1);
+                    log.info("[Moderator] [Round {}] [{}] Prompt built, length: {}, calling AI service",
+                        roundNum, character.getName(), fullPrompt.length());
 
-                aiService.generateResponseStream(
-                    fullPrompt,
-                    roundNum == 1 ? userMessage : "Continue the discussion",
-                    // onChunk
-                    chunk -> fullResponse.append(chunk),
-                    // onComplete
-                    completeResponse -> {
+                    StringBuilder fullResponse = new StringBuilder();
+                    CountDownLatch latch = new CountDownLatch(1);
+
+                    aiService.generateResponseStream(
+                        fullPrompt,
+                        roundNum == 1 ? userMessage : "Continue the discussion",
+                        userApiKeyFinal,
+                        // onChunk - stream each chunk to frontend immediately
+                        chunk -> {
+                            fullResponse.append(chunk);
+                            try {
+                                onChunk.accept(new ResponseFragment(
+                                    character.getId().toString(),
+                                    character.getName(),
+                                    fullResponse.toString(),
+                                    false
+                                ));
+                            } catch (Exception e) {
+                                log.warn("[Moderator] [Round {}] [{}] onChunk callback failed: {}",
+                                    roundNum, character.getName(), e.getMessage());
+                            }
+                        },
+                        // onComplete
+                        completeResponse -> {
+                            String responseText = fullResponse.toString();
+                            log.info("[Moderator] [Round {}] [{}] onComplete - response length: {}",
+                                roundNum, character.getName(), responseText.length());
+                            thisRoundResponses.add(new ResponseFragment(
+                                character.getId().toString(),
+                                character.getName(),
+                                responseText,
+                                true
+                            ));
+                            latch.countDown();
+                        },
+                        // onError
+                        error -> {
+                            log.error("[Moderator] [Round {}] [{}] onError: {}",
+                                roundNum, character.getName(), error.getMessage());
+                            thisRoundResponses.add(new ResponseFragment(
+                                character.getId().toString(),
+                                character.getName(),
+                                "Error: " + error.getMessage(),
+                                true
+                            ));
+                            latch.countDown();
+                        }
+                    );
+
+                    log.info("[Moderator] [Round {}] [{}] Waiting for latch (60s timeout)",
+                        roundNum, character.getName());
+                    boolean latchReleased = latch.await(60, TimeUnit.SECONDS);
+                    if (!latchReleased) {
+                        log.warn("[Moderator] [Round {}] [{}] Latch timed out after 60s",
+                            roundNum, character.getName());
                         String responseText = fullResponse.toString();
+                        if (responseText.isEmpty()) {
+                            responseText = "Error: Response timed out (60s)";
+                        }
                         thisRoundResponses.add(new ResponseFragment(
                             character.getId().toString(),
                             character.getName(),
                             responseText,
                             true
                         ));
-                        latch.countDown();
-                    },
-                    // onError
-                    error -> {
-                        thisRoundResponses.add(new ResponseFragment(
-                            character.getId().toString(),
-                            character.getName(),
-                            "Error: " + error.getMessage(),
-                            true
-                        ));
-                        latch.countDown();
+                    } else {
+                        log.info("[Moderator] [Round {}] [{}] Latch released successfully",
+                            roundNum, character.getName());
                     }
-                );
-
-                try {
-                    latch.await(60, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    log.error("[Moderator] [Round {}] [{}] Unexpected error in async task: {}",
+                        roundNum, character.getName(), e.getMessage(), e);
+                    thisRoundResponses.add(new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        "Error: " + e.getMessage(),
+                        true
+                    ));
                 }
             }, executor);
             futures.add(future);
@@ -224,10 +405,18 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         // Wait for all characters to complete this round
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenAccept(v -> {
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        allFutures.thenRun(() -> {
+            log.info("[Moderator] [Round {}] All futures completed, sending {} responses",
+                roundNum, thisRoundResponses.size());
             // Send all responses from this round
             for (ResponseFragment fragment : thisRoundResponses) {
-                onResponse.accept(fragment);
+                try {
+                    onResponse.accept(fragment);
+                } catch (Exception e) {
+                    log.error("[Moderator] [Round {}] onResponse callback failed for character {}: {}",
+                        roundNum, fragment.getCharacterId(), e.getMessage(), e);
+                }
             }
             // Remove futures from tracking after completion
             roomFutures.remove(roomId, futures);
@@ -239,6 +428,8 @@ public class ModeratorAgent implements DisposableBean {
 
                 // Delay before next round
                 try {
+                    log.info("[Moderator] [Round {}] Delaying {}ms before next round",
+                        roundNum, ROUND_DELAY_MS);
                     Thread.sleep(ROUND_DELAY_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -246,8 +437,38 @@ public class ModeratorAgent implements DisposableBean {
                 }
 
                 // Continue to next round
-                runDiscussionRound(roomId, userMessage, nextContext, characters, roundNum + 1, maxRounds,
-                    roundResponses, onThinking, onResponse);
+                runDiscussionRound(roomId, userId, userMessage, nextContext, characters, roundNum + 1, maxRounds,
+                    roundResponses, onThinking, onChunk, onResponse);
+            }
+        }).exceptionally(ex -> {
+            log.error("[Moderator] [Round {}] allOf failed: {}", roundNum, ex.getMessage());
+            for (ResponseFragment fragment : thisRoundResponses) {
+                try {
+                    onResponse.accept(fragment);
+                } catch (Exception e) {
+                    log.error("[Moderator] [Round {}] onResponse callback failed in exception handler: {}", e.getMessage());
+                }
+            }
+            roomFutures.remove(roomId, futures);
+            return null;
+        });
+
+        // Safety timeout for this round
+        final int currentRound = roundNum;
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(90000);
+                log.warn("[Moderator] [Round {}] Safety timeout (90s) reached, forcing response send", currentRound);
+                for (ResponseFragment fragment : thisRoundResponses) {
+                    try {
+                        onResponse.accept(fragment);
+                    } catch (Exception e) {
+                        log.error("[Moderator] [Round {}] onResponse callback failed in timeout: {}", e.getMessage());
+                    }
+                }
+                roomFutures.remove(roomId, futures);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         });
     }
@@ -285,10 +506,17 @@ public class ModeratorAgent implements DisposableBean {
      * Build the system prompt for a character.
      */
     private String buildCharacterPrompt(Character character) {
+        log.info("[Moderator] [{}] Building character prompt", character.getName());
         StringBuilder prompt = new StringBuilder();
 
         // First fetch web context for role info
+        log.info("[Moderator] [{}] Calling firecrawlService.scrape()", character.getName());
+        long startTime = System.currentTimeMillis();
         String webContext = firecrawlService.scrape(character.getName());
+        long scrapeTime = System.currentTimeMillis() - startTime;
+        log.info("[Moderator] [{}] firecrawlService.scrape() returned in {}ms, content length: {}",
+            character.getName(), scrapeTime, webContext != null ? webContext.length() : 0);
+
         if (webContext != null && !webContext.isBlank()) {
             prompt.append("Background information: ").append(webContext).append("\n\n");
         }
@@ -320,6 +548,7 @@ public class ModeratorAgent implements DisposableBean {
         prompt.append("You are in a GROUP DISCUSSION. Engage with the topic and with what others say. " +
                       "Be concise, conversational, and true to your character's perspective.");
 
+        log.info("[Moderator] [{}] Character prompt built, total length: {}", character.getName(), prompt.length());
         return prompt.toString();
     }
 

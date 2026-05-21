@@ -46,6 +46,11 @@
   --color-space: #111827;
   --color-space-light: #1E293B;
   --color-gold: #D4AF6A;
+  --color-navy: #1E3A5F;
+  --color-navy-light: #2D5A8A;
+  --color-cream: #FDF8F3;
+  --color-ivory: #FFFFF0;
+  --color-parchment: #F5F0E8;
   --color-gold-light: #E5D4A8;
   --color-gold-dark: #A88B4A;
   --color-ai-blue: #4DA2FF;
@@ -79,6 +84,11 @@ html[data-theme="dark"] {
   --sidebar-bg: #14161c;
   --input-bg: #20232b;
   --border-color: rgba(255, 255, 255, 0.08);
+  --color-navy: #0F172A;
+  --color-navy-light: #1E293B;
+  --color-cream: #1a1d24;
+  --color-ivory: #14161c;
+  --color-parchment: #1E293B;
 
   /* App-level backgrounds - dark */
   --app-bg: #0f1115;
@@ -139,8 +149,8 @@ body {
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  min-height: 100vh;
   height: 100%;
+  overflow: hidden;
   transition: var(--transition-theme);
 }
 

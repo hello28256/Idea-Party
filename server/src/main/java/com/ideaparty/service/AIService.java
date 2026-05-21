@@ -5,10 +5,10 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import java.util.concurrent.CompletableFuture;
 
 /**
  * AI Service for generating character responses.
@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
  */
 @Service
 public class AIService {
+
+    private static final Logger log = LoggerFactory.getLogger(AIService.class);
 
     @Value("${langchain4j.open-ai.base-url}")
     private String baseUrl;
@@ -53,9 +55,18 @@ public class AIService {
                 ? userApiKey
                 : System.getenv("DEEPSEEK_API_KEY");
 
+        if (apiKey == null || apiKey.isBlank()) {
+            log.error("[AI Service] No API key available! userApiKey={}, env DEEPSEEK_API_KEY={}",
+                userApiKey, System.getenv("DEEPSEEK_API_KEY"));
+            apiKey = "sk-dummy-key-for-testing";
+        }
+
+        log.info("[AI Service] createStreamingChatModel - baseUrl: {}, model: {}, apiKey preview: {}***",
+            baseUrl, model, apiKey.length() > 4 ? apiKey.substring(0, 4) : "****");
+
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl)
-                .apiKey(apiKey != null ? apiKey : "sk-dummy-key-for-testing")
+                .apiKey(apiKey)
                 .modelName(model)
                 .temperature(0.8)
                 .build();
@@ -79,43 +90,74 @@ public class AIService {
      *
      * @param characterPrompt The character's system prompt
      * @param userMessage The user's message
+     * @param userApiKey The user's API key (passed explicitly to avoid SecurityContext threading issues)
      * @param onChunk Callback for each text chunk as it arrives
      * @param onComplete Callback when response is complete
      * @param onError Callback for errors
      */
-    public void generateResponseStream(String characterPrompt, String userMessage,
+    public void generateResponseStream(String characterPrompt, String userMessage, String userApiKey,
                                        java.util.function.Consumer<String> onChunk,
                                        java.util.function.Consumer<String> onComplete,
                                        java.util.function.Consumer<Throwable> onError) {
-        String userApiKey = null;
-        try {
-            userApiKey = settingsService.getApiKey();
-        } catch (RuntimeException e) {
-            // User not authenticated in WebSocket context, will use system API key
+        log.info("[AI Service] generateResponseStream - API key preview: {}***, baseUrl: {}, model: {}",
+            userApiKey != null && userApiKey.length() > 8 ? userApiKey.substring(0, 4) : "NULL",
+            baseUrl, model);
+
+        if (baseUrl == null || baseUrl.isBlank()) {
+            log.error("[AI Service] baseUrl is null or blank!");
+            onError.accept(new IllegalStateException("baseUrl is not configured"));
+            return;
         }
+
+        if (model == null || model.isBlank()) {
+            log.error("[AI Service] model is null or blank!");
+            onError.accept(new IllegalStateException("model is not configured"));
+            return;
+        }
+
         OpenAiStreamingChatModel streamingModel = createStreamingChatModel(userApiKey);
 
         String fullPrompt = characterPrompt + "\n\nUser: " + userMessage + "\n\nResponse:";
+        log.info("[AI Service] Full prompt length: {}, calling streamingModel.chat...", fullPrompt.length());
 
-        streamingModel.chat(fullPrompt, new StreamingChatResponseHandler() {
-            @Override
-            public void onPartialResponse(String partialResponse) {
-                onChunk.accept(partialResponse);
-            }
+        try {
+            streamingModel.chat(fullPrompt, new StreamingChatResponseHandler() {
+                private int chunkCount = 0;
 
-            @Override
-            public void onCompleteResponse(ChatResponse completeResponse) {
-                if (completeResponse != null && completeResponse.aiMessage() != null) {
-                    onComplete.accept(completeResponse.aiMessage().text());
-                } else {
-                    onComplete.accept("");
+                @Override
+                public void onPartialResponse(String partialResponse) {
+                    chunkCount++;
+                    if (chunkCount == 1) {
+                        log.info("[AI Service] First chunk received, length: {}", partialResponse.length());
+                    }
+                    onChunk.accept(partialResponse);
                 }
-            }
 
-            @Override
-            public void onError(Throwable error) {
-                onError.accept(error);
-            }
-        });
+                @Override
+                public void onCompleteResponse(ChatResponse completeResponse) {
+                    log.info("[AI Service] onCompleteResponse - chunkCount: {}, aiMessage: {}",
+                        chunkCount,
+                        completeResponse != null && completeResponse.aiMessage() != null
+                            ? completeResponse.aiMessage().text().substring(0, Math.min(100, completeResponse.aiMessage().text().length()))
+                            : "null");
+                    if (completeResponse != null && completeResponse.aiMessage() != null) {
+                        onComplete.accept(completeResponse.aiMessage().text());
+                    } else {
+                        log.warn("[AI Service] onCompleteResponse called but aiMessage is null");
+                        onComplete.accept("");
+                    }
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    log.error("[AI Service] onError - chunkCount: {}, error: {}", chunkCount, error.getMessage(), error);
+                    onError.accept(error);
+                }
+            });
+            log.info("[AI Service] streamingModel.chat() returned (async operation started)");
+        } catch (Exception e) {
+            log.error("[AI Service] Exception during streamingModel.chat(): {}", e.getMessage(), e);
+            onError.accept(e);
+        }
     }
 }

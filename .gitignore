@@ -61,3 +61,8 @@ __pycache__/
 # Firebase
 .firestore/
 .firebase/
+
+# 图片
+test*.png
+test*
+client/test*.png

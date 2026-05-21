@@ -2536,6 +2536,8 @@ async function handleInviteMember() {
 /* Center: Chat Main Panel */
 .chat-main-panel {
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at top, rgba(214, 168, 79, 0.08), transparent 280px), #f8fafc;

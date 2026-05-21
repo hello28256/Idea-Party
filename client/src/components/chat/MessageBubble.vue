@@ -6,6 +6,7 @@ import type { ChatMessage } from '@/composables/useSocket'
 const props = defineProps<{
   message: ChatMessage
   isOwn?: boolean
+  isStreaming?: boolean
 }>()
 
 const formattedTime = computed(() => {
@@ -21,8 +22,8 @@ const displayName = computed(() => {
   return props.message.characterName || '未知角色'
 })
 
-const isStreaming = computed(() => {
-  return props.message.content.endsWith('...')
+const showStreamingIndicator = computed(() => {
+  return props.isStreaming || props.message.content.endsWith('...')
 })
 
 // Get avatar gradient based on character name
@@ -59,7 +60,7 @@ const avatarGradient = computed(() => {
       </div>
       <div class="message-body">
         <span class="message-text">{{ message.content }}</span>
-        <span v-if="isStreaming" class="streaming-dots">
+        <span v-if="showStreamingIndicator" class="streaming-dots">
           <span class="dot"></span>
           <span class="dot"></span>
           <span class="dot"></span>

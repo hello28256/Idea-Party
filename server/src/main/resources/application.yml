@@ -35,5 +35,5 @@ jwt:
 
 logging:
   level:
-    com.ideaparty: INFO
+    com.ideaparty: DEBUG
     org.springframework.security: INFO

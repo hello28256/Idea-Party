@@ -21,7 +21,7 @@ export interface UseSocketOptions {
 const SERVER_PORT = import.meta.env.VITE_SERVER_PROXY_PORT || '8080'
 const DEFAULT_SERVER_URL = `ws://localhost:${SERVER_PORT}`
 
-export function useSocket(roomId: string, options: UseSocketOptions = {}) {
+export function useSocket(roomId: string, options: UseSocketOptions = {}, token?: string | null) {
   const {
     onMessage,
     onThinking,
@@ -34,8 +34,8 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}) {
 
   ws.onopen = () => {
     isConnected.value = true
-    // Send join room message using Socket.IO protocol format
-    sendSocketIO('join room', { roomId })
+    // Send join room message with JWT for authentication
+    sendSocketIO('join room', { roomId, token })
   }
 
   ws.onclose = () => {
@@ -61,7 +61,7 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}) {
             onMessage?.(eventData)
             break
           case 'character thinking':
-            onThinking?.(eventData.characterName)
+            onThinking?.(eventData.characterId)
             break
           case 'message stream':
             onStream?.(eventData)
