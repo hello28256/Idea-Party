@@ -16,6 +16,10 @@ export interface UseSocketOptions {
   onThinking?: (characterId: string | null) => void
   onStream?: (data: { characterId: string; chunk: string }) => void
   onError?: (error: string) => void
+  onPaused?: () => void
+  onResumed?: () => void
+  onDiscussionState?: (data: { phase: string; selectedCharacters?: string[]; message?: string }) => void
+  onModeratorMessage?: (data: { content: string; type: string }) => void
 }
 
 const SERVER_PORT = import.meta.env.VITE_SERVER_PROXY_PORT || '8080'
@@ -26,7 +30,11 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
     onMessage,
     onThinking,
     onStream,
-    onError
+    onError,
+    onPaused,
+    onResumed,
+    onDiscussionState,
+    onModeratorMessage
   } = options
 
   const ws = new WebSocket(`${DEFAULT_SERVER_URL}/ws`)
@@ -74,8 +82,20 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
           case 'error':
             onError?.(eventData.message)
             break
+          case 'discussion-paused':
+            onPaused?.()
+            break
+          case 'discussion-resumed':
+            onResumed?.()
+            break
           case 'room-joined':
             console.log('[DEBUG] Joined room:', eventData.roomId)
+            break
+          case 'discussion-state':
+            onDiscussionState?.(eventData)
+            break
+          case 'moderator-message':
+            onModeratorMessage?.(eventData)
             break
         }
       } catch (e) {
@@ -99,6 +119,14 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
     sendSocketIO('stop-discussion', { roomId })
   }
 
+  function pauseDiscussion() {
+    sendSocketIO('pause-discussion', { roomId })
+  }
+
+  function resumeDiscussion() {
+    sendSocketIO('resume-discussion', { roomId })
+  }
+
   function leaveRoom() {
     sendSocketIO('leave room', { roomId })
     ws.close()
@@ -113,6 +141,8 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
     isConnected,
     sendMessage,
     stopDiscussion,
+    pauseDiscussion,
+    resumeDiscussion,
     leaveRoom
   }
 }
