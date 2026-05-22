@@ -1,9 +1,14 @@
 package com.ideaparty.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ideaparty.dto.DiscussionPhase;
+import com.ideaparty.dto.DiscussionStateEvent;
+import com.ideaparty.dto.ModeratorMessage;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.service.FirecrawlService;
+import com.ideaparty.socket.ChatSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -14,6 +19,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
@@ -36,6 +42,8 @@ public class ModeratorAgent implements DisposableBean {
     private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
     private final SettingsService settingsService;
+    private final ChatSocketHandler chatSocketHandler;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Maximum discussion rounds
     private static final int MAX_ROUNDS = 3;
@@ -52,11 +60,201 @@ public class ModeratorAgent implements DisposableBean {
     // Track last sent length per character for delta computation
     private final ConcurrentHashMap<String, Integer> lastSentLengths = new ConcurrentHashMap<>();
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService) {
+    // Room-level paused state for discussion mode
+    private final ConcurrentHashMap<String, AtomicBoolean> roomPaused = new ConcurrentHashMap<>();
+
+    // Room-level current discussion state
+    private final ConcurrentHashMap<String, DiscussionState> roomDiscussionState = new ConcurrentHashMap<>();
+
+    // Discussion state class
+    private static class DiscussionState {
+        volatile boolean isRunning = false;
+        volatile boolean paused = false;
+        volatile int currentRound = 0;
+        volatile int currentCharacterIndex = 0;
+        volatile int maxRounds = 3;
+        List<Character> characters = new ArrayList<>();
+        List<ResponseFragment> responses = new ArrayList<>();
+        String userMessage = "";
+        String context = "";
+        AtomicBoolean userTriggered = new AtomicBoolean(false);
+
+        // New fields for state machine
+        volatile DiscussionPhase phase = DiscussionPhase.IDLE;
+        volatile boolean userInterjected = false;
+        volatile int aiMessageCount = 0;
+        volatile int maxAiMessagesPerRound = 3;
+        List<Character> selectedCharacters = new ArrayList<>();
+        List<Character> pendingQueue = new ArrayList<>();
+        volatile String moderatorMessage = "";
+        volatile String currentUserMessage = "";
+        AtomicBoolean currentStreamCancelled = new AtomicBoolean(false);
+        String userId = "";  // User ID for API key lookup
+    }
+
+    // ========== State Machine Methods ==========
+
+    private void transitionTo(DiscussionState state, DiscussionPhase newPhase) {
+        state.phase = newPhase;
+        String roomId = findRoomIdByState(state);
+        if (roomId != null) {
+            broadcastStateChange(roomId, newPhase, state.selectedCharacters, state.moderatorMessage);
+        }
+    }
+
+    private String findRoomIdByState(DiscussionState state) {
+        for (Map.Entry<String, DiscussionState> entry : roomDiscussionState.entrySet()) {
+            if (entry.getValue() == state) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private void broadcastStateChange(String roomId, DiscussionPhase phase,
+                                      List<Character> selectedCharacters, String message) {
+        try {
+            DiscussionStateEvent event = new DiscussionStateEvent(
+                phase,
+                selectedCharacters.stream().map(Character::getId).map(UUID::toString).collect(Collectors.toList()),
+                message
+            );
+            String eventJson = objectMapper.writeValueAsString(event);
+            String socketMessage = "42[\"discussion-state\"," + eventJson + "]";
+            chatSocketHandler.broadcastToRoom(roomId, socketMessage);
+        } catch (Exception e) {
+            log.error("[Moderator] broadcastStateChange failed: {}", e.getMessage());
+        }
+    }
+
+    public void handleUserInterjection(String roomId, String userId, String userMessage) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        if (state == null) return;
+
+        // 1. Set interrupt flag immediately
+        state.userInterjected = true;
+
+        // 2. Clear pending queue
+        state.pendingQueue.clear();
+
+        // 3. Reset AI message count
+        state.aiMessageCount = 0;
+
+        // 4. Transition to MODERATING
+        transitionTo(state, DiscussionPhase.MODERATING);
+        state.currentUserMessage = userMessage;
+        state.userId = userId;
+
+        // 5. Immediately start new Moderator analysis
+        processModeratorAnalysis(roomId, userMessage);
+    }
+
+    private void processModeratorAnalysis(String roomId, String userMessage) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        if (state == null) return;
+
+        // For now, use all characters as fallback selection
+        // Full LLM-based selection will be added in Task 4
+        List<Character> availableCharacters = state.characters;
+
+        if (availableCharacters == null || availableCharacters.isEmpty()) {
+            log.warn("[Moderator] No characters available for room: {}", roomId);
+            return;
+        }
+
+        // Select up to 2 characters
+        List<Character> selected = availableCharacters.subList(0, Math.min(2, availableCharacters.size()));
+        state.selectedCharacters = new ArrayList<>(selected);
+        state.pendingQueue = new ArrayList<>(selected);
+
+        // Broadcast selection
+        String selectMsg = "正在邀请: " + selected.stream().map(Character::getName).collect(Collectors.joining(", "));
+        state.moderatorMessage = selectMsg;
+        broadcastModeratorMessage(roomId, selectMsg, "SELECT");
+
+        // Transition to SPEAKING
+        transitionTo(state, DiscussionPhase.SPEAKING);
+
+        // Start speaking process
+        processNextInQueue(roomId);
+    }
+
+    private void processNextInQueue(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        if (state == null || !state.isRunning) return;
+
+        // Check if should wait for user
+        if (shouldWaitForUser(state)) {
+            waitForUserInput(roomId);
+            return;
+        }
+
+        // Get next character from queue
+        if (!state.pendingQueue.isEmpty()) {
+            Character character = state.pendingQueue.remove(0);
+            generateCharacterResponse(roomId, character, state);
+        }
+    }
+
+    private boolean shouldWaitForUser(DiscussionState state) {
+        if (state.aiMessageCount >= state.maxAiMessagesPerRound) {
+            return true;
+        }
+        if (state.pendingQueue.isEmpty() && state.selectedCharacters.isEmpty()) {
+            return true;
+        }
+        return false;
+    }
+
+    private void waitForUserInput(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        if (state == null) return;
+
+        transitionTo(state, DiscussionPhase.WAITING_FOR_USER);
+
+        String inviteMessage = generateModeratorInvite(state);
+        state.moderatorMessage = inviteMessage;
+        broadcastModeratorMessage(roomId, inviteMessage, "INVITE");
+    }
+
+    private String generateModeratorInvite(DiscussionState state) {
+        if (state.selectedCharacters.isEmpty()) {
+            return "你想讨论什么话题？";
+        }
+
+        String characters = state.selectedCharacters.stream()
+            .map(Character::getName)
+            .collect(Collectors.joining(" 和 "));
+
+        String[] invites = {
+            "你更认同谁的观点，" + characters + "？",
+            "你怎么看这个问题？",
+            "你有什么不同看法？",
+            characters + "观点各异，你支持谁？",
+            "这场讨论你怎么看？"
+        };
+
+        Random random = new Random();
+        return invites[random.nextInt(invites.length)];
+    }
+
+    private void broadcastModeratorMessage(String roomId, String content, String type) {
+        try {
+            ModeratorMessage message = new ModeratorMessage(content, type);
+            String eventJson = objectMapper.writeValueAsString(message);
+            String socketMessage = "42[\"moderator-message\"," + eventJson + "]";
+            chatSocketHandler.broadcastToRoom(roomId, socketMessage);
+        } catch (Exception e) {
+            log.error("[Moderator] broadcastModeratorMessage failed: {}", e.getMessage());
+        }
+    }
+
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, ChatSocketHandler chatSocketHandler) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
         this.settingsService = settingsService;
+        this.chatSocketHandler = chatSocketHandler;
         // Wrap executor so SecurityContext is inherited by async threads
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
@@ -120,9 +318,20 @@ public class ModeratorAgent implements DisposableBean {
 
         try {
             if (isContinuous) {
-                // Discussion mode: multi-round
-                runDiscussionRound(roomId, userId, userMessage, initialContext, characters, 1,
-                    maxRounds, roundResponses, onThinking, onChunk, onResponse);
+                // Discussion mode: sequential turn-based discussion
+                DiscussionState state = new DiscussionState();
+                state.characters = new ArrayList<>(characters);
+                state.userMessage = userMessage;
+                state.context = initialContext;
+                state.currentRound = 1;
+                state.maxRounds = maxRounds;
+                state.isRunning = true;
+                state.paused = false;
+                state.userTriggered.set(false);
+                roomDiscussionState.put(roomId, state);
+                roomPaused.put(roomId, new AtomicBoolean(false));
+
+                runSequentialDiscussion(roomId, userId, state, onThinking, onChunk, onResponse);
             } else {
                 // Dialogue mode: single round only
                 runSingleRound(roomId, userId, userMessage, initialContext, characters,
@@ -131,6 +340,357 @@ public class ModeratorAgent implements DisposableBean {
         } catch (Exception e) {
             log.error("[Moderator] processMessage caught exception: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Run sequential turn-based discussion mode.
+     * Characters take turns speaking one by one with random delays between turns.
+     * Supports pause/resume and user message triggering.
+     */
+    private void runSequentialDiscussion(String roomId, String userId, DiscussionState state,
+                                         Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
+                                         Consumer<ResponseFragment> onResponse) {
+        log.info("[Moderator] runSequentialDiscussion START - roomId: {}, chars: {}, rounds: {}",
+            roomId, state.characters.size(), state.maxRounds);
+
+        String userApiKey = getApiKey(userId);
+
+        // Start the discussion loop in a background thread
+        CompletableFuture.runAsync(() -> {
+            try {
+                while (state.isRunning && state.currentRound <= state.maxRounds) {
+                    Character character = state.characters.get(state.currentCharacterIndex);
+
+                    // Wait for pause - check every 500ms
+                    while (state.paused && state.isRunning) {
+                        log.info("[Moderator] Discussion paused, waiting...");
+                        Thread.sleep(500);
+                    }
+
+                    if (!state.isRunning) break;
+
+                    // Random delay 10-40 seconds before this character speaks
+                    int delaySeconds = 10 + (int) (Math.random() * 31);
+                    log.info("[Moderator] [Round {}] Waiting {}s before {} speaks",
+                        state.currentRound, delaySeconds, character.getName());
+
+                    for (int i = 0; i < delaySeconds * 2; i++) {
+                        if (!state.isRunning) break;
+                        if (state.userTriggered.get()) {
+                            log.info("[Moderator] User triggered, skipping delay");
+                            state.userTriggered.set(false);
+                            break;
+                        }
+                        Thread.sleep(500);
+                    }
+
+                    if (!state.isRunning) break;
+
+                    // Character speaks (blocking stream)
+                    log.info("[Moderator] [Round {}] {} is now speaking", state.currentRound, character.getName());
+                    generateCharacterResponse(roomId, character, state, userApiKey, onChunk, onResponse);
+
+                    // Move to next character
+                    state.currentCharacterIndex++;
+
+                    // If all characters have spoken this round
+                    if (state.currentCharacterIndex >= state.characters.size()) {
+                        state.currentCharacterIndex = 0;
+                        state.currentRound++;
+                        state.context = buildRoundContext(state.context, state.responses, state.currentRound - 1);
+                        log.info("[Moderator] Completed round {}, moving to round {}",
+                            state.currentRound - 1, state.currentRound);
+                    }
+
+                    if (!state.isRunning) break;
+                }
+
+                log.info("[Moderator] Discussion ended - rounds completed: {}", state.currentRound - 1);
+                state.isRunning = false;
+                roomDiscussionState.remove(roomId);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.info("[Moderator] Discussion interrupted");
+                state.isRunning = false;
+            } catch (Exception e) {
+                log.error("[Moderator] Discussion error: {}", e.getMessage(), e);
+                state.isRunning = false;
+            }
+        }, executor);
+    }
+
+    /**
+     * Generate response for a single character with streaming.
+     */
+    private void generateCharacterResponse(String roomId, Character character, DiscussionState state,
+                                           String userApiKey,
+                                           Consumer<ResponseFragment> onChunk,
+                                           Consumer<ResponseFragment> onResponse) {
+        try {
+            String characterPrompt = buildCharacterPrompt(character);
+            String fullPrompt = characterPrompt + "\n\n" + state.context + "\n\nUser's question: " + state.userMessage;
+
+            log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
+
+            StringBuilder fullResponse = new StringBuilder();
+            CountDownLatch latch = new CountDownLatch(1);
+
+            aiService.generateResponseStream(
+                fullPrompt,
+                state.userMessage,
+                userApiKey,
+                chunk -> {
+                    fullResponse.append(chunk);
+                    try {
+                        onChunk.accept(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            chunk,
+                            false
+                        ));
+                    } catch (Exception e) {
+                        log.warn("[Moderator] [{}] onChunk failed: {}", character.getName(), e.getMessage());
+                    }
+                },
+                completeResponse -> {
+                    String responseText = fullResponse.toString();
+                    ResponseFragment fragment = new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        responseText,
+                        true
+                    );
+                    state.responses.add(fragment);
+                    log.info("[Moderator] [{}] Complete - length: {}", character.getName(), responseText.length());
+                    latch.countDown();
+                },
+                error -> {
+                    log.error("[Moderator] [{}] Error: {}", character.getName(), error.getMessage());
+                    ResponseFragment fragment = new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        "Error: " + error.getMessage(),
+                        true
+                    );
+                    state.responses.add(fragment);
+                    latch.countDown();
+                }
+            );
+
+            boolean completed = latch.await(90, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("[Moderator] [{}] Timeout", character.getName());
+                // Timeout - send timeout response
+                String timeoutResponse = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
+                ResponseFragment timeoutFragment = new ResponseFragment(
+                    character.getId().toString(),
+                    character.getName(),
+                    timeoutResponse,
+                    true
+                );
+                state.responses.add(timeoutFragment);
+                onResponse.accept(timeoutFragment);
+                return;
+            }
+
+            // Send final response callback
+            if (!state.responses.isEmpty()) {
+                ResponseFragment last = state.responses.get(state.responses.size() - 1);
+                if (last.getCharacterId().equals(character.getId().toString())) {
+                    onResponse.accept(last);
+                }
+            }
+
+            // State machine: after completion, process next in queue
+            state.aiMessageCount++;
+            if (shouldWaitForUser(state)) {
+                waitForUserInput(roomId);
+            } else {
+                processNextInQueue(roomId);
+            }
+
+        } catch (Exception e) {
+            log.error("[Moderator] [{}] generateCharacterResponse failed: {}", character.getName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Generate response for a character (state machine version with internal callbacks).
+     * Used by processNextInQueue for queue-based discussion.
+     */
+    private void generateCharacterResponse(String roomId, Character character, DiscussionState state) {
+        String userId = state.userId;
+        String userApiKey = getApiKey(userId);
+        if (userApiKey == null) {
+            log.error("[Moderator] [{}] No API key available for user: {}", character.getName(), userId);
+            return;
+        }
+
+        try {
+            String characterPrompt = buildCharacterPrompt(character);
+            String fullPrompt = characterPrompt + "\n\n" + state.context + "\n\nUser's question: " + state.currentUserMessage;
+
+            log.info("[Moderator] [StateMachine] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
+
+            StringBuilder fullResponse = new StringBuilder();
+            CountDownLatch latch = new CountDownLatch(1);
+
+            aiService.generateResponseStream(
+                fullPrompt,
+                state.currentUserMessage,
+                userApiKey,
+                chunk -> {
+                    fullResponse.append(chunk);
+                    try {
+                        // Broadcast chunk to room
+                        ResponseFragment fragment = new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            chunk,
+                            false
+                        );
+                        String eventJson = objectMapper.writeValueAsString(Map.of(
+                            "characterId", fragment.getCharacterId(),
+                            "characterName", fragment.getCharacterName(),
+                            "content", fragment.getContent(),
+                            "isComplete", fragment.isComplete()
+                        ));
+                        String socketMessage = "42[\"ai-chunk\"," + eventJson + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, socketMessage);
+                    } catch (Exception e) {
+                        log.warn("[Moderator] [{}] chunk broadcast failed: {}", character.getName(), e.getMessage());
+                    }
+                },
+                completeResponse -> {
+                    String responseText = fullResponse.toString();
+                    ResponseFragment fragment = new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        responseText,
+                        true
+                    );
+                    state.responses.add(fragment);
+                    log.info("[Moderator] [StateMachine] [{}] Complete - length: {}", character.getName(), responseText.length());
+
+                    try {
+                        // Broadcast complete response to room
+                        String eventJson = objectMapper.writeValueAsString(Map.of(
+                            "characterId", fragment.getCharacterId(),
+                            "characterName", fragment.getCharacterName(),
+                            "content", fragment.getContent(),
+                            "isComplete", fragment.isComplete()
+                        ));
+                        String socketMessage = "42[\"ai-response\"," + eventJson + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, socketMessage);
+                    } catch (Exception e) {
+                        log.warn("[Moderator] [{}] response broadcast failed: {}", character.getName(), e.getMessage());
+                    }
+
+                    latch.countDown();
+                },
+                error -> {
+                    log.error("[Moderator] [StateMachine] [{}] Error: {}", character.getName(), error.getMessage());
+                    ResponseFragment fragment = new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        "Error: " + error.getMessage(),
+                        true
+                    );
+                    state.responses.add(fragment);
+                    latch.countDown();
+                }
+            );
+
+            boolean completed = latch.await(90, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("[Moderator] [StateMachine] [{}] Timeout", character.getName());
+            }
+
+            // State machine: after completion, process next in queue
+            state.aiMessageCount++;
+            if (shouldWaitForUser(state)) {
+                waitForUserInput(roomId);
+            } else {
+                processNextInQueue(roomId);
+            }
+
+        } catch (Exception e) {
+            log.error("[Moderator] [StateMachine] [{}] generateCharacterResponse failed: {}", character.getName(), e.getMessage());
+        }
+    }
+
+    private String getApiKey(String userId) {
+        try {
+            return settingsService.getApiKeyById(userId);
+        } catch (Exception e) {
+            log.error("[Moderator] Failed to get API key: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Pause discussion for a room.
+     */
+    public void pauseDiscussion(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        AtomicBoolean paused = roomPaused.get(roomId);
+        if (state != null && paused != null) {
+            state.paused = true;
+            paused.set(true);
+            log.info("[Moderator] Discussion paused for room: {}", roomId);
+        }
+    }
+
+    /**
+     * Resume discussion for a room.
+     */
+    public void resumeDiscussion(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        AtomicBoolean paused = roomPaused.get(roomId);
+        if (state != null && paused != null) {
+            state.paused = false;
+            paused.set(false);
+            state.userTriggered.set(true); // Trigger immediate continuation
+            log.info("[Moderator] Discussion resumed for room: {}", roomId);
+        }
+    }
+
+    /**
+     * Trigger discussion to continue when user sends a message.
+     */
+    public void triggerUserMessage(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        if (state != null && state.isRunning) {
+            state.userTriggered.set(true);
+            // Also resume if paused
+            if (state.paused) {
+                state.paused = false;
+                AtomicBoolean paused = roomPaused.get(roomId);
+                if (paused != null) paused.set(false);
+            }
+            log.info("[Moderator] User message triggered discussion for room: {}", roomId);
+        }
+    }
+
+    /**
+     * Stop discussion for a room.
+     */
+    public void stopDiscussion(String roomId) {
+        DiscussionState state = roomDiscussionState.remove(roomId);
+        if (state != null) {
+            state.isRunning = false;
+            log.info("[Moderator] Discussion stopped for room: {}", roomId);
+        }
+        roomPaused.remove(roomId);
+    }
+
+    /**
+     * Check if a discussion is currently running for a room.
+     */
+    public boolean isDiscussionRunning(String roomId) {
+        DiscussionState state = roomDiscussionState.get(roomId);
+        return state != null && state.isRunning;
     }
 
     /**
@@ -559,7 +1119,11 @@ public class ModeratorAgent implements DisposableBean {
         prompt.append("IMPORTANT: This is an AI simulation for educational/entertainment purposes only.\n\n");
 
         prompt.append("You are in a GROUP DISCUSSION. Engage with the topic and with what others say. " +
-                      "Be concise, conversational, and true to your character's perspective.");
+                      "Be concise, conversational, and true to your character's perspective.\n\n");
+
+        prompt.append("CRITICAL: When responding, ONLY speak as yourself. Do NOT repeat, quote, or include " +
+                      "other people's messages in your response. Your reply should be your own words only, " +
+                      "expressed from your character's perspective.");
 
         log.info("[Moderator] [{}] Character prompt built, total length: {}", character.getName(), prompt.length());
         return prompt.toString();
@@ -589,6 +1153,9 @@ public class ModeratorAgent implements DisposableBean {
      * @param roomId The room ID to cancel
      */
     public void cancelRoom(String roomId) {
+        // Stop discussion state if running
+        stopDiscussion(roomId);
+
         List<CompletableFuture<?>> futures = roomFutures.remove(roomId);
         if (futures != null) {
             for (CompletableFuture<?> future : futures) {
