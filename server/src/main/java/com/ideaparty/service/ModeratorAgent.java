@@ -14,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.context.annotation.Lazy;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -277,7 +278,7 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, ChatSocketHandler chatSocketHandler) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;

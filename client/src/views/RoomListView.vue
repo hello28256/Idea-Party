@@ -120,6 +120,44 @@ const currentRoomCharacters = computed(() => {
   return room?.characters || []
 })
 
+// Current room chat mode
+const currentChatMode = computed(() => {
+  if (!selectedRoomId.value) return 'dialogue'
+  if (roomStore.currentRoom?.id === selectedRoomId.value) {
+    return roomStore.currentRoom.chatMode || 'dialogue'
+  }
+  const room = roomStore.myRooms.find(r => r.id === selectedRoomId.value)
+  return room?.chatMode || 'dialogue'
+})
+
+// Switch between dialogue and discussion mode
+async function switchMode(mode: 'dialogue' | 'discussion') {
+  console.log('[DEBUG] switchMode called with mode:', mode)
+  console.log('[DEBUG] selectedRoomId:', selectedRoomId.value)
+  console.log('[DEBUG] currentChatMode:', currentChatMode.value)
+
+  if (!selectedRoomId.value) {
+    console.log('[DEBUG] No room selected, returning')
+    return
+  }
+  if (mode === currentChatMode.value) {
+    console.log('[DEBUG] Mode already set to:', mode, ', skipping')
+    return
+  }
+
+  try {
+    console.log('[DEBUG] Calling roomStore.updateRoomMode with mode:', mode)
+    const result = await roomStore.updateRoomMode(selectedRoomId.value, { chatMode: mode })
+    console.log('[DEBUG] updateRoomMode succeeded, result:', result)
+  } catch (e) {
+    console.error('[DEBUG] Failed to switch mode:', e)
+    // 显示错误给用户
+    const errorMsg = e instanceof Error ? e.message : '切换模式失败，请重试'
+    console.error('[DEBUG] Error details:', errorMsg)
+    alert('切换模式失败: ' + errorMsg)
+  }
+}
+
 // Sync selectedRoomId with URL query
 watch(
   () => route.query.roomId as string | undefined,
@@ -882,10 +920,20 @@ async function handleInviteMember() {
             </template>
 
             <div class="conversation-mode-card">
-              <h4>对话模式</h4>
-              <button class="mode-option" :class="{ active: true }">
-                角色响应一次结束
-              </button>
+              <div class="mode-switch-header">
+                <span class="mode-switch-title">对话模式</span>
+              </div>
+              <div class="mode-switch-container" @click="switchMode(currentChatMode === 'dialogue' ? 'discussion' : 'dialogue')">
+                <div class="mode-switch-track">
+                  <div
+                    class="mode-switch-thumb"
+                    :class="currentChatMode === 'discussion' ? 'thumb-right' : 'thumb-left'"
+                  ></div>
+                  <span class="mode-label left" :class="{ active: currentChatMode === 'dialogue' }">对话模式</span>
+                  <span class="mode-label right" :class="{ active: currentChatMode === 'discussion' }">讨论模式</span>
+                </div>
+              </div>
+              <p class="mode-desc">{{ currentChatMode === 'dialogue' ? '角色响应一次结束' : '多角色轮流讨论' }}</p>
             </div>
           </aside>
         </div>
@@ -2537,10 +2585,13 @@ async function handleInviteMember() {
 .chat-main-panel {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at top, rgba(214, 168, 79, 0.08), transparent 280px), #f8fafc;
+  position: relative;
+  z-index: 1;
 }
 
 .dark .chat-main-panel {
@@ -2597,6 +2648,8 @@ async function handleInviteMember() {
   flex-direction: column;
   transition: transform 0.3s ease;
   overflow: hidden;
+  position: relative;
+  z-index: 10;
 }
 
 .dark .room-characters-panel {
@@ -3227,40 +3280,94 @@ async function handleInviteMember() {
   border-color: rgba(71, 85, 105, 0.85);
 }
 
-.conversation-mode-card h4 {
-  margin: 0 0 10px;
+.mode-switch-header {
+  margin-bottom: 12px;
+}
+
+.mode-switch-title {
   font-size: 13px;
   font-weight: 600;
   color: #64748b;
 }
 
-.mode-option {
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  font-size: 13px;
-  color: #64748b;
-  cursor: pointer;
-  text-align: left;
-}
-
-.dark .mode-option {
-  background: #0f172a;
-  border-color: rgba(71, 85, 105, 0.85);
+.dark .mode-switch-title {
   color: #94a3b8;
 }
 
-.mode-option.active {
-  background: #0f172a;
-  color: #ffffff;
-  border-color: #0f172a;
+.mode-switch-container {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
-.dark .mode-option.active {
+.mode-switch-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #e2e8f0;
+  border-radius: 20px;
+  padding: 4px;
+  height: 40px;
+}
+
+.dark .mode-switch-track {
+  background: #0f172a;
+}
+
+.mode-switch-thumb {
+  position: absolute;
+  width: calc(50% - 4px);
+  height: 32px;
+  background: #0f172a;
+  border-radius: 16px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dark .mode-switch-thumb {
   background: #f8fafc;
+}
+
+.mode-switch-thumb.thumb-left {
+  left: 4px;
+}
+
+.mode-switch-thumb.thumb-right {
+  left: calc(50%);
+}
+
+.mode-label {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  transition: color 0.25s ease;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.dark .mode-label {
+  color: #64748b;
+}
+
+.mode-label.active {
+  color: #ffffff;
+}
+
+.dark .mode-label.active {
   color: #0f172a;
+}
+
+.mode-desc {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.dark .mode-desc {
+  color: #64748b;
 }
 
 /* Responsive */

@@ -147,22 +147,57 @@ function handleClose() {
 
       <!-- Mode toggle -->
       <div class="mt-3 pt-3 border-t border-[var(--color-border)]">
+        <!-- Discussion mode toggle -->
         <button
-          class="w-full py-2 px-3 rounded-lg text-xs font-medium border transition-all flex items-center gap-2 mode-toggle"
-          :class="isDiscussionMode ? 'mode-toggle--discussion' : 'mode-toggle--dialogue'"
+          class="w-full py-3 px-3 rounded-xl border-2 transition-all mode-toggle-btn"
+          :class="isDiscussionMode
+            ? 'bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy-light)] border-[var(--color-navy)] text-white shadow-lg'
+            : 'bg-[var(--color-parchment)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-gold)]'"
           @click="$emit('switchMode', isDiscussionMode ? 'dialogue' : 'discussion')"
         >
-          <svg v-if="isDiscussionMode" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-          </svg>
-          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          {{ isDiscussionMode ? '讨论模式' : '对话模式' }}
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <!-- Discussion icon -->
+              <div
+                class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                :class="isDiscussionMode ? 'bg-white/20' : 'bg-[var(--color-gold)]/10'"
+              >
+                <svg v-if="isDiscussionMode" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                </svg>
+                <svg v-else class="w-4 h-4 text-[var(--color-gold-dark)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="text-sm font-semibold">{{ isDiscussionMode ? '讨论模式' : '对话模式' }}</div>
+                <div class="text-[10px] opacity-80">
+                  {{ isDiscussionMode ? '角色轮流持续讨论' : '角色响应一次结束' }}
+                </div>
+              </div>
+            </div>
+            <!-- Toggle switch -->
+            <div
+              class="w-12 h-6 rounded-full relative transition-colors"
+              :class="isDiscussionMode ? 'bg-white/30' : 'bg-[var(--color-border)]'"
+            >
+              <div
+                class="w-5 h-5 rounded-full absolute top-0.5 transition-all shadow-md"
+                :class="isDiscussionMode ? 'left-[26px] bg-white' : 'left-0.5 bg-[var(--color-text-muted)]'"
+              ></div>
+            </div>
+          </div>
         </button>
-        <p class="text-[10px] text-[var(--color-text-muted)] text-center mt-1.5">
-          {{ isDiscussionMode ? '角色持续讨论多轮' : '角色响应一次结束' }}
-        </p>
+
+        <!-- Discussion mode description -->
+        <div v-if="isDiscussionMode" class="mt-2 px-2 py-2 rounded-lg bg-[var(--color-navy)]/5 text-[10px] text-[var(--color-text-muted)]">
+          <div class="flex items-start gap-1.5">
+            <svg class="w-3 h-3 mt-0.5 text-[var(--color-gold)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>角色按顺序轮流发言，可暂停/继续</span>
+          </div>
+        </div>
       </div>
     </div>
   </aside>
@@ -276,8 +311,50 @@ function handleClose() {
             </div>
           </div>
 
-          <!-- Add character button -->
+          <!-- Mode toggle for mobile -->
           <div class="p-3 border-t border-[var(--color-border)]">
+            <button
+              class="w-full py-3 px-3 rounded-xl border-2 transition-all mode-toggle-btn"
+              :class="isDiscussionMode
+                ? 'bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy-light)] border-[var(--color-navy)] text-white shadow-lg'
+                : 'bg-[var(--color-parchment)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-gold)]'"
+              @click="$emit('switchMode', isDiscussionMode ? 'dialogue' : 'discussion')"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div
+                    class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                    :class="isDiscussionMode ? 'bg-white/20' : 'bg-[var(--color-gold)]/10'"
+                  >
+                    <svg v-if="isDiscussionMode" class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                    </svg>
+                    <svg v-else class="w-4 h-4 text-[var(--color-gold-dark)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <div class="text-left">
+                    <div class="text-sm font-semibold">{{ isDiscussionMode ? '讨论模式' : '对话模式' }}</div>
+                    <div class="text-[10px] opacity-80">
+                      {{ isDiscussionMode ? '角色轮流持续讨论' : '角色响应一次结束' }}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  class="w-12 h-6 rounded-full relative transition-colors"
+                  :class="isDiscussionMode ? 'bg-white/30' : 'bg-[var(--color-border)]'"
+                >
+                  <div
+                    class="w-5 h-5 rounded-full absolute top-0.5 transition-all shadow-md"
+                    :class="isDiscussionMode ? 'left-[26px] bg-white' : 'left-0.5 bg-[var(--color-text-muted)]'"
+                  ></div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <!-- Add character button -->
+          <div class="p-3 pt-0">
             <button
               class="w-full py-3 px-4 bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy-light)] text-[var(--color-gold)] rounded-xl font-medium text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
               @click="$emit('characterSelected', null)"
@@ -335,22 +412,22 @@ function handleClose() {
   transform: translateX(-100%);
 }
 
-/* Mode toggle refinements */
-.mode-toggle {
+/* Mode toggle button */
+.mode-toggle-btn {
   position: relative;
   overflow: hidden;
 }
 
-.mode-toggle::after {
+.mode-toggle-btn::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 50%);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
 
-.mode-toggle:hover::after {
+.mode-toggle-btn:hover::before {
   opacity: 1;
 }
 </style>

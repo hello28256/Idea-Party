@@ -175,18 +175,29 @@ export const useRoomStore = defineStore('room', () => {
   async function updateRoomMode(roomId: string, data: UpdateRoomModeRequest) {
     loading.value = true
     error.value = null
+    console.log('[DEBUG] updateRoomMode called:', { roomId, data })
     try {
       const updatedRoom = await roomsApi.updateMode(roomId, data)
+      console.log('[DEBUG] API returned updatedRoom:', updatedRoom)
+      console.log('[DEBUG] updatedRoom.chatMode:', updatedRoom.chatMode)
       const index = rooms.value.findIndex(r => r.id === roomId)
       if (index !== -1) {
         rooms.value[index] = updatedRoom
+        console.log('[DEBUG] Updated rooms at index:', index)
+      }
+      const myIndex = myRooms.value.findIndex(r => r.id === roomId)
+      if (myIndex !== -1) {
+        myRooms.value[myIndex] = updatedRoom
+        console.log('[DEBUG] Updated myRooms at index:', myIndex)
       }
       if (currentRoom.value?.id === roomId) {
         currentRoom.value = updatedRoom
+        console.log('[DEBUG] Updated currentRoom')
       }
       return updatedRoom
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update room mode'
+      console.error('[DEBUG] updateRoomMode error:', e)
       throw e
     } finally {
       loading.value = false

@@ -26,6 +26,8 @@ public class RoomResponse {
     private List<CharacterResponse> characters;
     private Instant createdAt;
     private Instant updatedAt;
+    private String chatMode;
+    private Integer maxDiscussionRounds;
 
     public static RoomResponse fromEntity(Room room) {
         List<CharacterResponse> characterList = null;
@@ -44,6 +46,8 @@ public class RoomResponse {
                 .characters(characterList)
                 .createdAt(room.getCreatedAt())
                 .updatedAt(room.getUpdatedAt())
+                .chatMode(room.getChatMode())
+                .maxDiscussionRounds(room.getMaxDiscussionRounds())
                 .build();
     }
 }
