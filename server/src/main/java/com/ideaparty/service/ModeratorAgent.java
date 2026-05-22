@@ -146,6 +146,7 @@ public class ModeratorAgent implements DisposableBean {
         // 4. Transition to MODERATING
         transitionTo(state, DiscussionPhase.MODERATING);
         state.currentUserMessage = userMessage;
+        state.userMessage = userMessage;  // Also set userMessage for generateCharacterResponse
         state.userId = userId;
 
         // 5. Immediately start new Moderator analysis
@@ -351,12 +352,14 @@ public class ModeratorAgent implements DisposableBean {
                 DiscussionState state = new DiscussionState();
                 state.characters = new ArrayList<>(characters);
                 state.userMessage = userMessage;
+                state.currentUserMessage = userMessage;
                 state.context = initialContext;
                 state.currentRound = 1;
                 state.maxRounds = maxRounds;
                 state.isRunning = true;
                 state.paused = false;
                 state.userTriggered.set(false);
+                state.userId = userId;
                 roomDiscussionState.put(roomId, state);
                 roomPaused.put(roomId, new AtomicBoolean(false));
 
@@ -458,7 +461,7 @@ public class ModeratorAgent implements DisposableBean {
                                            Consumer<ResponseFragment> onResponse) {
         try {
             String characterPrompt = buildCharacterPrompt(character);
-            String fullPrompt = characterPrompt + "\n\n" + state.context + "\n\nUser's question: " + state.userMessage;
+            String fullPrompt = characterPrompt + "\n\n" + state.context;
 
             log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
 
