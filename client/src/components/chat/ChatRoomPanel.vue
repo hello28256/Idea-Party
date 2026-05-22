@@ -52,7 +52,7 @@ watch(
   }
 )
 
-const { isConnected, sendMessage, leaveRoom } = useSocket(props.roomId, {
+const { isConnected, sendMessage, leaveRoom, pauseDiscussion, resumeDiscussion } = useSocket(props.roomId, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
   },
@@ -68,6 +68,30 @@ const { isConnected, sendMessage, leaveRoom } = useSocket(props.roomId, {
   onError: (error: string) => {
     connectionError.value = error
     console.error('[DEBUG] Socket error:', error)
+  },
+  onPaused: () => {
+    messageStore.setPaused()
+  },
+  onResumed: () => {
+    messageStore.setResumed()
+  },
+  onDiscussionState: (data: { phase: string; selectedCharacters?: string[]; message?: string }) => {
+    messageStore.setDiscussionPhase(data.phase, data.selectedCharacters, data.message)
+  },
+  onModeratorMessage: (data: { content: string; type: string }) => {
+    messageStore.moderatorMessage = data
+    // Add moderator message to list
+    messageStore.addMessage({
+      id: `mod-${Date.now()}`,
+      content: data.content,
+      senderType: 'MODERATOR' as any,
+      roomId: props.roomId,
+      characterId: null,
+      characterName: '主持人',
+      avatarUrl: null,
+      streaming: false,
+      createdAt: new Date().toISOString()
+    })
   }
 }, authStore.accessToken)
 
@@ -78,6 +102,26 @@ const messages = computed(() => messageStore.messages)
 const thinkingCharacterId = computed(() => messageStore.thinkingCharacterId)
 const isDiscussionMode = computed(() => currentRoom.value?.chatMode === 'discussion')
 const isDiscussing = computed(() => roomStore.isDiscussing)
+
+const statusClass = computed(() => {
+  switch (messageStore.discussionPhase) {
+    case 'MODERATING': return 'text-blue-500'
+    case 'SPEAKING': return 'text-green-500'
+    case 'WAITING_FOR_USER': return 'text-yellow-500'
+    case 'PAUSED': return 'text-gray-500'
+    default: return 'text-gray-400'
+  }
+})
+
+const statusText = computed(() => {
+  switch (messageStore.discussionPhase) {
+    case 'MODERATING': return '主持人分析中...'
+    case 'SPEAKING': return '讨论中'
+    case 'WAITING_FOR_USER': return '等待你参与'
+    case 'PAUSED': return '已暂停'
+    default: return ''
+  }
+})
 
 // Mobile sidebar state
 const sidebarOpen = ref(false)
@@ -166,6 +210,17 @@ function handleSend(content: string) {
   }
 
   sendMessage(content.trim())
+}
+
+// Handle pause/resume discussion
+function togglePause() {
+  if (messageStore.paused) {
+    resumeDiscussion()
+    messageStore.setResumed()
+  } else {
+    pauseDiscussion()
+    messageStore.setPaused()
+  }
 }
 
 // Handle adding a character to the room
@@ -298,6 +353,16 @@ async function handleCharacterAdded(character: Character) {
           </svg>
           连接中... 消息暂存本地
         </div>
+        <!-- Discussion status indicator -->
+        <div v-if="isDiscussionMode && messageStore.discussionPhase !== 'IDLE'" class="px-4 py-2 bg-[var(--color-parchment)] border-b border-[var(--color-border)] flex items-center justify-center">
+          <span :class="['text-sm font-medium flex items-center gap-2', statusClass]">
+            <span v-if="messageStore.discussionPhase === 'MODERATING'" class="animate-pulse">🎤</span>
+            <span v-if="messageStore.discussionPhase === 'SPEAKING'">💬</span>
+            <span v-if="messageStore.discussionPhase === 'WAITING_FOR_USER'">⏳</span>
+            <span v-if="messageStore.discussionPhase === 'PAUSED'">⏸</span>
+            {{ statusText }}
+          </span>
+        </div>
         <MessageList
           ref="messageListRef"
           :messages="messages"
@@ -305,6 +370,37 @@ async function handleCharacterAdded(character: Character) {
           :characters="characters"
           :streaming-messages="messageStore.streamingMessages"
         />
+        <!-- Discussion control bar (only in discussion mode) -->
+        <div v-if="isDiscussionMode && isDiscussing" class="shrink-0 px-4 py-2 bg-[var(--color-parchment)] border-t border-[var(--color-border)] flex items-center justify-center gap-4">
+          <button
+            v-if="!messageStore.paused"
+            @click="togglePause"
+            class="flex items-center gap-2 px-4 py-2 bg-[var(--color-navy)] text-white rounded-lg hover:bg-[var(--color-navy-light)] transition-colors text-sm font-medium"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            暂停讨论
+          </button>
+          <button
+            v-else
+            @click="togglePause"
+            class="flex items-center gap-2 px-4 py-2 bg-[var(--color-gold)] text-[var(--color-navy)] rounded-lg hover:bg-[var(--color-gold-light)] transition-colors text-sm font-medium"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            继续讨论
+          </button>
+          <!-- Show waiting message when in WAITING_FOR_USER phase -->
+          <span v-if="messageStore.discussionPhase === 'WAITING_FOR_USER'" class="text-sm text-yellow-600 font-medium">
+            🎤 主持人正在等待你的观点...
+          </span>
+          <span v-else-if="messageStore.paused" class="text-sm text-[var(--color-text-secondary)]">
+            讨论已暂停，发送消息将继续
+          </span>
+        </div>
         <!-- Chat input - fixed footer -->
         <div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-ivory)]">
           <ChatInput
@@ -340,7 +436,8 @@ async function handleCharacterAdded(character: Character) {
 
 <style scoped>
 .chat-panel {
-  /* contain: layout style; */
+  height: 100%;
+  contain: layout style;
 }
 
 /* 消息滚动区域样式 */
