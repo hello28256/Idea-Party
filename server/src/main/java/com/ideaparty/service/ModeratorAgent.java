@@ -1208,7 +1208,7 @@ public class ModeratorAgent implements DisposableBean {
         String prompt = buildModeratorPrompt(userMessage, characters);
         log.info("[Moderator] Calling LLM for character selection, prompt length: {}", prompt.length());
 
-        StringBuilder fullResponse = new StringBuilder();
+        StringBuffer fullResponse = new StringBuffer();  // thread-safe
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
@@ -1219,7 +1219,11 @@ public class ModeratorAgent implements DisposableBean {
                 prompt,
                 "选择最合适的角色参与讨论",
                 userApiKey,
-                chunk -> fullResponse.append(chunk),
+                chunk -> {
+                    synchronized(fullResponse) {
+                        fullResponse.append(chunk);
+                    }
+                },
                 completeResponse -> latch.countDown(),
                 error -> {
                     log.error("[Moderator] LLM selection error: {}", error.getMessage());
@@ -1229,7 +1233,9 @@ public class ModeratorAgent implements DisposableBean {
 
             boolean completed = latch.await(30, TimeUnit.SECONDS);
             if (completed) {
-                return fullResponse.toString();
+                synchronized(fullResponse) {
+                    return fullResponse.toString();
+                }
             } else {
                 log.warn("[Moderator] LLM selection timed out");
                 return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
