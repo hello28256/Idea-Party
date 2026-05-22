@@ -73,8 +73,8 @@ public class ModeratorAgent implements DisposableBean {
         volatile int currentRound = 0;
         volatile int currentCharacterIndex = 0;
         volatile int maxRounds = 3;
-        List<Character> characters = new ArrayList<>();
-        List<ResponseFragment> responses = new ArrayList<>();
+        List<Character> characters = new CopyOnWriteArrayList<>();
+        List<ResponseFragment> responses = new CopyOnWriteArrayList<>();
         String userMessage = "";
         String context = "";
         AtomicBoolean userTriggered = new AtomicBoolean(false);
@@ -84,8 +84,8 @@ public class ModeratorAgent implements DisposableBean {
         volatile boolean userInterjected = false;
         volatile int aiMessageCount = 0;
         volatile int maxAiMessagesPerRound = 3;
-        List<Character> selectedCharacters = new ArrayList<>();
-        List<Character> pendingQueue = new ArrayList<>();
+        List<Character> selectedCharacters = new CopyOnWriteArrayList<>();
+        List<Character> pendingQueue = new CopyOnWriteArrayList<>();
         volatile String moderatorMessage = "";
         volatile String currentUserMessage = "";
         AtomicBoolean currentStreamCancelled = new AtomicBoolean(false);
@@ -189,10 +189,12 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Get next character from queue
-        if (!state.pendingQueue.isEmpty()) {
-            Character character = state.pendingQueue.remove(0);
-            generateCharacterResponse(roomId, character, state);
+        // Get next character from queue - synchronized for thread safety
+        synchronized (state.pendingQueue) {
+            if (!state.pendingQueue.isEmpty()) {
+                Character character = state.pendingQueue.remove(0);
+                generateCharacterResponse(roomId, character, state);
+            }
         }
     }
 
@@ -608,11 +610,14 @@ public class ModeratorAgent implements DisposableBean {
             }
 
             // State machine: after completion, process next in queue
+            // Synchronize around pendingQueue to prevent race conditions
             state.aiMessageCount++;
-            if (shouldWaitForUser(state)) {
-                waitForUserInput(roomId);
-            } else {
-                processNextInQueue(roomId);
+            synchronized (state.pendingQueue) {
+                if (shouldWaitForUser(state)) {
+                    waitForUserInput(roomId);
+                } else {
+                    processNextInQueue(roomId);
+                }
             }
 
         } catch (Exception e) {
