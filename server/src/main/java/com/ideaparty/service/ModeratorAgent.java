@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.security.core.context.SecurityContext;
 
@@ -153,8 +155,6 @@ public class ModeratorAgent implements DisposableBean {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null) return;
 
-        // For now, use all characters as fallback selection
-        // Full LLM-based selection will be added in Task 4
         List<Character> availableCharacters = state.characters;
 
         if (availableCharacters == null || availableCharacters.isEmpty()) {
@@ -162,8 +162,34 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Select up to 2 characters
-        List<Character> selected = availableCharacters.subList(0, Math.min(2, availableCharacters.size()));
+        // Call LLM to select characters
+        String selection = callModeratorForSelection(userMessage, availableCharacters);
+        log.info("[Moderator] LLM selection result: {}", selection);
+
+        // Parse [SELECT:角色1,角色2] format
+        Pattern pattern = Pattern.compile("\\[SELECT:([^\\]]+)\\]");
+        Matcher matcher = pattern.matcher(selection);
+
+        List<Character> selected = new ArrayList<>();
+        if (matcher.find()) {
+            String[] selectedNames = matcher.group(1).split(",");
+            for (String name : selectedNames) {
+                final String trimmedName = name.trim();
+                Character found = availableCharacters.stream()
+                    .filter(c -> c.getName().trim().equals(trimmedName))
+                    .findFirst()
+                    .orElse(null);
+                if (found != null && selected.size() < 2) {
+                    selected.add(found);
+                }
+            }
+        }
+
+        // Fallback if no characters matched
+        if (selected.isEmpty()) {
+            selected = availableCharacters.subList(0, Math.min(2, availableCharacters.size()));
+        }
+
         state.selectedCharacters = new ArrayList<>(selected);
         state.pendingQueue = new ArrayList<>(selected);
 
@@ -1126,12 +1152,92 @@ public class ModeratorAgent implements DisposableBean {
         prompt.append("You are in a GROUP DISCUSSION. Engage with the topic and with what others say. " +
                       "Be concise, conversational, and true to your character's perspective.\n\n");
 
+        prompt.append("IMPORTANT RESTRICTION: Your response MUST be exactly 2-4 sentences. No more than 4 sentences total. Be concise and direct.\n\n");
+
         prompt.append("CRITICAL: When responding, ONLY speak as yourself. Do NOT repeat, quote, or include " +
                       "other people's messages in your response. Your reply should be your own words only, " +
                       "expressed from your character's perspective.");
 
         log.info("[Moderator] [{}] Character prompt built, total length: {}", character.getName(), prompt.length());
         return prompt.toString();
+    }
+
+    /**
+     * Build the system prompt for Moderator to select characters.
+     */
+    private String buildModeratorPrompt(String userMessage, List<Character> characters) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("# 角色设定\n");
+        prompt.append("你是\"圆桌讨论主持人\"，不是参与者。你不回答问题。\n\n");
+        prompt.append("你的职责：\n");
+        prompt.append("1. 分析用户问题，选择最适合的 1-2 个角色参与讨论\n");
+        prompt.append("2. 控制讨论节奏，防止 AI 无限对话\n");
+        prompt.append("3. 在适当时邀请观众（用户）参与\n");
+        prompt.append("4. 总结不同角色的核心观点\n\n");
+        prompt.append("# 核心规则\n");
+        prompt.append("- 每轮最多让 2 个角色发言\n");
+        prompt.append("- 连续 AI 消息不超过 3 条\n");
+        prompt.append("- 每轮结束后必须邀请用户参与\n");
+        prompt.append("- 优先制造观点冲突或对立\n");
+        prompt.append("- 用户消息优先级最高：收到用户消息后立即重新组织讨论\n");
+        prompt.append("- 保持角色发言简洁（2-4 句话）\n\n");
+        prompt.append("# 可用角色\n");
+        for (Character c : characters) {
+            prompt.append("- ").append(c.getName())
+                .append(" (专家领域: ").append(c.getExpertise() != null ? String.join(", ", c.getExpertise()) : "未知").append(")")
+                .append(" - ").append(c.getPersonality() != null ? c.getPersonality() : "").append("\n");
+        }
+        prompt.append("\n# 用户问题\n");
+        prompt.append(userMessage).append("\n\n");
+        prompt.append("# 输出要求\n");
+        prompt.append("你必须选择角色时，输出：\n");
+        prompt.append("[SELECT:角色名1,角色名2]\n");
+        prompt.append("理由：...\n\n");
+        prompt.append("你必须邀请用户时，输出：\n");
+        prompt.append("[INVITE:你更支持谁的观点？/你怎么看这个问题？/你有什么不同看法？]\n\n");
+        prompt.append("你必须总结时，输出：\n");
+        prompt.append("[SUMMARY:角色A认为...；角色B认为...]\n");
+
+        return prompt.toString();
+    }
+
+    /**
+     * Call LLM to select characters for the discussion.
+     */
+    private String callModeratorForSelection(String userMessage, List<Character> characters) {
+        String prompt = buildModeratorPrompt(userMessage, characters);
+        log.info("[Moderator] Calling LLM for character selection, prompt length: {}", prompt.length());
+
+        StringBuilder fullResponse = new StringBuilder();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        try {
+            // Get API key - use first character's room or system default
+            String userApiKey = settingsService.getDefaultApiKey();
+
+            aiService.generateResponseStream(
+                prompt,
+                "选择最合适的角色参与讨论",
+                userApiKey,
+                chunk -> fullResponse.append(chunk),
+                completeResponse -> latch.countDown(),
+                error -> {
+                    log.error("[Moderator] LLM selection error: {}", error.getMessage());
+                    latch.countDown();
+                }
+            );
+
+            boolean completed = latch.await(30, TimeUnit.SECONDS);
+            if (completed) {
+                return fullResponse.toString();
+            } else {
+                log.warn("[Moderator] LLM selection timed out");
+                return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
+            }
+        } catch (Exception e) {
+            log.error("[Moderator] callModeratorForSelection failed: {}", e.getMessage());
+            return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
+        }
     }
 
     @Override
