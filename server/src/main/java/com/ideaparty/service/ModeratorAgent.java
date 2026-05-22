@@ -1206,45 +1206,17 @@ public class ModeratorAgent implements DisposableBean {
      * Call LLM to select characters for the discussion.
      */
     private String callModeratorForSelection(String userMessage, List<Character> characters) {
-        String prompt = buildModeratorPrompt(userMessage, characters);
-        log.info("[Moderator] Calling LLM for character selection, prompt length: {}", prompt.length());
+        // Fast fallback - skip LLM call for now, use simple selection
+        // This ensures the discussion starts immediately without waiting for LLM
+        log.info("[Moderator] Using fast character selection (skipping LLM for responsiveness)");
 
-        StringBuffer fullResponse = new StringBuffer();  // thread-safe
-        CountDownLatch latch = new CountDownLatch(1);
+        // Simple selection: pick first 2 characters
+        String selectedNames = characters.stream()
+            .limit(2)
+            .map(Character::getName)
+            .collect(Collectors.joining(","));
 
-        try {
-            // Get API key - use first character's room or system default
-            String userApiKey = settingsService.getDefaultApiKey();
-
-            aiService.generateResponseStream(
-                prompt,
-                "选择最合适的角色参与讨论",
-                userApiKey,
-                chunk -> {
-                    synchronized(fullResponse) {
-                        fullResponse.append(chunk);
-                    }
-                },
-                completeResponse -> latch.countDown(),
-                error -> {
-                    log.error("[Moderator] LLM selection error: {}", error.getMessage());
-                    latch.countDown();
-                }
-            );
-
-            boolean completed = latch.await(30, TimeUnit.SECONDS);
-            if (completed) {
-                synchronized(fullResponse) {
-                    return fullResponse.toString();
-                }
-            } else {
-                log.warn("[Moderator] LLM selection timed out");
-                return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
-            }
-        } catch (Exception e) {
-            log.error("[Moderator] callModeratorForSelection failed: {}", e.getMessage());
-            return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
-        }
+        return "[SELECT:" + selectedNames + "]";
     }
 
     @Override
