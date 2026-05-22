@@ -9,6 +9,12 @@ export const useMessageStore = defineStore('message', () => {
   const thinkingCharacterId = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const paused = ref(false)
+
+  // Discussion mode state
+  const discussionPhase = ref<'IDLE' | 'MODERATING' | 'SPEAKING' | 'WAITING_FOR_USER' | 'PAUSED'>('IDLE')
+  const selectedCharacterIds = ref<string[]>([])
+  const moderatorMessage = ref<{ content: string; type: string } | null>(null)
 
   // Streaming message buffer (for in-progress messages being streamed)
   // Using Record instead of Map for reliable Vue 3 reactivity
@@ -85,6 +91,28 @@ export const useMessageStore = defineStore('message', () => {
     streamingMessages.value = {}
   }
 
+  function setPaused() {
+    paused.value = true
+  }
+
+  function setResumed() {
+    paused.value = false
+  }
+
+  function setDiscussionPhase(phase: string, characters?: string[], message?: string) {
+    discussionPhase.value = phase as any
+    if (characters) {
+      selectedCharacterIds.value = characters
+    }
+    if (message) {
+      moderatorMessage.value = { content: message, type: phase }
+    }
+  }
+
+  function clearModeratorMessage() {
+    moderatorMessage.value = null
+  }
+
   return {
     // State
     messages,
@@ -92,13 +120,21 @@ export const useMessageStore = defineStore('message', () => {
     loading,
     error,
     streamingMessages,
+    paused,
+    discussionPhase,
+    selectedCharacterIds,
+    moderatorMessage,
     // Actions
     addMessage,
     updateStreamingMessage,
     completeStreamingMessage,
     setThinking,
     clearThinking,
+    setPaused,
+    setResumed,
     loadMessages,
-    clearMessages
+    clearMessages,
+    setDiscussionPhase,
+    clearModeratorMessage
   }
 })
