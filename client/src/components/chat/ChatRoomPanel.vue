@@ -46,7 +46,7 @@ function scrollToBottom() {
 
 // 监听消息变化，自动滚动（仅用于流式消息时的实时跟进）
 watch(
-  () => [messageStore.streamingMessages?.size, messageStore.thinkingCharacterId],
+  () => [Object.keys(messageStore.streamingMessages).length, messageStore.thinkingCharacterId],
   () => {
     scrollToBottom()
   }

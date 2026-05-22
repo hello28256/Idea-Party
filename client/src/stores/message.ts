@@ -11,10 +11,16 @@ export const useMessageStore = defineStore('message', () => {
   const error = ref<string | null>(null)
 
   // Streaming message buffer (for in-progress messages being streamed)
-  const streamingMessages = ref<Map<string, string>>(new Map())
+  // Using Record instead of Map for reliable Vue 3 reactivity
+  const streamingMessages = ref<Record<string, string>>({})
 
   // Actions
   function addMessage(msg: ChatMessage) {
+    // 收到完整消息时，自动清除该角色的流式消息 bubble
+    if (msg.senderType === 'CHARACTER' && msg.characterId) {
+      delete streamingMessages.value[msg.characterId]
+    }
+
     // Deduplication: if this message has a real id and there's a matching temp message,
     // replace the temp message instead of adding a new one
     if (msg.id && !msg.id.startsWith('temp-')) {
@@ -36,12 +42,14 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   function updateStreamingMessage(characterId: string, chunk: string) {
-    const existing = streamingMessages.value.get(characterId) || ''
-    streamingMessages.value.set(characterId, existing + chunk)
+    // 使用 Record 而不是 Map，Vue 对普通对象的属性赋值有完善的响应式追踪
+    const existing = streamingMessages.value[characterId] || ''
+    const safeChunk = chunk ?? ''
+    streamingMessages.value[characterId] = existing + safeChunk
   }
 
   function completeStreamingMessage(characterId: string) {
-    streamingMessages.value.delete(characterId)
+    delete streamingMessages.value[characterId]
   }
 
   function setThinking(characterId: string | null) {
@@ -74,7 +82,7 @@ export const useMessageStore = defineStore('message', () => {
   function clearMessages() {
     messages.value = []
     thinkingCharacterId.value = null
-    streamingMessages.value.clear()
+    streamingMessages.value = {}
   }
 
   return {

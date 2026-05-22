@@ -63,8 +63,13 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
           case 'character thinking':
             onThinking?.(eventData.characterId)
             break
+          case 'chat chunk':
           case 'message stream':
-            onStream?.(eventData)
+            console.log('[WS FRONTEND] chat chunk TS=' + Date.now() + ' charId=' + eventData.characterId + ' chunkLen=' + (eventData.content?.length ?? 0) + ' content=' + JSON.stringify(eventData.content))
+            onStream?.({
+              characterId: eventData.characterId,
+              chunk: eventData.content ?? ''
+            })
             break
           case 'error':
             onError?.(eventData.message)

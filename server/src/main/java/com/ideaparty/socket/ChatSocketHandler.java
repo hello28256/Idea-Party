@@ -182,12 +182,37 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             // Get userId from sessionUsers map (set during join room)
             String userId = sessionUsers.get(session.getId());
             log.info("[WS] handleChatMessage - roomId: {}, userId from session: {}", roomId, userId);
-            triggerAIForRoom(roomId, content, userId);
+
+            // Check if user @mentioned a specific character (format: @角色名)
+            String mentionedCharacter = extractMentionedCharacter(content);
+            triggerAIForRoom(roomId, content, userId, mentionedCharacter);
         }
     }
 
+    /**
+     * Extract @mentioned character name from message content.
+     * Format: @角色名
+     */
+    private String extractMentionedCharacter(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        // Match @开头，后接中英文、数字等字符，直到空格或消息结束
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("@([^\\s@]{1,30})");
+        java.util.regex.Matcher matcher = pattern.matcher(content);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
     public void triggerAIForRoom(String roomId, String userMessage, String userId) {
-        log.info("[WS] triggerAIForRoom START - roomId: {}, message: {}, userId: {}", roomId, userMessage, userId);
+        triggerAIForRoom(roomId, userMessage, userId, null);
+    }
+
+    public void triggerAIForRoom(String roomId, String userMessage, String userId, String mentionedCharacter) {
+        log.info("[WS] triggerAIForRoom START - roomId: {}, message: {}, userId: {}, mentionedCharacter: {}",
+            roomId, userMessage, userId, mentionedCharacter);
 
         // userId is now passed directly from handleChatMessage (retrieved from sessionUsers map during join room)
 
@@ -199,7 +224,25 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
-            List<Character> characters = room.getCharacters().stream().toList();
+            List<Character> allCharacters = room.getCharacters().stream().toList();
+
+            // Filter to only mentioned character if @mentioned, otherwise all characters respond
+            List<Character> characters;
+            if (mentionedCharacter != null && !mentionedCharacter.isBlank()) {
+                // Match character by name (case-insensitive)
+                characters = allCharacters.stream()
+                    .filter(c -> c.getName().equalsIgnoreCase(mentionedCharacter))
+                    .toList();
+                if (characters.isEmpty()) {
+                    log.warn("[WS] No character found matching @{}", mentionedCharacter);
+                    // Fallback: no one responds
+                    return;
+                }
+                log.info("[WS] @mention detected: {} -> character: {}", mentionedCharacter, characters.get(0).getName());
+            } else {
+                characters = allCharacters;
+            }
+
             boolean isContinuous = "discussion".equals(room.getChatMode());
             int maxRounds = room.getMaxDiscussionRounds() != null ? room.getMaxDiscussionRounds() : 5;
 
@@ -207,15 +250,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 characters.size(), isContinuous);
 
             moderatorAgent.processMessage(roomId, userId, userMessage, characters, isContinuous, maxRounds,
-                // onThinking: 角色开始思考
+                // onThinking: 不发送沉思状态，直接流式输出
                 characterId -> {
-                    try {
-                        log.info("[WS] onThinking callback - characterId: {}", characterId);
-                        String event = "42[\"character thinking\",{\"characterId\":\"" + characterId + "\"}]";
-                        broadcastToRoom(roomId, event);
-                    } catch (Exception e) {
-                        log.warn("[WS] Failed to send thinking event: {}", e.getMessage());
-                    }
+                    log.debug("[WS] onThinking callback (ignored) - characterId: {}", characterId);
                 },
                 // onChunk: 流式内容 - 立即发送到前端
                 fragment -> {
@@ -327,7 +364,28 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 String event = "42[\"character thinking\",{\"characterId\":\"" + characterId + "\"}]";
                 broadcastToRoom(roomId, event);
             },
-            // onResponse: 收到角色回复
+            // onChunk: 流式内容片段（用于实时更新 UI）
+            fragment -> {
+                log.info("[WS] onChunk callback CALLED charId={} contentLen={}", fragment.getCharacterId(), fragment.getContent().length());
+                try {
+                    Map<String, Object> chunkData = new java.util.HashMap<>();
+                    chunkData.put("content", fragment.getContent());
+                    chunkData.put("senderType", "CHARACTER");
+                    chunkData.put("characterId", fragment.getCharacterId());
+                    chunkData.put("characterName", fragment.getCharacterName());
+                    chunkData.put("roomId", roomId);
+                    String chunkEvent = "42[\"chat chunk\","
+                        + objectMapper.writeValueAsString(chunkData)
+                        + "]";
+                    log.info("[WS] onChunk TS={} charId={} chunkLen={} chunkPreview='{}'",
+                        System.currentTimeMillis(), fragment.getCharacterId(),
+                        fragment.getContent().length(), fragment.getContent());
+                    broadcastToRoom(roomId, chunkEvent);
+                } catch (Exception e) {
+                    // Log error
+                }
+            },
+            // onResponse: 收到角色完整回复
             fragment -> {
                 try {
                     // 保存消息到数据库
@@ -394,6 +452,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     }
 
     public void broadcastToRoom(String roomId, String message) {
+        log.info("[WS] broadcastToRoom CALLED roomId={} msgLen={} rooms={}",
+            roomId, message != null ? message.length() : 0, rooms.keySet());
         Set<WebSocketSession> room = rooms.get(roomId);
         if (room != null && message != null) {
             TextMessage textMessage = new TextMessage(message);

@@ -9,15 +9,15 @@ const props = defineProps<{
   messages: ChatMessage[]
   thinkingCharacterId: string | null
   characters: Character[]
-  streamingMessages?: Map<string, string>
+  streamingMessages?: Record<string, string>
 }>()
 
 // Compute streaming message bubbles
 const streamingMessageBubbles = computed(() => {
-  if (!props.streamingMessages || props.streamingMessages.size === 0) return []
+  if (!props.streamingMessages || Object.keys(props.streamingMessages).length === 0) return []
 
   const bubbles: ChatMessage[] = []
-  props.streamingMessages.forEach((content, characterId) => {
+  Object.entries(props.streamingMessages).forEach(([characterId, content]) => {
     bubbles.push({
       id: `streaming-${characterId}`,
       roomId: '',

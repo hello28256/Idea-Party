@@ -120,37 +120,31 @@ public class AIService {
         String fullPrompt = characterPrompt + "\n\nUser: " + userMessage + "\n\nResponse:";
         log.info("[AI Service] Full prompt length: {}, calling streamingModel.chat...", fullPrompt.length());
 
+        // StringBuilder to accumulate chunks for final response
+        final StringBuilder accumulatedResponse = new StringBuilder();
+
         try {
             streamingModel.chat(fullPrompt, new StreamingChatResponseHandler() {
-                private int chunkCount = 0;
-
                 @Override
                 public void onPartialResponse(String partialResponse) {
-                    chunkCount++;
-                    if (chunkCount == 1) {
-                        log.info("[AI Service] First chunk received, length: {}", partialResponse.length());
-                    }
+                    accumulatedResponse.append(partialResponse);
+                    log.info("[AI Service] onPartialResponse TS={} - token len={}, total={}, token='{}'",
+                        System.currentTimeMillis(), partialResponse.length(), accumulatedResponse.length(), partialResponse);
+                    // Send the actual new token (partialResponse), not accumulated text
                     onChunk.accept(partialResponse);
                 }
 
                 @Override
                 public void onCompleteResponse(ChatResponse completeResponse) {
-                    log.info("[AI Service] onCompleteResponse - chunkCount: {}, aiMessage: {}",
-                        chunkCount,
-                        completeResponse != null && completeResponse.aiMessage() != null
-                            ? completeResponse.aiMessage().text().substring(0, Math.min(100, completeResponse.aiMessage().text().length()))
-                            : "null");
-                    if (completeResponse != null && completeResponse.aiMessage() != null) {
-                        onComplete.accept(completeResponse.aiMessage().text());
-                    } else {
-                        log.warn("[AI Service] onCompleteResponse called but aiMessage is null");
-                        onComplete.accept("");
-                    }
+                    String responseText = accumulatedResponse.toString();
+                    log.info("[AI Service] onCompleteResponse - response length: {}",
+                        responseText.length());
+                    onComplete.accept(responseText);
                 }
 
                 @Override
                 public void onError(Throwable error) {
-                    log.error("[AI Service] onError - chunkCount: {}, error: {}", chunkCount, error.getMessage(), error);
+                    log.error("[AI Service] onError - error: {}", error.getMessage(), error);
                     onError.accept(error);
                 }
             });

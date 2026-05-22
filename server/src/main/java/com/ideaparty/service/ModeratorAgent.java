@@ -49,6 +49,9 @@ public class ModeratorAgent implements DisposableBean {
     // Room-level futures tracking for cancellation
     private final ConcurrentHashMap<String, List<CompletableFuture<?>>> roomFutures = new ConcurrentHashMap<>();
 
+    // Track last sent length per character for delta computation
+    private final ConcurrentHashMap<String, Integer> lastSentLengths = new ConcurrentHashMap<>();
+
     public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
@@ -197,14 +200,19 @@ public class ModeratorAgent implements DisposableBean {
                     userApiKeyFinal,
                     chunk -> {
                         fullResponse.append(chunk);
-                        // Stream each chunk to frontend immediately
+                        // Stream chunk directly to frontend (not delta)
                         try {
-                            onChunk.accept(new ResponseFragment(
-                                character.getId().toString(),
-                                character.getName(),
-                                fullResponse.toString(),
-                                false
-                            ));
+                            String charId = character.getId().toString();
+                            log.info("[Moderator] [{}] onChunk - chunkLen={}, totalLen={}",
+                                character.getName(), chunk.length(), fullResponse.length());
+                            if (chunk != null && !chunk.isEmpty()) {
+                                onChunk.accept(new ResponseFragment(
+                                    charId,
+                                    character.getName(),
+                                    chunk,
+                                    false
+                                ));
+                            }
                         } catch (Exception e) {
                             log.warn("[Moderator] [{}] onChunk callback failed: {}",
                                 character.getName(), e.getMessage());
@@ -326,16 +334,21 @@ public class ModeratorAgent implements DisposableBean {
                         fullPrompt,
                         roundNum == 1 ? userMessage : "Continue the discussion",
                         userApiKeyFinal,
-                        // onChunk - stream each chunk to frontend immediately
+                        // onChunk - stream chunk directly to frontend
                         chunk -> {
                             fullResponse.append(chunk);
                             try {
-                                onChunk.accept(new ResponseFragment(
-                                    character.getId().toString(),
-                                    character.getName(),
-                                    fullResponse.toString(),
-                                    false
-                                ));
+                                String charId = character.getId().toString();
+                                log.info("[Moderator] [Round {}] [{}] onChunk - chunkLen={}, totalLen={}",
+                                    roundNum, character.getName(), chunk.length(), fullResponse.length());
+                                if (chunk != null && !chunk.isEmpty()) {
+                                    onChunk.accept(new ResponseFragment(
+                                        charId,
+                                        character.getName(),
+                                        chunk,
+                                        false
+                                    ));
+                                }
                             } catch (Exception e) {
                                 log.warn("[Moderator] [Round {}] [{}] onChunk callback failed: {}",
                                     roundNum, character.getName(), e.getMessage());
