@@ -2,6 +2,8 @@ package com.ideaparty.socket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ideaparty.dto.DiscussionStateEvent;
+import com.ideaparty.dto.ModeratorMessage;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
@@ -90,6 +92,12 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     break;
                 case "trigger-ai":
                     handleTriggerAI(session, eventData);
+                    break;
+                case "pause-discussion":
+                    handlePauseDiscussion(session, eventData);
+                    break;
+                case "resume-discussion":
+                    handleResumeDiscussion(session, eventData);
                     break;
                 case "stop-discussion":
                     handleStopDiscussion(session, eventData);
@@ -183,9 +191,27 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             String userId = sessionUsers.get(session.getId());
             log.info("[WS] handleChatMessage - roomId: {}, userId from session: {}", roomId, userId);
 
-            // Check if user @mentioned a specific character (format: @角色名)
-            String mentionedCharacter = extractMentionedCharacter(content);
-            triggerAIForRoom(roomId, content, userId, mentionedCharacter);
+            // Check if room is in discussion mode
+            Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
+            boolean isDiscussionMode = room != null && "discussion".equals(room.getChatMode());
+
+            if (isDiscussionMode) {
+                // In discussion mode, start or continue the discussion
+                // Check if discussion is already running
+                if (moderatorAgent.isDiscussionRunning(roomId)) {
+                    // 用户插话，立即中断并重新组织讨论
+                    moderatorAgent.handleUserInterjection(roomId, userId, content);
+                    log.info("[WS] Discussion mode: user interjection, reorganizing discussion");
+                } else {
+                    // Start new discussion
+                    log.info("[WS] Discussion mode: starting new discussion");
+                    triggerAIForRoom(roomId, content, userId, null);
+                }
+            } else {
+                // In dialogue mode, check if user @mentioned a specific character
+                String mentionedCharacter = extractMentionedCharacter(content);
+                triggerAIForRoom(roomId, content, userId, mentionedCharacter);
+            }
         }
     }
 
@@ -412,6 +438,26 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         );
     }
 
+    private void handlePauseDiscussion(WebSocketSession session, JsonNode data) throws Exception {
+        String roomId = data.get("roomId").asText();
+        log.info("[WS] Pause discussion requested for room: {}", roomId);
+
+        moderatorAgent.pauseDiscussion(roomId);
+
+        session.sendMessage(new TextMessage("42[\"discussion-paused\",{\"roomId\":\"" + roomId + "\"}]"));
+        broadcastToRoom(roomId, "42[\"discussion-paused\",{\"roomId\":\"" + roomId + "\"}]");
+    }
+
+    private void handleResumeDiscussion(WebSocketSession session, JsonNode data) throws Exception {
+        String roomId = data.get("roomId").asText();
+        log.info("[WS] Resume discussion requested for room: {}", roomId);
+
+        moderatorAgent.resumeDiscussion(roomId);
+
+        session.sendMessage(new TextMessage("42[\"discussion-resumed\",{\"roomId\":\"" + roomId + "\"}]"));
+        broadcastToRoom(roomId, "42[\"discussion-resumed\",{\"roomId\":\"" + roomId + "\"}]");
+    }
+
     private void handleStopDiscussion(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Stop discussion requested for room: {}", roomId);
@@ -467,5 +513,23 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Broadcast an event with data to all clients in a room.
+     * Automatically wraps data in Socket.IO format (42["event",data]).
+     */
+    public void broadcastToRoom(String roomId, String event, Object data) {
+        try {
+            String message = "42[\"" + event + "\"," + objectMapper.writeValueAsString(data) + "]";
+            broadcastToRoom(roomId, message);
+        } catch (Exception e) {
+            log.warn("[WS] broadcastToRoom(event, data) failed: {}", e.getMessage());
+        }
+    }
+
+    private void broadcastModeratorMessage(String roomId, String content, String type) {
+        ModeratorMessage message = new ModeratorMessage(content, type);
+        broadcastToRoom(roomId, "moderator-message", message);
     }
 }
