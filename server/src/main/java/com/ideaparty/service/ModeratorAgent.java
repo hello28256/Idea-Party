@@ -27,6 +27,8 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.security.core.context.SecurityContext;
 
 /**
@@ -46,6 +48,7 @@ public class ModeratorAgent implements DisposableBean {
     private final FirecrawlService firecrawlService;
     private final SettingsService settingsService;
     private final ChatSocketHandler chatSocketHandler;
+    private final ResourceLoader resourceLoader;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Maximum discussion rounds
@@ -279,12 +282,13 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
         this.settingsService = settingsService;
         this.chatSocketHandler = chatSocketHandler;
+        this.resourceLoader = resourceLoader;
         // Wrap executor so SecurityContext is inherited by async threads
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
@@ -1170,39 +1174,26 @@ public class ModeratorAgent implements DisposableBean {
      * Build the system prompt for Moderator to select characters.
      */
     private String buildModeratorPrompt(String userMessage, List<Character> characters) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("# 角色设定\n");
-        prompt.append("你是\"圆桌讨论主持人\"，不是参与者。你不回答问题。\n\n");
-        prompt.append("你的职责：\n");
-        prompt.append("1. 分析用户问题，选择最适合的 1-2 个角色参与讨论\n");
-        prompt.append("2. 控制讨论节奏，防止 AI 无限对话\n");
-        prompt.append("3. 在适当时邀请观众（用户）参与\n");
-        prompt.append("4. 总结不同角色的核心观点\n\n");
-        prompt.append("# 核心规则\n");
-        prompt.append("- 每轮最多让 2 个角色发言\n");
-        prompt.append("- 连续 AI 消息不超过 3 条\n");
-        prompt.append("- 每轮结束后必须邀请用户参与\n");
-        prompt.append("- 优先制造观点冲突或对立\n");
-        prompt.append("- 用户消息优先级最高：收到用户消息后立即重新组织讨论\n");
-        prompt.append("- 保持角色发言简洁（2-4 句话）\n\n");
-        prompt.append("# 可用角色\n");
-        for (Character c : characters) {
-            prompt.append("- ").append(c.getName())
-                .append(" (专家领域: ").append(c.getExpertise() != null ? String.join(", ", c.getExpertise()) : "未知").append(")")
-                .append(" - ").append(c.getPersonality() != null ? c.getPersonality() : "").append("\n");
-        }
-        prompt.append("\n# 用户问题\n");
-        prompt.append(userMessage).append("\n\n");
-        prompt.append("# 输出要求\n");
-        prompt.append("你必须选择角色时，输出：\n");
-        prompt.append("[SELECT:角色名1,角色名2]\n");
-        prompt.append("理由：...\n\n");
-        prompt.append("你必须邀请用户时，输出：\n");
-        prompt.append("[INVITE:你更支持谁的观点？/你怎么看这个问题？/你有什么不同看法？]\n\n");
-        prompt.append("你必须总结时，输出：\n");
-        prompt.append("[SUMMARY:角色A认为...；角色B认为...]\n");
+        try {
+            Resource resource = resourceLoader.getResource("classpath:prompts/moderator-prompt.txt");
+            String template = resource.getContentAsString();
 
-        return prompt.toString();
+            // Build characters list
+            StringBuilder charactersList = new StringBuilder();
+            for (Character c : characters) {
+                charactersList.append("- ").append(c.getName())
+                    .append(" (专家领域: ").append(c.getExpertise() != null ? String.join(", ", c.getExpertise()) : "未知").append(")")
+                    .append(" - ").append(c.getPersona() != null ? c.getPersona() : "").append("\n");
+            }
+
+            // Replace placeholders
+            return template.replace("{characters}", charactersList.toString())
+                          .replace("{userMessage}", userMessage);
+        } catch (Exception e) {
+            log.error("[Moderator] Failed to load moderator prompt template: {}", e.getMessage());
+            // Fallback to empty prompt
+            return "";
+        }
     }
 
     /**
