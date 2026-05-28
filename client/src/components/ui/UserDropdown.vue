@@ -17,7 +17,7 @@ const avatarError = ref(false)
 const menuItems = [
   { id: 'settings', label: '设置', emoji: '⚙️', action: () => router.push('/settings') },
   { id: 'my-characters', label: '我的角色', emoji: '✨', disabled: true },
-  { id: 'my-rooms', label: '我的聊天室', emoji: '💬', disabled: true },
+  { id: 'my-rooms', label: '我的聊天', emoji: '💬', disabled: true },
 ]
 
 function toggleMenu() {

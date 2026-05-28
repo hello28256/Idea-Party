@@ -16,6 +16,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -111,6 +112,23 @@ public class RoomService {
         return roomRepository.findWithCharactersById(roomId)
                 .map(RoomResponse::fromEntity)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+    }
+
+    public void recordEnter(UUID roomId, UUID userId) {
+        log.info("[DEBUG] Recording enter for room {} by user {}", roomId, userId);
+
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+
+        // Check if user is a member
+        if (!roomMemberRepository.isMember(roomId, userId)) {
+            log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
+            throw new AccessDeniedException("You are not a member of this room");
+        }
+
+        room.setLastEnterTime(Instant.now());
+        roomRepository.save(room);
+        log.info("[DEBUG] Updated lastEnterTime for room {}", roomId);
     }
 
     public RoomResponse updateChatMode(UUID roomId, UUID userId, String chatMode, Integer maxDiscussionRounds) {

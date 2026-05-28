@@ -88,4 +88,15 @@ public class RoomController {
         RoomResponse room = roomService.updateChatMode(id, userId, request.getChatMode(), request.getMaxDiscussionRounds());
         return ResponseEntity.ok(room);
     }
+
+    @PatchMapping("/{id}/enter")
+    public ResponseEntity<Void> recordEnter(
+            Authentication auth,
+            @PathVariable UUID id) {
+        UUID userId = UUID.fromString(auth.getName());
+        log.info("[DEBUG] Recording enter for room {} by user {}", id, userId);
+
+        roomService.recordEnter(id, userId);
+        return ResponseEntity.ok().build();
+    }
 }

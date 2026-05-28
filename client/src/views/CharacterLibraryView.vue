@@ -141,7 +141,7 @@ function formatDate(dateStr: string): string {
           @click.prevent="router.push('/rooms?tab=my-rooms')"
         >
           <span class="nav-emoji">💬</span>
-          <span class="nav-label">我的聊天室</span>
+          <span class="nav-label">我的聊天</span>
         </a>
       </nav>
     </aside>

@@ -62,6 +62,9 @@ public class Room {
     @Builder.Default
     private Integer maxDiscussionRounds = 5;
 
+    @Column(name = "last_enter_time")
+    private Instant lastEnterTime;
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();

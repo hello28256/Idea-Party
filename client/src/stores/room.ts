@@ -204,6 +204,19 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  async function recordEnter(roomId: string) {
+    try {
+      await roomsApi.recordEnter(roomId)
+      // Update the lastEnterTime locally for immediate UI feedback
+      const room = myRooms.value.find(r => r.id === roomId)
+      if (room) {
+        room.lastEnterTime = new Date().toISOString()
+      }
+    } catch (e) {
+      console.error('[DEBUG] recordEnter failed:', e)
+    }
+  }
+
   function setCurrentRoom(room: Room | null) {
     currentRoom.value = room
     isDiscussing.value = room?.chatMode === 'discussion'
@@ -230,6 +243,7 @@ export const useRoomStore = defineStore('room', () => {
     deleteRoom,
     addCharacterToRoom,
     updateRoomMode,
+    recordEnter,
     setCurrentRoom
   }
 })

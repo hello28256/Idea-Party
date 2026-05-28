@@ -11,6 +11,7 @@ export interface RoomApi {
   updateMode: (roomId: string, data: UpdateRoomModeRequest) => Promise<Room>
   getRoomMembers: (roomId: string) => Promise<RoomMemberResponse[]>
   inviteMember: (roomId: string, keyword: string) => Promise<RoomMemberResponse>
+  recordEnter: (roomId: string) => Promise<void>
 }
 
 export interface RoomMemberResponse {
@@ -48,5 +49,8 @@ export const roomsApi: RoomApi = {
     api.get<RoomMemberResponse[]>(`/rooms/${roomId}/members`).then(res => res.data),
 
   inviteMember: (roomId: string, keyword: string) =>
-    api.post<RoomMemberResponse>(`/rooms/${roomId}/members/invite`, { keyword }).then(res => res.data)
+    api.post<RoomMemberResponse>(`/rooms/${roomId}/members/invite`, { keyword }).then(res => res.data),
+
+  recordEnter: (roomId: string) =>
+    api.patch(`/rooms/${roomId}/enter`).then(res => res.data)
 }

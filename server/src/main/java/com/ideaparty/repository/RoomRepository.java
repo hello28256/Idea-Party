@@ -23,6 +23,6 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
 
     boolean existsByIdAndOwnerId(UUID id, UUID ownerId);
 
-    @Query("SELECT r FROM Room r JOIN FETCH r.owner JOIN FETCH r.members m JOIN FETCH m.user WHERE m.user.id = :userId AND m.status = 'active' ORDER BY m.joinedAt DESC")
+    @Query("SELECT r FROM Room r JOIN FETCH r.owner JOIN FETCH r.members m JOIN FETCH m.user WHERE m.user.id = :userId AND m.status = 'active' ORDER BY COALESCE(r.lastEnterTime, r.updatedAt) DESC")
     List<Room> findRoomsByMemberUserId(@Param("userId") UUID userId);
 }

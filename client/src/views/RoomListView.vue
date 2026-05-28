@@ -172,7 +172,7 @@ const navItems = [
   { id: 'characters', label: '角色库', emoji: '📚' },
   { id: 'trending', label: '热门', emoji: '🔥' },
   { id: 'categories', label: '分类', emoji: '📂' },
-  { id: 'my-rooms', label: '我的聊天室', emoji: '💬' },
+  { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
   { id: 'recent', label: '最近', emoji: '🕐' },
 ]
 
@@ -402,15 +402,21 @@ const roomCardsData = [
   },
 ]
 
-// Recent chats
-const recentChats = ref([
-  { id: '1', name: '相对论探讨', lastMessage: '爱因斯坦: 时间是相对的...', time: '5分钟前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4' },
-  { id: '2', name: '文学沙龙', lastMessage: '莎士比亚: 生存还是毁灭...', time: '1小时前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc' },
-  { id: '3', name: '未来 AI 实验室', lastMessage: '马斯克: AI 将改变一切', time: '2小时前', avatar: 'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9' },
-])
+// Recent chats - computed from sortedMyRooms (max 4)
+const recentChats = computed(() => {
+  return roomStore.sortedMyRooms.slice(0, 4).map(room => ({
+    id: room.id,
+    name: room.name,
+    lastMessage: room.topic || '开始聊天吧',
+    avatar: room.characters && room.characters.length > 0
+      ? (room.characters[0].avatarUrl || null)
+      : null
+  }))
+})
 
 onMounted(() => {
   roomStore.fetchRooms()
+  roomStore.fetchMyRooms()
   characterStore.fetchCharacters()
   fetchFeaturedCharacters()
   setTimeout(() => { mounted.value = true }, 50)
@@ -444,6 +450,7 @@ function handleRoomCreated(roomId: string) {
 }
 
 function selectRoom(roomId: string) {
+  roomStore.recordEnter(roomId)
   selectedRoomId.value = roomId
   router.replace({
     path: '/rooms',
@@ -456,8 +463,16 @@ function selectRoom(roomId: string) {
 }
 
 // For demo/placeholder rooms in Discover view - still uses old navigation
-function enterRoom(roomId: string) {
-  router.push(`/chat/${roomId}`)
+async function enterRoom(roomId: string) {
+  await roomStore.recordEnter(roomId)
+  selectedRoomId.value = roomId
+  router.replace({
+    path: '/rooms',
+    query: {
+      tab: 'my-rooms',
+      roomId: roomId
+    }
+  })
 }
 
 function toggleCreateDropdown(e: Event) {
@@ -714,8 +729,7 @@ async function handleInviteMember() {
 
             <div class="rooms-list-header">
               <div>
-                <h2>我的聊天室</h2>
-                <p>最近进入优先</p>
+                <h2>我的聊天</h2>
               </div>
               <div class="flex items-center gap-2">
                 <button class="icon-create-room-button" @click="showCreateModal = true" aria-label="创建聊天室">
@@ -804,23 +818,33 @@ async function handleInviteMember() {
 
           <!-- Right: Characters Panel -->
           <aside class="room-characters-panel">
-            <!-- Tab Switcher -->
-            <div class="panel-tabs">
+            <!-- Tab Switcher with Collapse Button -->
+            <div class="panel-tabs-wrapper">
               <button
-                class="panel-tab"
-                :class="{ active: !showMembersTab }"
-                @click="showMembersTab = false"
+                class="icon-close-role-panel-button"
+                @click="isRolePanelCollapsed = true"
+                aria-label="收起角色面板"
               >
-                聊天室角色
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                </svg>
               </button>
-              <button
-                class="panel-tab"
-                :class="{ active: showMembersTab }"
-                @click="showMembersTab = true; roomStore.fetchRoomMembers(selectedRoomId!)"
-              >
-                成员
-                <span v-if="roomStore.roomMembers.length" class="tab-badge">{{ roomStore.roomMembers.length }}</span>
-              </button>
+              <div class="panel-tabs">
+                <button
+                  class="panel-tab"
+                  :class="{ active: !showMembersTab }"
+                  @click="showMembersTab = false"
+                >
+                  聊天室角色
+                </button>
+                <button
+                  class="panel-tab"
+                  :class="{ active: showMembersTab }"
+                  @click="showMembersTab = true; roomStore.fetchRoomMembers(selectedRoomId!)"
+                >
+                  聊天室成员
+                </button>
+              </div>
             </div>
 
             <!-- Characters Tab -->
@@ -830,19 +854,8 @@ async function handleInviteMember() {
                   <h3>聊天室角色</h3>
                   <p>{{ currentRoomCharacters.length }} 个角色参与讨论</p>
                 </div>
-              <div class="flex items-center gap-2">
-                <button @click="openAddCharacterModal" class="add-char-btn">+</button>
-                <button
-                  class="icon-close-role-panel-button"
-                  @click="isRolePanelCollapsed = true"
-                  aria-label="收起角色面板"
-                >
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                  </svg>
-                </button>
+                <button @click="openAddCharacterModal" class="add-char-btn">+ 邀请</button>
               </div>
-            </div>
 
             <div v-if="currentRoomCharacters.length === 0" class="characters-empty">
               <div class="empty-role-icon">👥</div>
@@ -866,6 +879,13 @@ async function handleInviteMember() {
             <!-- Members Tab -->
             <template v-if="showMembersTab">
               <div class="members-panel-content">
+                <div class="members-panel-header">
+                  <div>
+                    <h3>聊天室成员</h3>
+                    <p>{{ roomStore.roomMembers.length }} 人</p>
+                  </div>
+                  <button @click="showInviteModal = true" class="add-char-btn">+ 邀请</button>
+                </div>
                 <div class="members-list">
                   <div v-if="roomStore.roomMembersLoading" class="members-loading">
                     加载中...
@@ -893,14 +913,6 @@ async function handleInviteMember() {
                       <span class="member-role">{{ member.role === 'owner' ? '创建者' : member.role === 'admin' ? '管理员' : '成员' }}</span>
                     </div>
                   </div>
-                </div>
-                <div class="members-footer">
-                  <button class="invite-member-btn" @click="showInviteModal = true">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    邀请成员
-                  </button>
                 </div>
               </div>
             </template>
@@ -2647,9 +2659,18 @@ async function handleInviteMember() {
   border-left: none;
 }
 
+.panel-tabs-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 8px 8px 0;
+  gap: 8px;
+}
+
 /* Panel Tabs */
 .panel-tabs {
   display: flex;
+  flex: 1;
+  min-width: 0;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
 }
 
@@ -3078,18 +3099,50 @@ async function handleInviteMember() {
   color: #94a3b8;
 }
 
+.members-panel-header {
+  height: 76px;
+  padding: 18px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dark .members-panel-header {
+  border-bottom-color: rgba(71, 85, 105, 0.85);
+}
+
+.members-panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dark .members-panel-header h3 {
+  color: #f1f5f9;
+}
+
+.members-panel-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .add-char-btn {
-  width: 36px;
+  width: 100px;
   height: 36px;
   border-radius: 12px;
   border: none;
   background: #0f172a;
   color: #ffffff;
-  font-size: 20px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
 }
 
 .add-char-btn:hover {
