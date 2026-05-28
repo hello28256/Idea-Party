@@ -98,6 +98,7 @@ public class ModeratorAgent implements DisposableBean {
         volatile String currentUserMessage = "";
         AtomicBoolean currentStreamCancelled = new AtomicBoolean(false);
         String userId = "";  // User ID for API key lookup
+        List<String> userMessageHistory = new CopyOnWriteArrayList<>();  // Last 10 user messages
     }
 
     // ========== State Machine Methods ==========
@@ -148,13 +149,19 @@ public class ModeratorAgent implements DisposableBean {
         // 3. Reset AI message count
         state.aiMessageCount = 0;
 
-        // 4. Transition to MODERATING
+        // 4. Add to user message history (keep last 10)
+        state.userMessageHistory.add(userMessage);
+        if (state.userMessageHistory.size() > 10) {
+            state.userMessageHistory.remove(0);
+        }
+
+        // 5. Transition to MODERATING
         transitionTo(state, DiscussionPhase.MODERATING);
         state.currentUserMessage = userMessage;
         state.userMessage = userMessage;  // Also set userMessage for generateCharacterResponse
         state.userId = userId;
 
-        // 5. Immediately start new Moderator analysis
+        // 6. Immediately start new Moderator analysis
         processModeratorAnalysis(roomId, userMessage);
     }
 
@@ -169,8 +176,8 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Call LLM to select characters (with conversation history context)
-        String selection = callModeratorForSelection(state.userId, userMessage, state.responses, availableCharacters);
+        // Call LLM to select characters (with user message history context)
+        String selection = callModeratorForSelection(state.userId, userMessage, state.userMessageHistory, availableCharacters);
         log.info("[Moderator] LLM selection result: {}", selection);
 
         // Parse [SELECT:角色1,角色2] format
@@ -1175,7 +1182,7 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Build the system prompt for Moderator to select characters.
      */
-    private String buildModeratorPrompt(String userMessage, List<ResponseFragment> conversationHistory, List<Character> characters) {
+    private String buildModeratorPrompt(String userMessage, List<String> userMessageHistory, List<Character> characters) {
         try {
             Resource resource = resourceLoader.getResource("classpath:prompts/moderator-prompt.txt");
             String template = resource.getContentAsString(StandardCharsets.UTF_8);
@@ -1188,11 +1195,13 @@ public class ModeratorAgent implements DisposableBean {
                     .append(" - ").append(c.getPersona() != null ? c.getPersona() : "").append("\n");
             }
 
-            // Build conversation history
+            // Build user message history (last 10)
             StringBuilder historyBuilder = new StringBuilder();
-            if (conversationHistory != null && !conversationHistory.isEmpty()) {
-                for (ResponseFragment r : conversationHistory) {
-                    historyBuilder.append("[").append(r.getCharacterName()).append("]: ").append(r.getContent()).append("\n");
+            if (userMessageHistory != null && !userMessageHistory.isEmpty()) {
+                int index = 1;
+                for (String msg : userMessageHistory) {
+                    historyBuilder.append("用户消息").append(index).append(": \"").append(msg).append("\"\n");
+                    index++;
                 }
             } else {
                 historyBuilder.append("(暂无历史对话)\n");
@@ -1212,7 +1221,7 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Call LLM to select characters for the discussion.
      */
-    private String callModeratorForSelection(String userId, String userMessage, List<ResponseFragment> conversationHistory, List<Character> characters) {
+    private String callModeratorForSelection(String userId, String userMessage, List<String> userMessageHistory, List<Character> characters) {
         String userApiKey = getApiKey(userId);
         if (userApiKey == null) {
             log.warn("[Moderator] No API key for user {}, using fallback selection", userId);
@@ -1220,7 +1229,7 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         try {
-            String prompt = buildModeratorPrompt(userMessage, conversationHistory, characters);
+            String prompt = buildModeratorPrompt(userMessage, userMessageHistory, characters);
             ChatLanguageModel chatModel = aiService.createChatModelWithApiKey(userApiKey);
             String response = chatModel.chat(prompt);
             log.info("[Moderator] LLM selection response: {}", response);
