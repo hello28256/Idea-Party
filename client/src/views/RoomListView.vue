@@ -1555,6 +1555,10 @@ async function handleInviteMember() {
   overflow-y: auto;
 }
 
+.main-content:has(.rooms-chat-shell) {
+  padding-bottom: 0;
+}
+
 /* Header */
 .content-header {
   display: flex;
@@ -2292,11 +2296,11 @@ async function handleInviteMember() {
 
 /* ===== My Rooms Three-Column Layout ===== */
 .rooms-chat-shell {
-  height: calc(100vh - 3rem);
+  height: calc(100% + 1.5rem);
   display: grid;
   grid-template-columns: var(--room-list-width) minmax(0, 1fr) var(--role-panel-width);
   background: #f6f7fb;
-  margin: -1.5rem -2rem;
+  margin: -1.5rem -2rem 0;
   overflow: hidden;
   transition: grid-template-columns 0.22s ease;
 }

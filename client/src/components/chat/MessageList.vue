@@ -167,8 +167,6 @@ defineExpose({ scrollToBottom })
 <style scoped>
 .message-list {
   flex: 1;
-  height: 100%;
-  max-height: 100%;
   min-height: 0;
   overflow: hidden;
   display: flex;

@@ -20,6 +20,7 @@ server/target/
 server/*.jar
 server/HELP.md
 server/logs/
+server/uploads/avatars/*
 *.class
 *.war
 

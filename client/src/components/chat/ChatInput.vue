@@ -70,13 +70,16 @@ function autoResize() {
         <Send :size="18" />
       </button>
     </div>
-    <p class="input-hint">回车发送消息，Shift+Enter 换行</p>
+    <div class="input-footer">
+      <p class="disclaimer">内容由 AI 生成，仅供参考</p>
+      <p class="input-hint">回车发送消息，Shift+Enter 换行</p>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .chat-input {
-  padding: 1rem 1.5rem 1.25rem;
+  padding: 0.5rem 1.5rem 1.5rem;
   background: linear-gradient(180deg, var(--color-ivory) 0%, var(--color-cream) 100%);
   position: relative;
 }
@@ -195,11 +198,31 @@ textarea::placeholder {
   transform: translateX(1px);
 }
 
+.input-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.disclaimer,
 .input-hint {
-  text-align: center;
-  font-size: 0.7rem;
+  font-size: 0.625rem;
   color: var(--color-text-muted);
-  margin-top: 0.625rem;
+  margin: 0;
+  line-height: 1;
+}
+
+.disclaimer {
+  opacity: 0.6;
+}
+
+.input-hint {
   letter-spacing: 0.02em;
 }
 </style>
