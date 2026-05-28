@@ -30,6 +30,8 @@ import java.util.stream.Collectors;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.security.core.context.SecurityContext;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Moderator Agent for multi-round group discussion orchestration.
@@ -168,7 +170,7 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         // Call LLM to select characters
-        String selection = callModeratorForSelection(userMessage, availableCharacters);
+        String selection = callModeratorForSelection(state.userId, userMessage, availableCharacters);
         log.info("[Moderator] LLM selection result: {}", selection);
 
         // Parse [SELECT:角色1,角色2] format
@@ -1176,7 +1178,7 @@ public class ModeratorAgent implements DisposableBean {
     private String buildModeratorPrompt(String userMessage, List<Character> characters) {
         try {
             Resource resource = resourceLoader.getResource("classpath:prompts/moderator-prompt.txt");
-            String template = resource.getContentAsString();
+            String template = resource.getContentAsString(StandardCharsets.UTF_8);
 
             // Build characters list
             StringBuilder charactersList = new StringBuilder();
@@ -1199,18 +1201,23 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Call LLM to select characters for the discussion.
      */
-    private String callModeratorForSelection(String userMessage, List<Character> characters) {
-        // Fast fallback - skip LLM call for now, use simple selection
-        // This ensures the discussion starts immediately without waiting for LLM
-        log.info("[Moderator] Using fast character selection (skipping LLM for responsiveness)");
+    private String callModeratorForSelection(String userId, String userMessage, List<Character> characters) {
+        String userApiKey = getApiKey(userId);
+        if (userApiKey == null) {
+            log.warn("[Moderator] No API key for user {}, using fallback selection", userId);
+            return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
+        }
 
-        // Simple selection: pick first 2 characters
-        String selectedNames = characters.stream()
-            .limit(2)
-            .map(Character::getName)
-            .collect(Collectors.joining(","));
-
-        return "[SELECT:" + selectedNames + "]";
+        try {
+            String prompt = buildModeratorPrompt(userMessage, characters);
+            ChatLanguageModel chatModel = aiService.createChatModelWithApiKey(userApiKey);
+            String response = chatModel.chat(prompt);
+            log.info("[Moderator] LLM selection response: {}", response);
+            return response;
+        } catch (Exception e) {
+            log.error("[Moderator] LLM selection failed: {}, using fallback", e.getMessage());
+            return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
+        }
     }
 
     @Override

@@ -85,6 +85,13 @@ public class AIService {
     }
 
     /**
+     * Generate a chat model with the user's API key for moderator selection.
+     */
+    public ChatLanguageModel createChatModelWithApiKey(String userApiKey) {
+        return createChatModel(userApiKey);
+    }
+
+    /**
      * Generate a streaming response for a character given the user message.
      * Uses callbacks to deliver chunks as they arrive.
      *
