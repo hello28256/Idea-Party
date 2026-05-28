@@ -142,4 +142,77 @@ class ExtractMentionedCharacterTest {
         assertEquals("Alice", extract("alice hello", roomCharacters));
         assertEquals("Alice", extract("@ALICE hello", roomCharacters));
     }
+
+    @Test
+    @DisplayName("Name followed by question words without space should extract name")
+    void nameWithQuestionWords_noSpace_shouldExtract() throws Exception {
+        // "name + question word" patterns - no space between name and question
+        assertEquals("李四", extract("李四你怎么看", roomCharacters));
+        assertEquals("李四", extract("李四你觉得呢", roomCharacters));
+        assertEquals("李四", extract("李四，怎么了", roomCharacters));
+        assertEquals("Alice", extract("Alice你觉得呢", roomCharacters));
+    }
+
+    @Test
+    @DisplayName("Name followed by comma and text should extract name")
+    void nameWithComma_shouldExtract() throws Exception {
+        assertEquals("李四", extract("李四，你对这个问题怎么看", roomCharacters));
+    }
+
+    // ====== Tests for isOpenEndedQuestion ======
+
+    private boolean isOpenEnded(String content) throws Exception {
+        Method method = ChatSocketHandler.class.getDeclaredMethod("isOpenEndedQuestion", String.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(handler, content);
+    }
+
+    @Test
+    @DisplayName("Open-ended questions should be detected")
+    void openEndedQuestion_shouldDetect() throws Exception {
+        assertTrue(isOpenEnded("大家怎么看这个问题"));
+        assertTrue(isOpenEnded("你们觉得呢"));
+        assertTrue(isOpenEnded("每个人都说说自己的想法"));
+        assertTrue(isOpenEnded("大家都有些什么看法"));
+        assertTrue(isOpenEnded("讨论一下这个问题"));
+        assertTrue(isOpenEnded("你们都有些什么意见"));
+    }
+
+    @Test
+    @DisplayName("Direct questions should NOT be detected as open-ended")
+    void directQuestion_shouldNotDetect() throws Exception {
+        assertFalse(isOpenEnded("马云你怎么看"));
+        assertFalse(isOpenEnded("你觉得怎么样"));
+        assertFalse(isOpenEnded("这个问题怎么解决"));
+        assertFalse(isOpenEnded("李四说说你的看法")); // singular, not "每个人都"
+        assertFalse(isOpenEnded("你怎么认为"));
+    }
+
+    // ====== Tests for extractMultipleMentions ======
+
+    private List<String> extractMultiple(String content) throws Exception {
+        Method method = ChatSocketHandler.class.getDeclaredMethod("extractMultipleMentions", String.class, List.class);
+        method.setAccessible(true);
+        return (List<String>) method.invoke(handler, content, roomCharacters);
+    }
+
+    @Test
+    @DisplayName("Multi-target mentions should detect multiple characters")
+    void multiTargetMention_shouldDetectMultiple() throws Exception {
+        // This test uses the existing roomCharacters (李四, Alice)
+        // When we have 李四 and Alice in the room, mentions should be detected
+        String content1 = "李四和Alice观点有什么不同";
+        List<String> result1 = extractMultiple(content1);
+        assertTrue(result1.contains("李四"), "Should contain 李四, got: " + result1);
+        assertTrue(result1.contains("Alice"), "Should contain Alice, got: " + result1);
+    }
+
+    @Test
+    @DisplayName("Multi-target with Chinese comma separator")
+    void multiTargetWithCommaSeparator() throws Exception {
+        String content = "李四、Alice都觉得对";
+        List<String> result = extractMultiple(content);
+        assertTrue(result.contains("李四"), "Should contain 李四, got: " + result);
+        assertTrue(result.contains("Alice"), "Should contain Alice, got: " + result);
+    }
 }

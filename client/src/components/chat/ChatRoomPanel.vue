@@ -80,18 +80,6 @@ const { isConnected, sendMessage, leaveRoom, pauseDiscussion, resumeDiscussion }
   },
   onModeratorMessage: (data: { content: string; type: string }) => {
     messageStore.moderatorMessage = data
-    // Add moderator message to list
-    messageStore.addMessage({
-      id: `mod-${Date.now()}`,
-      content: data.content,
-      senderType: 'MODERATOR' as any,
-      roomId: props.roomId,
-      characterId: null,
-      characterName: '主持人',
-      avatarUrl: null,
-      streaming: false,
-      createdAt: new Date().toISOString()
-    })
   }
 }, authStore.accessToken)
 

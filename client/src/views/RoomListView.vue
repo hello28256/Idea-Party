@@ -55,22 +55,6 @@ function resolveAvatarUrl(url: string | null | undefined): string {
   return url
 }
 
-// Handle avatar load error
-function handleAvatarError(event: Event) {
-  const img = event.target as HTMLImageElement
-  img.style.display = 'none'
-  const placeholder = img.parentElement?.querySelector('.member-avatar-placeholder') as HTMLElement
-  if (placeholder) {
-    placeholder.style.display = 'flex'
-  }
-}
-
-// Get initial from name for avatar placeholder
-function getNameInitial(name: string | null | undefined): string {
-  if (!name) return 'U'
-  return name.charAt(0).toUpperCase()
-}
-
 // Load saved collapse state from localStorage
 function loadLayoutState() {
   try {
@@ -896,11 +880,13 @@ async function handleInviteMember() {
                         :src="resolveAvatarUrl(member.avatarUrl)"
                         :alt="member.displayName"
                         class="member-avatar"
-                        @error="handleAvatarError"
                       />
-                      <div v-show="!member.avatarUrl || true" class="member-avatar-placeholder">
-                        {{ getNameInitial(member.displayName) }}
-                      </div>
+                      <img
+                        v-else
+                        src="/image.png"
+                        :alt="member.displayName"
+                        class="member-avatar"
+                      />
                     </div>
                     <div class="member-info">
                       <strong>{{ member.displayName }}</strong>

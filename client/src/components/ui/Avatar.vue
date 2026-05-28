@@ -64,18 +64,14 @@ watch(() => props.src, () => {
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow:
-    0 2px 6px rgba(44, 36, 22, 0.1),
-    0 1px 2px rgba(44, 36, 22, 0.06);
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s ease;
-  border: 2px solid var(--color-cream);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .avatar:hover {
-  transform: scale(1.08);
-  box-shadow:
-    0 4px 12px rgba(44, 36, 22, 0.15),
-    0 2px 4px rgba(44, 36, 22, 0.1);
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
 .avatar-small {
@@ -116,6 +112,11 @@ watch(() => props.src, () => {
   .avatar-placeholder {
     background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
     color: #f0d78c;
+  }
+
+  .avatar {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 }
 

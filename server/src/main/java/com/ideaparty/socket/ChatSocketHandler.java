@@ -27,10 +27,12 @@ import lombok.RequiredArgsConstructor;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @Slf4j
 @Component
@@ -40,7 +42,23 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> sessionUsers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> roomLastSpeaker = new ConcurrentHashMap<>();  // Track last speaker per room
+    // Track recent AI responses per room for cross-agent context (keeps last 5 responses)
+    private final ConcurrentHashMap<String, List<RecentResponse>> roomRecentResponses = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Simple record to store recent response context
+    private static class RecentResponse {
+        final String characterName;
+        final String content;
+        final long timestamp;
+
+        RecentResponse(String characterName, String content) {
+            this.characterName = characterName;
+            this.content = content;
+            this.timestamp = System.currentTimeMillis();
+        }
+    }
     private final MessageService messageService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
@@ -208,20 +226,22 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     triggerAIForRoom(roomId, content, userId, null);
                 }
             } else {
-                // In dialogue mode, check if user @mentioned or directly named a character
-                String mentionedCharacter = room != null
-                    ? extractMentionedCharacter(content, room.getCharacters().stream().toList())
-                    : null;
-                triggerAIForRoom(roomId, content, userId, mentionedCharacter);
+                // In dialogue mode, use moderator to select who should respond
+                // This ensures only the relevant character replies, not everyone
+                log.info("[WS] Dialogue mode: routing through moderator for character selection");
+                triggerAIViaModerator(roomId, content, userId, room);
             }
         }
     }
 
     /**
      * Extract character name from message content.
-     * Supports two formats:
+     * Supports multiple formats:
      * 1. @角色名 - @mention format (takes priority)
-     * 2. 角色名 消息 - direct name at message start (matched against room characters)
+     * 2. 角色名你怎么看 - direct name followed by question (no space needed)
+     * 3. 角色名 at message start - matched against room characters
+     *
+     * Returns the matched character name or null if no explicit mention found.
      */
     private String extractMentionedCharacter(String content, List<Character> characters) {
         if (content == null || content.isBlank() || characters == null || characters.isEmpty()) {
@@ -249,11 +269,23 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         return c.getName(); // Return actual character name
                     }
                 }
-                // If @mention doesn't match, fall through to direct name detection
             }
         }
 
-        // Format 2: 角色名 at message start - only match if it matches a room character
+        // Format 2: 角色名 + 疑问词 (no space) - e.g., "马云你怎么看", "马化腾你觉得呢"
+        // Check if message starts with a character name followed by a question word
+        for (Character c : characters) {
+            String name = c.getName();
+            if (trimmed.toLowerCase().startsWith(name.toLowerCase())) {
+                String afterName = trimmed.substring(name.length());
+                // If what follows looks like a question or comment, it's a mention
+                if (afterName.matches("[，,， ].*") || afterName.matches("[？?！!].*") || afterName.matches(".*[你说看觉得怎么看觉得如何怎么样].*")) {
+                    return c.getName();
+                }
+            }
+        }
+
+        // Format 3: 角色名 at message start (with space separator)
         String[] words = trimmed.split("[ \\t\\n\\r\\f]");
         if (words.length > 0) {
             String firstWord = words[0];
@@ -268,6 +300,44 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
 
         return null;
+    }
+
+    /**
+     * Extract multiple character names from message content for multi-target scenarios.
+     * e.g., "马云和马化腾观点有什么不同" → [马云, 马化腾]
+     */
+    private List<String> extractMultipleMentions(String content, List<Character> characters) {
+        List<String> mentioned = new ArrayList<>();
+        if (content == null || characters == null || characters.isEmpty()) {
+            return mentioned;
+        }
+
+        String trimmed = content.trim();
+
+        // Check for "角色1和角色2" or "角色1、角色2" patterns
+        // Both names can appear before or after the separator
+        for (Character c : characters) {
+            String name = c.getName();
+            // Check if this character name appears in the content
+            if (trimmed.contains(name)) {
+                // Check if it's part of a "X和Y" or "X、Y" pattern
+                // X can be before OR after the separator
+                String beforeAnd = name + "和";
+                String beforeComma = name + "、";
+                String afterAnd = "和" + name;
+                String afterComma = "、" + name;
+
+                boolean isPartOfMultiTarget =
+                    trimmed.contains(beforeAnd) || trimmed.contains(beforeComma) ||
+                    trimmed.contains(afterAnd) || trimmed.contains(afterComma);
+
+                if (isPartOfMultiTarget && !mentioned.contains(name)) {
+                    mentioned.add(name);
+                }
+            }
+        }
+
+        return mentioned;
     }
 
     public void triggerAIForRoom(String roomId, String userMessage, String userId) {
@@ -344,6 +414,15 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     try {
                         log.info("[WS] onResponse callback - characterId: {}, content length: {}, isComplete: {}",
                             fragment.getCharacterId(), fragment.getContent().length(), fragment.isComplete());
+
+                        // Update last speaker and active thread owner for this room
+                        roomLastSpeaker.put(roomId, fragment.getCharacterName());
+                        roomActiveThreadOwner.put(roomId, fragment.getCharacterName());
+                        log.info("[WS] Updated roomLastSpeaker and activeThreadOwner for room {}: {}", roomId, fragment.getCharacterName());
+
+                        // Store recent response for cross-agent context
+                        addRecentResponse(roomId, fragment.getCharacterName(), fragment.getContent());
+
                         // 保存消息到数据库
                         UUID characterUuid = UUID.fromString(fragment.getCharacterId());
                         Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
@@ -355,6 +434,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         responseData.put("senderType", "CHARACTER");
                         responseData.put("characterId", fragment.getCharacterId());
                         responseData.put("characterName", fragment.getCharacterName());
+                        responseData.put("avatarUrl", fragment.getAvatarUrl());
                         responseData.put("roomId", roomId);
                         responseData.put("id", savedMessage.getId());
                         responseData.put("streaming", false);
@@ -457,12 +537,17 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
                         Message.SenderType.CHARACTER, fragment.getContent());
 
+                    // Update active thread owner
+                    roomActiveThreadOwner.put(roomId, fragment.getCharacterName());
+                    roomLastSpeaker.put(roomId, fragment.getCharacterName());
+
                     // 广播到 WebSocket 房间（包含 message id 用于去重）
                     Map<String, Object> responseData = new java.util.HashMap<>();
                     responseData.put("content", fragment.getContent());
                     responseData.put("senderType", "CHARACTER");
                     responseData.put("characterId", fragment.getCharacterId());
                     responseData.put("characterName", fragment.getCharacterName());
+                    responseData.put("avatarUrl", fragment.getAvatarUrl());
                     responseData.put("roomId", roomId);
                     responseData.put("id", savedMessage.getId());
                     String responseEvent = "42[\"chat message\","
@@ -504,6 +589,222 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         moderatorAgent.cancelRoom(roomId);
 
         session.sendMessage(new TextMessage("42[\"discussion-stopped\",{\"roomId\":\"" + roomId + "\"}]"));
+    }
+
+    /**
+     * Route AI response through moderator for dialogue mode.
+     * This ensures only the relevant character responds based on:
+     * 1. Thread continuity (active conversation thread owner) - HIGHEST PRIORITY
+     * 2. Explicit @mention
+     * 3. Last speaker (if user message is contextual)
+     * 4. Moderator semantic analysis
+     */
+    private void triggerAIViaModerator(String roomId, String content, String userId, Room room) {
+        try {
+            if (room == null) {
+                log.warn("[WS] triggerAIViaModerator - room is null");
+                return;
+            }
+
+            List<Character> allCharacters = room.getCharacters().stream().toList();
+            if (allCharacters.isEmpty()) {
+                log.warn("[WS] triggerAIViaModerator - no characters in room");
+                return;
+            }
+
+            // Step 1: Check if user explicitly mentioned a character (overrides thread continuity)
+            String mentionedCharacter = extractMentionedCharacter(content, allCharacters);
+            String recentContext = getRecentContext(roomId);
+            if (mentionedCharacter != null) {
+                log.info("[WS] triggerAIViaModerator - explicit @mention detected: {}", mentionedCharacter);
+                // Update last speaker when user explicitly mentions someone
+                roomLastSpeaker.put(roomId, mentionedCharacter);
+                roomActiveThreadOwner.put(roomId, mentionedCharacter);
+                // Append recent context so the new character knows what was discussed
+                String messageWithContext = content + recentContext;
+                triggerAIForRoom(roomId, messageWithContext, userId, mentionedCharacter);
+                return;
+            }
+
+            // Step 1.5: Check for multi-target mentions (e.g., "马云和马化腾观点有什么不同")
+            List<String> multipleMentions = extractMultipleMentions(content, allCharacters);
+            if (multipleMentions.size() > 1) {
+                log.info("[WS] triggerAIViaModerator - multi-target mentions detected: {}", multipleMentions);
+                // Route to first mentioned character for now (sequential responses)
+                String firstMention = multipleMentions.get(0);
+                roomLastSpeaker.put(roomId, firstMention);
+                roomActiveThreadOwner.put(roomId, firstMention);
+                String messageWithContext = content + recentContext;
+                triggerAIForRoom(roomId, messageWithContext, userId, firstMention);
+                return;
+            }
+
+            // Step 2: Check thread continuity FIRST (before semantic matching)
+            // If message is short/contextual and we have an active thread owner, continue that thread
+            String activeThreadOwner = roomActiveThreadOwner.get(roomId);
+            boolean isContextualMessage = isShortOrContextualMessage(content);
+            if (activeThreadOwner != null && isContextualMessage) {
+                // Verify the active thread owner is still in the room
+                Character threadOwner = allCharacters.stream()
+                    .filter(c -> c.getName().equals(activeThreadOwner))
+                    .findFirst()
+                    .orElse(null);
+                if (threadOwner != null) {
+                    log.info("[WS] triggerAIViaModerator - thread continuity: routing to active thread owner: {}", activeThreadOwner);
+                    triggerAIForRoom(roomId, content, userId, activeThreadOwner);
+                    return;
+                }
+            }
+
+            // Step 3: Check last speaker if message is short/contextual (fallback to recent speaker)
+            String lastSpeaker = roomLastSpeaker.get(roomId);
+            if (lastSpeaker != null && isContextualMessage) {
+                log.info("[WS] triggerAIViaModerator - using last speaker: {} for contextual message", lastSpeaker);
+                triggerAIForRoom(roomId, content, userId, lastSpeaker);
+                return;
+            }
+
+            // Step 3.5: Check for open-ended question - invite multiple characters
+            if (isOpenEndedQuestion(content)) {
+                log.info("[WS] triggerAIViaModerator - open-ended question detected, inviting multiple characters");
+                // Let all characters respond (pass null to indicate no single target)
+                triggerAIForRoom(roomId, content, userId, null);
+                return;
+            }
+
+            // Step 4: Fallback to first character (simple default)
+            log.info("[WS] triggerAIViaModerator - falling back to first character");
+            // For first character in a new topic, include recent context
+            String messageWithContext = content + recentContext;
+            triggerAIForRoom(roomId, messageWithContext, userId, allCharacters.get(0).getName());
+
+        } catch (Exception e) {
+            log.error("[WS] triggerAIViaModerator - error: {}", e.getMessage(), e);
+        }
+    }
+
+    // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
+    private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
+
+    /**
+     * Update the active thread owner for a room after a character responds.
+     * Call this after a character's complete response is broadcast.
+     */
+    public void updateRoomActiveThread(String roomId, String characterName) {
+        if (roomId == null || characterName == null) return;
+        roomActiveThreadOwner.put(roomId, characterName);
+        log.info("[WS] Updated active thread owner for room {}: {}", roomId, characterName);
+    }
+
+    /**
+     * Check if message is an open-ended question that invites multiple responses.
+     * Examples: "大家怎么看", "每个人都说说", "你们觉得呢"
+     */
+    private boolean isOpenEndedQuestion(String content) {
+        if (content == null || content.isBlank()) return false;
+        String trimmed = content.trim();
+
+        // First check: direct question patterns - these are NOT open-ended
+        // Single person addressed directly
+        if (trimmed.matches("^(你|您)觉得.*") ||
+            trimmed.matches("^(你|您)怎么.*") ||
+            trimmed.matches("^(你|您)看.*")) {
+            return false;
+        }
+
+        // Ends with question particle "吗" (definite question)
+        if (trimmed.matches(".*[吗吗？?]$")) {
+            return false;
+        }
+
+        // Open-ended patterns - these INVITE multiple responses
+        String[] openPatterns = {
+            "大家", "你们都", "每个人都", "讨论一下",
+            "都有什么", "大家有些什么", "你们都有些什么",
+            "发表一下", "大家都", "你们都", "每个人都.*说说"
+        };
+        for (String pattern : openPatterns) {
+            if (trimmed.contains(pattern)) {
+                return true;
+            }
+        }
+
+        // If starts with "大家" or "你们" and short, likely open-ended
+        if ((trimmed.startsWith("大家") || trimmed.startsWith("你们")) && trimmed.length() <= 15) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Store a recent AI response for cross-agent context.
+     */
+    public void addRecentResponse(String roomId, String characterName, String content) {
+        if (roomId == null || characterName == null || content == null) return;
+        List<RecentResponse> responses = roomRecentResponses.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>());
+        responses.add(new RecentResponse(characterName, content));
+        // Keep only last 5 responses
+        while (responses.size() > 5) {
+            responses.remove(0);
+        }
+        log.info("[WS] Added recent response from {} in room {}, total recent responses: {}",
+            characterName, roomId, responses.size());
+    }
+
+    /**
+     * Get recent responses as a formatted string for context.
+     */
+    public String getRecentContext(String roomId) {
+        List<RecentResponse> responses = roomRecentResponses.get(roomId);
+        if (responses == null || responses.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n\n[Recent conversation context - other characters said:]\n");
+        for (RecentResponse r : responses) {
+            // Truncate long responses
+            String truncated = r.content.length() > 200 ? r.content.substring(0, 200) + "..." : r.content;
+            sb.append("- ").append(r.characterName).append(": \"").append(truncated).append("\"\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Check if a message is short or highly contextual (likely a reply).
+     * Used for thread continuity decisions.
+     */
+    private boolean isShortOrContextualMessage(String content) {
+        if (content == null || content.isBlank()) {
+            return false;
+        }
+        String trimmed = content.trim();
+
+        // If message ends with question mark, NOT contextual (direct question)
+        if (trimmed.contains("？") || trimmed.contains("?")) {
+            return false;
+        }
+
+        // Short messages (less than 8 chars for Chinese) - highly likely to be contextual
+        if (trimmed.length() <= 8) {
+            return true;
+        }
+
+        // Contextual phrases that indicate a reply - only for relatively short messages
+        if (trimmed.length() <= 30) {
+            String[] contextualPhrases = {
+                "好", "好的", "同意", "有道理", "对", "没错",
+                "继续", "展开", "为什么", "不是", "我不同意", "我同意",
+                "哈哈", "嗯", "嗯嗯", "有意思", "继续说", "然后呢", "后来呢"
+            };
+            for (String phrase : contextualPhrases) {
+                if (trimmed.equals(phrase) || trimmed.startsWith(phrase + " ") || trimmed.endsWith(" " + phrase)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     @Override

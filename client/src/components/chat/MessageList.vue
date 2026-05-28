@@ -12,6 +12,52 @@ const props = defineProps<{
   streamingMessages?: Record<string, string>
 }>()
 
+// 消息分组：判断是否是连续消息（同一发送者，间隔 < 5分钟）
+interface MessageGroup {
+  message: ChatMessage
+  isFirstOfGroup: boolean
+  isLastOfGroup: boolean
+  showAvatar: boolean
+  showName: boolean
+}
+
+const messageGroups = computed<MessageGroup[]>(() => {
+  const result: MessageGroup[] = []
+  let lastSenderId: string | null = null
+  let lastTime: Date | null = null
+
+  props.messages.forEach((msg) => {
+    const senderId = msg.senderType === 'USER' ? 'user' : (msg.characterId || msg.characterName)
+    const msgTime = new Date(msg.createdAt)
+
+    // 判断是否与上一条是同一发送者的连续消息
+    const isSameSender = senderId === lastSenderId
+    const isContinuous = lastTime !== null &&
+      (msgTime.getTime() - lastTime.getTime()) < 5 * 60 * 1000 // 5分钟内
+
+    const isFirstOfGroup = !isSameSender || !isContinuous
+    const isLastOfGroup = true // 简化处理，实际需要看下一条
+
+    // 头像显示：仅在消息组第一条显示
+    const showAvatar = isFirstOfGroup
+    // 名字显示：仅在消息组第一条且非用户消息时显示
+    const showName = isFirstOfGroup && msg.senderType !== 'USER'
+
+    result.push({
+      message: msg,
+      isFirstOfGroup,
+      isLastOfGroup,
+      showAvatar,
+      showName,
+    })
+
+    lastSenderId = senderId
+    lastTime = msgTime
+  })
+
+  return result
+})
+
 // Compute streaming message bubbles
 const streamingMessageBubbles = computed(() => {
   if (!props.streamingMessages || Object.keys(props.streamingMessages).length === 0) return []
@@ -56,12 +102,6 @@ defineExpose({ scrollToBottom })
 
 <template>
   <div class="message-list">
-    <div class="messages-header">
-      <div class="header-flourish left"></div>
-      <span class="header-text">思想交流</span>
-      <div class="header-flourish right"></div>
-    </div>
-
     <div ref="scrollContainer" class="messages">
       <div v-if="!hasMessages()" class="empty-state">
         <div class="empty-icon">
@@ -75,10 +115,14 @@ defineExpose({ scrollToBottom })
 
       <template v-else>
         <MessageBubble
-          v-for="msg in messages"
-          :key="msg.id"
-          :message="msg"
-          :is-own="msg.senderType === 'USER'"
+          v-for="group in messageGroups"
+          :key="group.message.id"
+          :message="group.message"
+          :is-own="group.message.senderType === 'USER'"
+          :show-avatar="group.showAvatar"
+          :show-name="group.showName"
+          :is-first-of-group="group.isFirstOfGroup"
+          :is-last-of-group="group.isLastOfGroup"
         />
         <MessageBubble
           v-for="msg in streamingMessageBubbles"
@@ -86,6 +130,10 @@ defineExpose({ scrollToBottom })
           :message="msg"
           :is-own="false"
           :is-streaming="true"
+          :show-avatar="true"
+          :show-name="true"
+          :is-first-of-group="true"
+          :is-last-of-group="true"
         />
         <div v-if="thinkingCharacterId" class="thinking-area">
           <ThinkingIndicator :character-name="getCharacterName(thinkingCharacterId)" />
@@ -106,58 +154,6 @@ defineExpose({ scrollToBottom })
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.875rem;
-}
-
-.messages-header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.25rem;
-  padding: 0.75rem 0 1rem;
-  opacity: 0.5;
-}
-
-.header-text {
-  font-family: 'Playfair Display', serif;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.25em;
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.header-flourish {
-  width: 50px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
-  position: relative;
-}
-
-.header-flourish::before {
-  content: '✦';
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.5rem;
-  color: var(--color-gold);
-}
-
-.header-flourish.left {
-  background: linear-gradient(90deg, transparent, var(--color-gold));
-}
-
-.header-flourish.left::before {
-  right: -2px;
-}
-
-.header-flourish.right {
-  background: linear-gradient(90deg, var(--color-gold), transparent);
-}
-
-.header-flourish.right::before {
-  left: -2px;
 }
 
 /* 关键：height: 0 让 flex: 1 计算出真实剩余高度 */
@@ -169,29 +165,29 @@ defineExpose({ scrollToBottom })
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1.125rem;
-  padding: 0 1.5rem 1rem;
+  padding: 12px 0;
   scroll-behavior: smooth;
   scrollbar-width: thin;
-  scrollbar-color: var(--color-gold) var(--color-parchment);
+  scrollbar-color: var(--color-gold) transparent;
 }
 
 .messages::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 .messages::-webkit-scrollbar-track {
-  background: var(--color-parchment);
-  border-radius: 3px;
+  background: transparent;
 }
 
 .messages::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--color-gold) 0%, var(--color-gold-dark) 100%);
+  background: var(--color-gold);
   border-radius: 3px;
+  opacity: 0.5;
 }
 
 .messages::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--color-gold-light) 0%, var(--color-gold) 100%);
+  background: var(--color-gold-dark);
+  opacity: 1;
 }
 
 .empty-state {
@@ -205,7 +201,7 @@ defineExpose({ scrollToBottom })
 }
 
 .empty-icon {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   animation: gentleFloat 4s ease-in-out infinite;
   opacity: 0.6;
 }
@@ -217,23 +213,23 @@ defineExpose({ scrollToBottom })
 
 .empty-title {
   font-family: 'Playfair Display', serif;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 500;
   color: var(--color-navy);
-  margin: 0 0 0.875rem 0;
+  margin: 0 0 0.75rem 0;
   letter-spacing: 0.02em;
 }
 
 .empty-body {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--color-text-secondary);
   margin: 0;
-  max-width: 300px;
-  line-height: 1.7;
+  max-width: 280px;
+  line-height: 1.6;
 }
 
 .thinking-area {
-  padding: 1rem 0 0;
+  padding: 8px 16px 0;
   flex-shrink: 0;
 }
 

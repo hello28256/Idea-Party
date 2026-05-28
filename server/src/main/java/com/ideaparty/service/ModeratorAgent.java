@@ -99,6 +99,11 @@ public class ModeratorAgent implements DisposableBean {
         AtomicBoolean currentStreamCancelled = new AtomicBoolean(false);
         String userId = "";  // User ID for API key lookup
         List<String> userMessageHistory = new CopyOnWriteArrayList<>();  // Last 10 user messages
+
+        // Thread ownership tracking - the active conversation thread agent
+        volatile String activeThreadOwner = null;  // Character name who owns the current thread
+        volatile long lastThreadUpdateTime = 0;    // Timestamp of last thread update
+        volatile String lastTopic = "";            // Current discussion topic for continuity check
     }
 
     // ========== State Machine Methods ==========
@@ -165,6 +170,61 @@ public class ModeratorAgent implements DisposableBean {
         processModeratorAnalysis(roomId, userMessage);
     }
 
+    /**
+     * Update the active thread owner after a character responds.
+     * This maintains conversation continuity by tracking who the user is currently talking to.
+     */
+    private void updateActiveThread(String roomId, DiscussionState state, String characterName) {
+        if (state == null || characterName == null) return;
+
+        long now = System.currentTimeMillis();
+        state.activeThreadOwner = characterName;
+        state.lastThreadUpdateTime = now;
+
+        log.info("[Moderator] Thread updated for room {}: active owner = {}, timestamp = {}",
+            roomId, characterName, now);
+    }
+
+    /**
+     * Check if the current user message is likely continuing the same thread.
+     * Returns true if the message should be routed to the active thread owner.
+     */
+    private boolean isContinuingThread(DiscussionState state, String userMessage, String selectedAgentName) {
+        if (state == null || state.activeThreadOwner == null) {
+            return false;
+        }
+
+        // If user explicitly mentioned a different agent, don't force thread continuity
+        if (selectedAgentName != null && !selectedAgentName.equals(state.activeThreadOwner)) {
+            return false;
+        }
+
+        // Short contextual messages strongly suggest thread continuation
+        if (isShortContextualMessage(userMessage)) {
+            return true;
+        }
+
+        // If message is very short and thread was recently active (within 2 minutes)
+        long twoMinutesAgo = System.currentTimeMillis() - 120000;
+        if (userMessage.trim().length() < 20 && state.lastThreadUpdateTime > twoMinutesAgo) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isShortContextualMessage(String message) {
+        if (message == null || message.isBlank()) return false;
+        String trimmed = message.trim();
+        if (trimmed.length() < 10) return true;
+
+        String[] phrases = {"继续", "为什么", "展开", "说说", "然后呢", "有意思", "有道理", "同意", "对", "没错", "不是", "我同意", "我不同意", "嗯", "哈哈"};
+        for (String phrase : phrases) {
+            if (trimmed.contains(phrase)) return true;
+        }
+        return false;
+    }
+
     private void processModeratorAnalysis(String roomId, String userMessage) {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null) return;
@@ -186,6 +246,22 @@ public class ModeratorAgent implements DisposableBean {
         // Fallback if no characters matched
         if (selected.isEmpty()) {
             selected = availableCharacters.subList(0, Math.min(1, availableCharacters.size()));
+        }
+
+        // Thread continuity check: if message is likely continuing same thread, prefer active thread owner
+        if (selected.size() == 1 && isContinuingThread(state, userMessage, selected.get(0).getName())) {
+            String activeOwner = state.activeThreadOwner;
+            if (activeOwner != null) {
+                Character threadOwner = availableCharacters.stream()
+                    .filter(c -> c.getName().equals(activeOwner))
+                    .findFirst()
+                    .orElse(null);
+                if (threadOwner != null && !selected.contains(threadOwner)) {
+                    log.info("[Moderator] Thread continuity: routing to active thread owner {} instead of semantic match", activeOwner);
+                    selected = new ArrayList<>();
+                    selected.add(threadOwner);
+                }
+            }
         }
 
         state.selectedCharacters = new ArrayList<>(selected);
@@ -218,12 +294,10 @@ public class ModeratorAgent implements DisposableBean {
             log.info("[Moderator] Parsed JSON - type: {}, confidence: {}, targets: {}",
                 messageType, confidence, targetAgents);
 
-            // Handle broadcast - skip or select based on context
+            // Handle broadcast - all characters speak
             if ("broadcast".equals(messageType)) {
-                log.info("[Moderator] Broadcast requested - selecting one character as fallback");
-                if (!availableCharacters.isEmpty()) {
-                    selected.add(availableCharacters.get(0));
-                }
+                log.info("[Moderator] Broadcast requested - all characters will speak");
+                selected.addAll(availableCharacters);
                 return selected;
             }
 
@@ -463,8 +537,8 @@ public class ModeratorAgent implements DisposableBean {
 
                     if (!state.isRunning) break;
 
-                    // Random delay 10-40 seconds before this character speaks
-                    int delaySeconds = 10 + (int) (Math.random() * 31);
+                    // Random delay 1-3 seconds before this character speaks
+                    int delaySeconds = 1 + (int) (Math.random() * 2);
                     log.info("[Moderator] [Round {}] Waiting {}s before {} speaks",
                         state.currentRound, delaySeconds, character.getName());
 
@@ -541,7 +615,8 @@ public class ModeratorAgent implements DisposableBean {
                             character.getId().toString(),
                             character.getName(),
                             chunk,
-                            false
+                            false,
+                            character.getAvatarUrl()
                         ));
                     } catch (Exception e) {
                         log.warn("[Moderator] [{}] onChunk failed: {}", character.getName(), e.getMessage());
@@ -553,7 +628,8 @@ public class ModeratorAgent implements DisposableBean {
                         character.getId().toString(),
                         character.getName(),
                         responseText,
-                        true
+                        true,
+                        character.getAvatarUrl()
                     );
                     state.responses.add(fragment);
                     log.info("[Moderator] [{}] Complete - length: {}", character.getName(), responseText.length());
@@ -565,7 +641,8 @@ public class ModeratorAgent implements DisposableBean {
                         character.getId().toString(),
                         character.getName(),
                         "Error: " + error.getMessage(),
-                        true
+                        true,
+                        character.getAvatarUrl()
                     );
                     state.responses.add(fragment);
                     latch.countDown();
@@ -581,7 +658,8 @@ public class ModeratorAgent implements DisposableBean {
                     character.getId().toString(),
                     character.getName(),
                     timeoutResponse,
-                    true
+                    true,
+                    character.getAvatarUrl()
                 );
                 state.responses.add(timeoutFragment);
                 onResponse.accept(timeoutFragment);
@@ -666,6 +744,9 @@ public class ModeratorAgent implements DisposableBean {
                     );
                     state.responses.add(fragment);
                     log.info("[Moderator] [StateMachine] [{}] Complete - length: {}", character.getName(), responseText.length());
+
+                    // Update active thread owner after character responds
+                    updateActiveThread(roomId, state, character.getName());
 
                     try {
                         // Broadcast complete response to room
@@ -825,9 +906,9 @@ public class ModeratorAgent implements DisposableBean {
         for (int i = 0; i < characters.size(); i++) {
             Character character = characters.get(i);
 
-            // Random delay between 1-5 seconds before each character starts
+            // Random delay between 1-3 seconds before each character starts
             if (i > 0) {
-                int delayMs = 1000 + (int) (Math.random() * 4000); // 1-5 seconds
+                int delayMs = 1000 + (int) (Math.random() * 2000); // 1-3 seconds
                 log.info("[Moderator] [{}] Waiting {}ms before starting (character {})",
                     character.getName(), delayMs, i + 1);
                 try {
@@ -867,7 +948,8 @@ public class ModeratorAgent implements DisposableBean {
                                     charId,
                                     character.getName(),
                                     chunk,
-                                    false
+                                    false,
+                                    character.getAvatarUrl()
                                 ));
                             }
                         } catch (Exception e) {
@@ -883,7 +965,8 @@ public class ModeratorAgent implements DisposableBean {
                             character.getId().toString(),
                             character.getName(),
                             responseText,
-                            true
+                            true,
+                            character.getAvatarUrl()
                         ));
                         latch.countDown();
                     },
@@ -893,7 +976,8 @@ public class ModeratorAgent implements DisposableBean {
                             character.getId().toString(),
                             character.getName(),
                             "Error: " + error.getMessage(),
-                            true
+                            true,
+                            character.getAvatarUrl()
                         ));
                         latch.countDown();
                     }
@@ -911,7 +995,8 @@ public class ModeratorAgent implements DisposableBean {
                         character.getId().toString(),
                         character.getName(),
                         responseText,
-                        true
+                        true,
+                        character.getAvatarUrl()
                     ));
                 } else {
                     log.info("[Moderator] [{}] AI response completed", character.getName());
@@ -932,7 +1017,8 @@ public class ModeratorAgent implements DisposableBean {
                     character.getId().toString(),
                     character.getName(),
                     "Error: " + e.getMessage(),
-                    true
+                    true,
+                    character.getAvatarUrl()
                 ));
             }
         }
@@ -1003,7 +1089,8 @@ public class ModeratorAgent implements DisposableBean {
                                         charId,
                                         character.getName(),
                                         chunk,
-                                        false
+                                        false,
+                                        character.getAvatarUrl()
                                     ));
                                 }
                             } catch (Exception e) {
@@ -1020,7 +1107,8 @@ public class ModeratorAgent implements DisposableBean {
                                 character.getId().toString(),
                                 character.getName(),
                                 responseText,
-                                true
+                                true,
+                                character.getAvatarUrl()
                             ));
                             latch.countDown();
                         },
@@ -1032,7 +1120,8 @@ public class ModeratorAgent implements DisposableBean {
                                 character.getId().toString(),
                                 character.getName(),
                                 "Error: " + error.getMessage(),
-                                true
+                                true,
+                                character.getAvatarUrl()
                             ));
                             latch.countDown();
                         }
@@ -1052,7 +1141,8 @@ public class ModeratorAgent implements DisposableBean {
                             character.getId().toString(),
                             character.getName(),
                             responseText,
-                            true
+                            true,
+                            character.getAvatarUrl()
                         ));
                     } else {
                         log.info("[Moderator] [Round {}] [{}] Latch released successfully",
@@ -1222,7 +1312,34 @@ public class ModeratorAgent implements DisposableBean {
 
         prompt.append("CRITICAL: When responding, ONLY speak as yourself. Do NOT repeat, quote, or include " +
                       "other people's messages in your response. Your reply should be your own words only, " +
-                      "expressed from your character's perspective.");
+                      "expressed from your character's perspective.\n\n");
+
+        // Add character consistency rules
+        prompt.append("=== CHARACTER CONSISTENCY RULES ===\n\n");
+        prompt.append("You are a CONSISTENT CHARACTER with long-term memory. You must maintain:\n");
+        prompt.append("1. VIEWPOINT CONSISTENCY - Don't contradict yourself across messages\n");
+        prompt.append("2. PERSONALITY CONSISTENCY - Your character traits remain stable\n");
+        prompt.append("3. PREFERENCE CONSISTENCY - Your likes/dislikes are long-term (e.g., spicy food tolerance)\n");
+        prompt.append("4. EMOTIONAL CONTINUITY - Your mood evolves naturally, not reset each message\n\n");
+
+        prompt.append("CRITICAL: You must remember what YOU have said recently.\n");
+        prompt.append("- If user quotes something you said before, ACKNOWLEDGE it (\"Yes, I mentioned that...\")\n");
+        prompt.append("- Don't deny your previous statements\n");
+        prompt.append("- Build on your earlier points, don't contradict them\n");
+        prompt.append("- If you change your mind, explain WHY (\"I've been thinking about this...\")\n\n");
+
+        prompt.append("When user references your past statements:\n");
+        prompt.append("WRONG: \"I never said that\"\n");
+        prompt.append("RIGHT: \"Yes, you're right, I did mention that earlier. Let me expand on that...\"\n\n");
+
+        prompt.append("Response consistency check before replying:\n");
+        prompt.append("1. What have I said recently?\n");
+        prompt.append("2. Is my current response consistent with my earlier stance?\n");
+        prompt.append("3. Am I contradicting myself?\n");
+        prompt.append("4. Does this response maintain my character's personality?\n\n");
+
+        prompt.append("IMPORTANT: Character consistency TRUMPS trying to please the user.\n");
+        prompt.append("Don't change your stance just because the user disagrees.");
 
         log.info("[Moderator] [{}] Character prompt built, total length: {}", character.getName(), prompt.length());
         return prompt.toString();
@@ -1332,17 +1449,24 @@ public class ModeratorAgent implements DisposableBean {
         private final String characterName;
         private final String content;
         private final boolean isComplete;
+        private final String avatarUrl;
 
         public ResponseFragment(String characterId, String characterName, String content, boolean isComplete) {
+            this(characterId, characterName, content, isComplete, null);
+        }
+
+        public ResponseFragment(String characterId, String characterName, String content, boolean isComplete, String avatarUrl) {
             this.characterId = characterId;
             this.characterName = characterName;
             this.content = content;
             this.isComplete = isComplete;
+            this.avatarUrl = avatarUrl;
         }
 
         public String getCharacterId() { return characterId; }
         public String getCharacterName() { return characterName; }
         public String getContent() { return content; }
         public boolean isComplete() { return isComplete; }
+        public String getAvatarUrl() { return avatarUrl; }
     }
 }
