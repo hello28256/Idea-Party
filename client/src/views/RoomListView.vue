@@ -248,6 +248,10 @@ function handleCharacterUpdated(updatedCharacter: any) {
   if (index !== -1) {
     characterStore.characters[index] = updatedCharacter
   }
+  // Refresh room data if in a chat room
+  if (selectedRoomId.value) {
+    roomStore.fetchRoomById(selectedRoomId.value)
+  }
   closeEditCharacterModal()
 }
 
@@ -789,7 +793,7 @@ async function handleInviteMember() {
                     <strong>{{ room.name }}</strong>
                     <span>{{ formatDate(room.updatedAt) }}</span>
                   </div>
-                  <p>{{ room.topic || '暂无主题' }}</p>
+                  <p>{{ room.topic || (room.characters?.[0]?.description) || '暂无主题' }}</p>
                   <small>{{ room.characterCount }} 个角色</small>
                 </div>
               </button>
@@ -818,63 +822,101 @@ async function handleInviteMember() {
 
           <!-- Right: Characters Panel -->
           <aside class="room-characters-panel">
-            <!-- Tab Switcher with Collapse Button -->
-            <div class="panel-tabs-wrapper">
-              <button
-                class="icon-close-role-panel-button"
-                @click="isRolePanelCollapsed = true"
-                aria-label="收起角色面板"
-              >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                </svg>
-              </button>
-              <div class="panel-tabs">
+            <!-- Single Chat Mode: Just show character info without tabs -->
+            <template v-if="currentRoomCharacters.length === 1">
+              <div class="panel-tabs-wrapper">
                 <button
-                  class="panel-tab"
-                  :class="{ active: !showMembersTab }"
-                  @click="showMembersTab = false"
+                  class="icon-close-role-panel-button"
+                  @click="isRolePanelCollapsed = true"
+                  aria-label="收起角色面板"
                 >
-                  聊天室角色
-                </button>
-                <button
-                  class="panel-tab"
-                  :class="{ active: showMembersTab }"
-                  @click="showMembersTab = true; roomStore.fetchRoomMembers(selectedRoomId!)"
-                >
-                  聊天室成员
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
                 </button>
               </div>
-            </div>
-
-            <!-- Characters Tab -->
-            <template v-if="!showMembersTab">
               <div class="characters-panel-header">
-                <div>
-                  <h3>聊天室角色</h3>
-                  <p>{{ currentRoomCharacters.length }} 个角色参与讨论</p>
-                </div>
-                <button @click="openAddCharacterModal" class="add-char-btn">+ 邀请</button>
+                <h3>对话角色</h3>
               </div>
-
-            <div v-if="currentRoomCharacters.length === 0" class="characters-empty">
-              <div class="empty-role-icon">👥</div>
-              <h4>还没有角色</h4>
-              <p>添加角色后，就可以开始多角色对话。</p>
-              <button @click="openAddCharacterModal">添加角色</button>
-            </div>
-
-            <div v-else class="characters-list">
-              <div v-for="char in currentRoomCharacters" :key="char.id" class="character-chip-card">
-                <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" />
-                <div v-else class="char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
-                <div>
-                  <strong>{{ char.name }}</strong>
-                  <span>{{ char.description || '暂无描述' }}</span>
+              <div class="characters-list">
+                <div class="character-chip-card">
+                  <img v-if="currentRoomCharacters[0].avatarUrl" :src="currentRoomCharacters[0].avatarUrl" :alt="currentRoomCharacters[0].name" />
+                  <div v-else class="char-avatar-placeholder">{{ currentRoomCharacters[0].name?.charAt(0) }}</div>
+                  <div class="character-info-row">
+                    <div class="character-info">
+                      <strong>{{ currentRoomCharacters[0].name }}</strong>
+                      <span>{{ currentRoomCharacters[0].description || '暂无描述' }}</span>
+                    </div>
+                    <button @click="openEditCharacterModal(currentRoomCharacters[0])" class="edit-char-btn">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      编辑
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
             </template>
+
+            <!-- Group Chat Mode: Show tabs for roles and members -->
+            <template v-else>
+              <!-- Tab Switcher with Collapse Button -->
+              <div class="panel-tabs-wrapper">
+                <button
+                  class="icon-close-role-panel-button"
+                  @click="isRolePanelCollapsed = true"
+                  aria-label="收起角色面板"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <div class="panel-tabs">
+                  <button
+                    class="panel-tab"
+                    :class="{ active: !showMembersTab }"
+                    @click="showMembersTab = false"
+                  >
+                    聊天室角色
+                  </button>
+                  <button
+                    class="panel-tab"
+                    :class="{ active: showMembersTab }"
+                    @click="showMembersTab = true; roomStore.fetchRoomMembers(selectedRoomId!)"
+                  >
+                    聊天室成员
+                  </button>
+                </div>
+              </div>
+
+              <!-- Characters Tab -->
+              <template v-if="!showMembersTab">
+                <div class="characters-panel-header">
+                  <div>
+                    <h3>聊天室角色</h3>
+                    <p>{{ currentRoomCharacters.length }} 个角色参与讨论</p>
+                  </div>
+                  <button @click="openAddCharacterModal" class="add-char-btn">+ 邀请</button>
+                </div>
+
+              <div v-if="currentRoomCharacters.length === 0" class="characters-empty">
+                  <div class="empty-role-icon">👥</div>
+                  <h4>还没有角色</h4>
+                  <p>添加角色后，就可以开始多角色对话。</p>
+                  <button @click="openAddCharacterModal">添加角色</button>
+                </div>
+
+                <div v-else class="characters-list">
+                  <div v-for="char in currentRoomCharacters" :key="char.id" class="character-chip-card">
+                    <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" />
+                    <div v-else class="char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
+                    <div>
+                      <strong>{{ char.name }}</strong>
+                      <span>{{ char.description || '暂无描述' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
 
             <!-- Members Tab -->
             <template v-if="showMembersTab">
@@ -933,6 +975,7 @@ async function handleInviteMember() {
               </div>
               <p class="mode-desc">{{ currentChatMode === 'dialogue' ? '角色响应一次结束' : '多角色轮流讨论' }}</p>
             </div>
+            </template>
           </aside>
         </div>
       </template>
@@ -3251,7 +3294,7 @@ async function handleInviteMember() {
   gap: 12px;
   padding: 12px;
   border-radius: 16px;
-  background: #f8fafc;
+  background: #f1f5f9;
   border: 1px solid #e2e8f0;
 }
 
@@ -3283,6 +3326,39 @@ async function handleInviteMember() {
 .dark .char-avatar-placeholder {
   background: #0f172a;
   color: #94a3b8;
+}
+
+.character-info-row {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 12px;
+}
+
+.character-info-row .character-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-char-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+  border-radius: 8px;
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.edit-char-btn:hover {
+  opacity: 0.85;
 }
 
 .character-chip-card strong {

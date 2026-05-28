@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRoomStore } from '@/stores/room'
+import { useCharacterStore } from '@/stores/character'
+import { useAuthStore } from '@/stores/auth'
+import { charactersApi } from '@/api/characters'
+import type { Character } from '@/types'
 
 interface Props {
   show: boolean
@@ -15,37 +19,217 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const roomStore = useRoomStore()
+const characterStore = useCharacterStore()
+const authStore = useAuthStore()
 
+// Mode: 'single' (单人对话) or 'group' (多人对话)
+const dialogMode = ref<'single' | 'group'>('single')
+
+// Group mode form (多人对话)
 const name = ref('')
 const topic = ref('')
+
+// Single mode: 'select' (选择角色) or 'create' (创建角色)
+const singleTab = ref<'select' | 'create'>('select')
+
+// Selected character for single mode
+const selectedCharacter = ref<Character | null>(null)
+
+// Create character form (单人对话模式下的创建角色表单)
+const createForm = ref({
+  name: '',
+  description: '',
+  avatarUrl: '',
+  prompt: ''
+})
+const creatingCharacter = ref(false)
+const generatingPrompt = ref(false)
+const avatarPreview = ref<string | null>(null)
+const uploadingAvatar = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+// Get user's own characters for selection
+const myCharacters = computed(() => {
+  return characterStore.characters.filter(
+    c => c.ownerId === authStore.user?.id && !c.isPreset
+  )
+})
+
 watch(() => props.show, (newShow) => {
   if (!newShow) {
+    // Reset to default state
+    dialogMode.value = 'single'
+    singleTab.value = 'select'
     name.value = ''
     topic.value = ''
+    selectedCharacter.value = null
+    createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
+    avatarPreview.value = null
     error.value = null
+  } else {
+    // Load characters
+    if (characterStore.characters.length === 0) {
+      characterStore.fetchCharacters()
+    }
   }
 })
 
-async function handleSubmit() {
-  if (!name.value.trim()) {
-    error.value = '请输入聊天室名称'
+function selectCharacter(character: Character) {
+  selectedCharacter.value = character
+  error.value = null
+}
+
+function switchToSelectTab() {
+  singleTab.value = 'select'
+  error.value = null
+}
+
+function switchToCreateTab() {
+  singleTab.value = 'create'
+  error.value = null
+}
+
+// Trigger avatar upload
+function triggerAvatarUpload() {
+  fileInputRef.value?.click()
+}
+
+async function handleAvatarFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    error.value = '只支持 JPEG、PNG、GIF、WebP 格式的图片'
     return
   }
 
-  loading.value = true
+  if (file.size > 5 * 1024 * 1024) {
+    error.value = '图片大小不能超过 5MB'
+    return
+  }
+
+  uploadingAvatar.value = true
   error.value = null
 
   try {
-    const room = await roomStore.createRoom(name.value.trim(), topic.value.trim() || undefined)
-    emit('created', room.id)
-    emit('close')
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : '创建失败'
+    const url = await characterStore.uploadAvatar(file)
+    if (url) {
+      createForm.value.avatarUrl = url
+      avatarPreview.value = url
+    } else {
+      error.value = '头像上传失败'
+    }
   } finally {
-    loading.value = false
+    uploadingAvatar.value = false
+    if (fileInputRef.value) {
+      fileInputRef.value.value = ''
+    }
+  }
+}
+
+async function handleGeneratePrompt() {
+  if (!createForm.value.name.trim() && !createForm.value.description.trim()) {
+    error.value = '请输入角色名称或描述'
+    return
+  }
+
+  generatingPrompt.value = true
+  error.value = null
+
+  try {
+    const response = await charactersApi.generatePrompt({
+      name: createForm.value.name.trim() || undefined,
+      description: createForm.value.description.trim() || undefined
+    })
+    createForm.value.prompt = response.data.prompt
+  } catch (e: any) {
+    error.value = e.response?.data?.message || '生成提示词失败'
+  } finally {
+    generatingPrompt.value = false
+  }
+}
+
+async function handleCreateCharacter() {
+  if (!createForm.value.name.trim()) {
+    error.value = '请输入角色名称'
+    return
+  }
+
+  creatingCharacter.value = true
+  error.value = null
+
+  try {
+    const character = await characterStore.createCharacter({
+      name: createForm.value.name.trim(),
+      description: createForm.value.description.trim(),
+      avatarUrl: createForm.value.avatarUrl,
+      prompt: createForm.value.prompt,
+      ownerId: authStore.user?.id
+    })
+
+    if (character) {
+      // Select the newly created character
+      selectedCharacter.value = character
+      // Switch to select tab to show the selected character
+      singleTab.value = 'select'
+      // Reset create form
+      createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
+      avatarPreview.value = null
+    } else {
+      error.value = characterStore.error || '创建角色失败'
+    }
+  } catch (e: any) {
+    error.value = e.message || '创建角色失败'
+  } finally {
+    creatingCharacter.value = false
+  }
+}
+
+async function handleSubmit() {
+  if (dialogMode.value === 'single') {
+    // 单人对话 validation
+    if (!selectedCharacter.value) {
+      error.value = '请选择一个角色'
+      return
+    }
+
+    loading.value = true
+    error.value = null
+
+    try {
+      const room = await roomStore.createRoom(selectedCharacter.value.name)
+      await roomStore.addCharacterToRoom(room.id, selectedCharacter.value.id)
+      emit('created', room.id)
+      emit('close')
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '创建失败'
+    } finally {
+      loading.value = false
+    }
+  } else {
+    // 多人对话 validation
+    if (!name.value.trim()) {
+      error.value = '请输入聊天室名称'
+      return
+    }
+
+    loading.value = true
+    error.value = null
+
+    try {
+      const room = await roomStore.createRoom(name.value.trim(), topic.value.trim() || undefined)
+      emit('created', room.id)
+      emit('close')
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '创建失败'
+    } finally {
+      loading.value = false
+    }
   }
 }
 
@@ -66,9 +250,25 @@ function handleClose() {
         <div class="room-modal">
           <!-- Header -->
           <header class="room-modal-header">
-            <div>
-              <h2 class="room-modal-title">创建聊天室</h2>
-              <p class="room-modal-subtitle">设置聊天室名称和主题，快速发起多角色讨论</p>
+            <div class="header-content">
+              <h2 class="room-modal-title">创建对话</h2>
+              <!-- Mode Tabs -->
+              <div class="mode-tabs">
+                <button
+                  class="mode-tab"
+                  :class="{ active: dialogMode === 'single' }"
+                  @click="dialogMode = 'single'"
+                >
+                  单人对话
+                </button>
+                <button
+                  class="mode-tab"
+                  :class="{ active: dialogMode === 'group' }"
+                  @click="dialogMode = 'group'"
+                >
+                  多人对话
+                </button>
+              </div>
             </div>
             <button class="modal-close" @click="handleClose">
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -79,7 +279,162 @@ function handleClose() {
 
           <!-- Body -->
           <div class="room-modal-body">
-            <div class="room-form">
+            <!-- Single Mode Form (单人对话) -->
+            <div v-if="dialogMode === 'single'" class="room-form">
+              <p class="form-description">选择一个角色，发起一对一交流</p>
+
+              <!-- Single Mode: Select/Create Tabs -->
+              <div class="single-tabs">
+                <button
+                  class="single-tab"
+                  :class="{ active: singleTab === 'select' }"
+                  @click="switchToSelectTab"
+                >
+                  选择角色
+                </button>
+                <button
+                  class="single-tab"
+                  :class="{ active: singleTab === 'create' }"
+                  @click="switchToCreateTab"
+                >
+                  创建角色
+                </button>
+              </div>
+
+              <!-- Select Tab -->
+              <div v-if="singleTab === 'select'" class="select-section">
+                <!-- Character List -->
+                <div class="character-list">
+                  <div
+                    v-for="character in myCharacters"
+                    :key="character.id"
+                    class="character-item"
+                    :class="{ selected: selectedCharacter?.id === character.id }"
+                    @click="selectCharacter(character)"
+                  >
+                    <div class="character-avatar">
+                      <img v-if="character.avatarUrl" :src="character.avatarUrl" :alt="character.name" />
+                      <span v-else>{{ character.name.charAt(0) }}</span>
+                    </div>
+                    <div class="character-info">
+                      <span class="character-item-name">{{ character.name }}</span>
+                      <span class="character-item-desc">{{ character.description || '暂无描述' }}</span>
+                    </div>
+                    <div v-if="selectedCharacter?.id === character.id" class="check-icon">
+                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div v-if="myCharacters.length === 0" class="character-empty">
+                    暂无可用角色，请先创建角色
+                  </div>
+                </div>
+              </div>
+
+              <!-- Create Tab -->
+              <div v-if="singleTab === 'create'" class="create-section">
+                <!-- Avatar Upload -->
+                <div class="form-group">
+                  <label class="form-label">头像</label>
+                  <input
+                    ref="fileInputRef"
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    class="hidden"
+                    @change="handleAvatarFileChange"
+                  />
+                  <div class="avatar-upload">
+                    <div
+                      class="avatar-preview"
+                      :class="{ 'has-avatar': avatarPreview }"
+                      @click="triggerAvatarUpload"
+                    >
+                      <img v-if="avatarPreview" :src="avatarPreview" alt="avatar" />
+                      <svg v-else class="upload-icon" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </div>
+                    <div class="avatar-actions">
+                      <button
+                        type="button"
+                        class="upload-btn"
+                        @click="triggerAvatarUpload"
+                        :disabled="uploadingAvatar"
+                      >
+                        {{ uploadingAvatar ? '上传中...' : '上传头像' }}
+                      </button>
+                      <p class="avatar-hint">支持 JPEG、PNG、GIF、WebP，不超过 5MB</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Name -->
+                <div class="form-group">
+                  <label class="form-label">
+                    角色名称 <span class="required">*</span>
+                  </label>
+                  <input
+                    v-model="createForm.name"
+                    type="text"
+                    placeholder="请输入角色名称"
+                    class="form-input"
+                  />
+                </div>
+
+                <!-- Description -->
+                <div class="form-group">
+                  <label class="form-label">角色描述</label>
+                  <textarea
+                    v-model="createForm.description"
+                    rows="2"
+                    placeholder="请输入角色描述"
+                    class="form-textarea"
+                  ></textarea>
+                </div>
+
+                <!-- Prompt -->
+                <div class="form-group">
+                  <label class="form-label">角色设定 (Prompt)</label>
+                  <textarea
+                    v-model="createForm.prompt"
+                    rows="3"
+                    placeholder="输入角色设定，用于定义 AI 角色的行为和风格"
+                    class="form-textarea"
+                  ></textarea>
+                  <button
+                    type="button"
+                    class="generate-btn"
+                    @click="handleGeneratePrompt"
+                    :disabled="generatingPrompt"
+                  >
+                    <svg v-if="generatingPrompt" class="spin-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>{{ generatingPrompt ? '生成中...' : 'AI 生成提示词' }}</span>
+                  </button>
+                </div>
+
+                <!-- Create Character Button -->
+                <button
+                  type="button"
+                  class="create-character-btn"
+                  @click="handleCreateCharacter"
+                  :disabled="creatingCharacter || !createForm.name.trim()"
+                >
+                  {{ creatingCharacter ? '创建中...' : '创建角色' }}
+                </button>
+              </div>
+
+              <!-- Error -->
+              <p v-if="error" class="form-error">{{ error }}</p>
+            </div>
+
+            <!-- Group Mode Form (多人对话) -->
+            <div v-else class="room-form">
+              <p class="form-description">设置聊天室名称和主题，发起多角色讨论</p>
+
               <!-- Name -->
               <div class="form-group">
                 <label class="form-label">
@@ -124,9 +479,9 @@ function handleClose() {
                 type="button"
                 class="footer-submit-btn"
                 @click="handleSubmit"
-                :disabled="loading || !name.trim()"
+                :disabled="loading || (dialogMode === 'single' && !selectedCharacter)"
               >
-                {{ loading ? '创建中...' : '创建' }}
+                {{ loading ? '创建中...' : (dialogMode === 'single' ? '开始对话' : '创建') }}
               </button>
             </div>
           </footer>
@@ -162,6 +517,12 @@ function handleClose() {
   --btn-secondary-text: #334155;
   --error-color: #dc2626;
   --close-hover-bg: rgba(148, 163, 184, 0.18);
+  --tab-active-bg: #0f172a;
+  --tab-active-text: #ffffff;
+  --tab-inactive-text: #64748b;
+  --tab-inactive-bg: #f1f5f9;
+  --selected-bg: #f0fdf4;
+  --selected-border: #22c55e;
 }
 
 /*** Dark Mode Variables ***/
@@ -189,6 +550,12 @@ function handleClose() {
   --btn-secondary-text: #f8fafc;
   --error-color: #fca5a5;
   --close-hover-bg: rgba(255, 255, 255, 0.12);
+  --tab-active-bg: #f8fafc;
+  --tab-active-text: #0f172a;
+  --tab-inactive-text: #94a3b8;
+  --tab-inactive-bg: #1e293b;
+  --selected-bg: #14532d;
+  --selected-border: #22c55e;
 }
 
 /*** Overlay ***/
@@ -209,7 +576,7 @@ function handleClose() {
 .room-modal {
   position: relative;
   width: min(520px, calc(100vw - 48px));
-  max-height: min(600px, calc(100vh - 64px));
+  max-height: min(640px, calc(100vh - 64px));
   display: flex;
   flex-direction: column;
   background: var(--modal-bg) !important;
@@ -245,6 +612,10 @@ function handleClose() {
   border-bottom: 1px solid var(--header-border) !important;
 }
 
+.header-content {
+  flex: 1;
+}
+
 .room-modal-title {
   font-size: 24px;
   font-weight: 700;
@@ -252,10 +623,42 @@ function handleClose() {
   margin: 0;
 }
 
-.room-modal-subtitle {
-  margin-top: 6px;
+/*** Mode Tabs ***/
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  background: var(--tab-inactive-bg);
+  padding: 4px;
+  border-radius: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.header-content {
+  text-align: center;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 10px 16px;
   font-size: 14px;
-  color: var(--text-muted);
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--tab-inactive-text);
+}
+
+.mode-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.mode-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
 }
 
 .modal-close {
@@ -287,7 +690,330 @@ function handleClose() {
 .room-form {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
+}
+
+.form-description {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/*** Single Mode Tabs ***/
+.single-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--tab-inactive-bg);
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.single-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: var(--tab-inactive-text);
+}
+
+.single-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.single-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
+}
+
+/*** Select Section ***/
+.select-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.selected-character {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--selected-bg);
+  border: 1px solid var(--selected-border);
+  border-radius: 14px;
+}
+
+.character-avatar-small {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--tab-inactive-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.character-avatar-small img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-avatar-small span {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.selected-character .character-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.clear-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.clear-btn:hover {
+  background: var(--close-hover-bg);
+  color: var(--text-primary);
+}
+
+.character-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.character-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.character-item:hover {
+  background: var(--tab-inactive-bg);
+}
+
+.character-item.selected {
+  background: var(--selected-bg);
+  border-color: var(--selected-border);
+}
+
+.character-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--tab-inactive-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.character-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-avatar span {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.character-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.character-item-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.character-item-desc {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check-icon {
+  color: var(--selected-border);
+}
+
+.character-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/*** Create Section ***/
+.create-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  border: 2px dashed var(--input-border);
+  background: var(--tab-inactive-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  overflow: hidden;
+}
+
+.avatar-preview:hover {
+  border-color: var(--input-focus-border);
+}
+
+.avatar-preview.has-avatar {
+  border-style: solid;
+  border-color: var(--selected-border);
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upload-icon {
+  color: var(--text-muted);
+}
+
+.avatar-actions {
+  flex: 1;
+}
+
+.upload-btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.upload-btn:hover:not(:disabled) {
+  border-color: var(--input-focus-border);
+}
+
+.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.avatar-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.generate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--tab-inactive-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.generate-btn:hover:not(:disabled) {
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.generate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.create-character-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.create-character-btn:hover:not(:disabled) {
+  background: var(--input-border);
+}
+
+.create-character-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /*** Form Groups ***/
@@ -317,7 +1043,7 @@ function handleClose() {
 .form-input,
 .form-textarea {
   width: 100%;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--input-border) !important;
   background: var(--input-bg) !important;
   color: var(--text-primary) !important;
@@ -341,7 +1067,7 @@ function handleClose() {
 }
 
 .form-textarea {
-  min-height: 100px;
+  min-height: 80px;
   resize: vertical;
   line-height: 1.6;
 }
@@ -452,11 +1178,9 @@ function handleClose() {
   }
 }
 
-/*** Dark mode explicit overrides (force opaque card) ***/
+/*** Dark mode explicit overrides ***/
 .dark .room-modal-overlay {
   background: rgba(0, 0, 0, 0.08) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .dark .room-modal {
@@ -464,8 +1188,6 @@ function handleClose() {
   color: #f8fafc !important;
   border-color: rgba(71, 85, 105, 0.85) !important;
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .dark .room-modal-header {
@@ -487,8 +1209,6 @@ function handleClose() {
   background: #1e293b !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   color: #f8fafc !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .dark .form-input:focus,
@@ -506,5 +1226,19 @@ function handleClose() {
   background: #1e293b !important;
   border-color: rgba(71, 85, 105, 0.95) !important;
   color: #f8fafc !important;
+}
+
+.dark .selected-character {
+  background: #14532d !important;
+  border-color: #22c55e !important;
+}
+
+.dark .character-item.selected {
+  background: #14532d !important;
+  border-color: #22c55e !important;
+}
+
+.dark .avatar-preview {
+  background: #1e293b !important;
 }
 </style>

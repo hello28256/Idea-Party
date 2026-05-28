@@ -281,9 +281,14 @@ async function handleCharacterAdded(character: Character) {
 
         <div class="flex items-center gap-2">
           <div class="w-1 h-6 bg-gradient-to-b from-[var(--color-gold-dark)] to-[var(--color-gold)] rounded-full"></div>
-          <h1 class="text-base font-semibold text-[var(--color-navy)] truncate font-['Playfair_Display']">
-            {{ currentRoom?.name || '聊天室' }}
-          </h1>
+          <div>
+            <h1 class="text-base font-semibold text-[var(--color-navy)] truncate font-['Playfair_Display']">
+              {{ currentRoom?.name || '聊天室' }}
+            </h1>
+            <p v-if="currentRoom?.characters?.length === 1" class="text-xs text-[var(--text-muted)] truncate">
+              {{ currentRoom.characters[0].description || '暂无描述' }}
+            </p>
+          </div>
         </div>
       </div>
 

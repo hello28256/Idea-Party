@@ -20,8 +20,11 @@ const canSend = computed(() => {
 })
 
 function handleKeydown(event: KeyboardEvent) {
-  // Allow Shift+Enter for new line, but don't send on plain Enter
-  // Messages are sent only via the send button
+  // Enter sends message, Shift+Enter allows new line
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    handleSend()
+  }
 }
 
 function handleSend() {
@@ -67,7 +70,7 @@ function autoResize() {
         <Send :size="18" />
       </button>
     </div>
-    <p class="input-hint">点击发送按钮发送消息</p>
+    <p class="input-hint">回车发送消息，Shift+Enter 换行</p>
   </div>
 </template>
 
