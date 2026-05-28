@@ -169,8 +169,8 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Call LLM to select characters
-        String selection = callModeratorForSelection(state.userId, userMessage, availableCharacters);
+        // Call LLM to select characters (with conversation history context)
+        String selection = callModeratorForSelection(state.userId, userMessage, state.responses, availableCharacters);
         log.info("[Moderator] LLM selection result: {}", selection);
 
         // Parse [SELECT:角色1,角色2] format
@@ -1175,7 +1175,7 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Build the system prompt for Moderator to select characters.
      */
-    private String buildModeratorPrompt(String userMessage, List<Character> characters) {
+    private String buildModeratorPrompt(String userMessage, List<ResponseFragment> conversationHistory, List<Character> characters) {
         try {
             Resource resource = resourceLoader.getResource("classpath:prompts/moderator-prompt.txt");
             String template = resource.getContentAsString(StandardCharsets.UTF_8);
@@ -1188,9 +1188,20 @@ public class ModeratorAgent implements DisposableBean {
                     .append(" - ").append(c.getPersona() != null ? c.getPersona() : "").append("\n");
             }
 
+            // Build conversation history
+            StringBuilder historyBuilder = new StringBuilder();
+            if (conversationHistory != null && !conversationHistory.isEmpty()) {
+                for (ResponseFragment r : conversationHistory) {
+                    historyBuilder.append("[").append(r.getCharacterName()).append("]: ").append(r.getContent()).append("\n");
+                }
+            } else {
+                historyBuilder.append("(暂无历史对话)\n");
+            }
+
             // Replace placeholders
             return template.replace("{characters}", charactersList.toString())
-                          .replace("{userMessage}", userMessage);
+                          .replace("{userMessage}", userMessage)
+                          .replace("{conversationHistory}", historyBuilder.toString());
         } catch (Exception e) {
             log.error("[Moderator] Failed to load moderator prompt template: {}", e.getMessage());
             // Fallback to empty prompt
@@ -1201,7 +1212,7 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Call LLM to select characters for the discussion.
      */
-    private String callModeratorForSelection(String userId, String userMessage, List<Character> characters) {
+    private String callModeratorForSelection(String userId, String userMessage, List<ResponseFragment> conversationHistory, List<Character> characters) {
         String userApiKey = getApiKey(userId);
         if (userApiKey == null) {
             log.warn("[Moderator] No API key for user {}, using fallback selection", userId);
@@ -1209,7 +1220,7 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         try {
-            String prompt = buildModeratorPrompt(userMessage, characters);
+            String prompt = buildModeratorPrompt(userMessage, conversationHistory, characters);
             ChatLanguageModel chatModel = aiService.createChatModelWithApiKey(userApiKey);
             String response = chatModel.chat(prompt);
             log.info("[Moderator] LLM selection response: {}", response);
