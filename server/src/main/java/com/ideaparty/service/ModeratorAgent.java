@@ -180,28 +180,12 @@ public class ModeratorAgent implements DisposableBean {
         String selection = callModeratorForSelection(state.userId, userMessage, state.userMessageHistory, availableCharacters);
         log.info("[Moderator] LLM selection result: {}", selection);
 
-        // Parse [SELECT:角色1,角色2] format
-        Pattern pattern = Pattern.compile("\\[SELECT:([^\\]]+)\\]");
-        Matcher matcher = pattern.matcher(selection);
-
-        List<Character> selected = new ArrayList<>();
-        if (matcher.find()) {
-            String[] selectedNames = matcher.group(1).split(",");
-            for (String name : selectedNames) {
-                final String trimmedName = name.trim();
-                Character found = availableCharacters.stream()
-                    .filter(c -> c.getName().trim().equals(trimmedName))
-                    .findFirst()
-                    .orElse(null);
-                if (found != null && selected.size() < 2) {
-                    selected.add(found);
-                }
-            }
-        }
+        // Parse JSON format response
+        List<Character> selected = parseModeratorResponse(selection, availableCharacters);
 
         // Fallback if no characters matched
         if (selected.isEmpty()) {
-            selected = availableCharacters.subList(0, Math.min(2, availableCharacters.size()));
+            selected = availableCharacters.subList(0, Math.min(1, availableCharacters.size()));
         }
 
         state.selectedCharacters = new ArrayList<>(selected);
@@ -217,6 +201,71 @@ public class ModeratorAgent implements DisposableBean {
 
         // Start speaking process
         processNextInQueue(roomId);
+    }
+
+    /**
+     * Parse moderator LLM response in JSON format.
+     */
+    private List<Character> parseModeratorResponse(String response, List<Character> availableCharacters) {
+        List<Character> selected = new ArrayList<>();
+        try {
+            // Try to parse as JSON
+            Map<String, Object> json = objectMapper.readValue(response, Map.class);
+            String messageType = (String) json.get("message_type");
+            List<String> targetAgents = (List<String>) json.get("target_agents");
+            String confidence = (String) json.get("confidence");
+
+            log.info("[Moderator] Parsed JSON - type: {}, confidence: {}, targets: {}",
+                messageType, confidence, targetAgents);
+
+            // Handle broadcast - skip or select based on context
+            if ("broadcast".equals(messageType)) {
+                log.info("[Moderator] Broadcast requested - selecting one character as fallback");
+                if (!availableCharacters.isEmpty()) {
+                    selected.add(availableCharacters.get(0));
+                }
+                return selected;
+            }
+
+            // Handle invite - no characters selected, will be handled as INVITE
+            if ("invite".equals(messageType)) {
+                log.info("[Moderator] INVITE requested - no character selection");
+                return selected;
+            }
+
+            // Handle direct_reply or multi_target_reply
+            if (targetAgents != null) {
+                for (String agentName : targetAgents) {
+                    final String trimmedName = agentName.trim();
+                    Character found = availableCharacters.stream()
+                        .filter(c -> c.getName().trim().equals(trimmedName))
+                        .findFirst()
+                        .orElse(null);
+                    if (found != null && !selected.contains(found)) {
+                        selected.add(found);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Moderator] Failed to parse JSON response, trying regex fallback: {}", e.getMessage());
+            // Fallback to old [SELECT:xxx] format
+            Pattern pattern = Pattern.compile("\\[SELECT:([^\\]]+)\\]");
+            Matcher matcher = pattern.matcher(response);
+            if (matcher.find()) {
+                String[] selectedNames = matcher.group(1).split(",");
+                for (String name : selectedNames) {
+                    final String trimmedName = name.trim();
+                    Character found = availableCharacters.stream()
+                        .filter(c -> c.getName().trim().equals(trimmedName))
+                        .findFirst()
+                        .orElse(null);
+                    if (found != null && !selected.contains(found)) {
+                        selected.add(found);
+                    }
+                }
+            }
+        }
+        return selected;
     }
 
     private void processNextInQueue(String roomId) {
