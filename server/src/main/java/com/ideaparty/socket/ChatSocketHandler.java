@@ -208,27 +208,65 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     triggerAIForRoom(roomId, content, userId, null);
                 }
             } else {
-                // In dialogue mode, check if user @mentioned a specific character
-                String mentionedCharacter = extractMentionedCharacter(content);
+                // In dialogue mode, check if user @mentioned or directly named a character
+                String mentionedCharacter = room != null
+                    ? extractMentionedCharacter(content, room.getCharacters().stream().toList())
+                    : null;
                 triggerAIForRoom(roomId, content, userId, mentionedCharacter);
             }
         }
     }
 
     /**
-     * Extract @mentioned character name from message content.
-     * Format: @角色名
+     * Extract character name from message content.
+     * Supports two formats:
+     * 1. @角色名 - @mention format (takes priority)
+     * 2. 角色名 消息 - direct name at message start (matched against room characters)
      */
-    private String extractMentionedCharacter(String content) {
-        if (content == null || content.isBlank()) {
+    private String extractMentionedCharacter(String content, List<Character> characters) {
+        if (content == null || content.isBlank() || characters == null || characters.isEmpty()) {
             return null;
         }
-        // Match @开头，后接中英文、数字等字符，直到空格或消息结束
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("@([^\\s@]{1,30})");
-        java.util.regex.Matcher matcher = pattern.matcher(content);
-        if (matcher.find()) {
-            return matcher.group(1);
+
+        String trimmed = content.trim();
+
+        // Format 1: @角色名 - extract name after @
+        if (trimmed.startsWith("@")) {
+            String afterAt = trimmed.substring(1);
+            // Split by whitespace or common punctuation
+            String[] parts = afterAt.split("[\\s，。！？、,.!?\\[\\](){}《》]");
+            if (parts.length > 0 && !parts[0].isEmpty()) {
+                String mentioned = parts[0];
+                // First try exact match
+                for (Character c : characters) {
+                    if (c.getName().equalsIgnoreCase(mentioned)) {
+                        return c.getName(); // Return actual character name
+                    }
+                }
+                // Then try prefix match (for Chinese names without space separator)
+                for (Character c : characters) {
+                    if (mentioned.toLowerCase().startsWith(c.getName().toLowerCase())) {
+                        return c.getName(); // Return actual character name
+                    }
+                }
+                // If @mention doesn't match, fall through to direct name detection
+            }
         }
+
+        // Format 2: 角色名 at message start - only match if it matches a room character
+        String[] words = trimmed.split("[ \\t\\n\\r\\f]");
+        if (words.length > 0) {
+            String firstWord = words[0];
+            if (firstWord.length() <= 30 && !firstWord.contains("@")) {
+                // Only return if this word matches a character name in the room
+                for (Character c : characters) {
+                    if (c.getName().equalsIgnoreCase(firstWord)) {
+                        return c.getName(); // Return actual character name
+                    }
+                }
+            }
+        }
+
         return null;
     }
 
