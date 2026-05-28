@@ -3,9 +3,11 @@ package com.ideaparty.service;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
+import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -23,14 +25,17 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final RoomRepository roomRepository;
     private final CharacterRepository characterRepository;
+    private final UserRepository userRepository;
 
-    public MessageService(MessageRepository messageRepository, RoomRepository roomRepository, CharacterRepository characterRepository) {
+    public MessageService(MessageRepository messageRepository, RoomRepository roomRepository,
+                         CharacterRepository characterRepository, UserRepository userRepository) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
+        this.userRepository = userRepository;
     }
 
-    public Message saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content) {
+    public Message saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content, UUID userId) {
         Room room = roomRepository.findById(roomId)
             .orElseThrow(() -> new RuntimeException("Room not found: " + roomId));
 
@@ -43,6 +48,11 @@ public class MessageService {
             Character character = characterRepository.findById(characterId)
                 .orElseThrow(() -> new RuntimeException("Character not found: " + characterId));
             message.setCharacter(character);
+        }
+
+        if (userId != null && senderType == Message.SenderType.USER) {
+            User user = userRepository.findById(userId).orElse(null);
+            message.setUser(user);
         }
 
         return messageRepository.save(message);

@@ -10,6 +10,7 @@ public class MessageDto {
     private String characterId;
     private String characterName;
     private String senderType;
+    private String userId;
     private String content;
     private String avatarUrl;
     private LocalDateTime createdAt;
@@ -26,6 +27,10 @@ public class MessageDto {
             dto.setCharacterId(message.getCharacter().getId().toString());
             dto.setCharacterName(message.getCharacter().getName());
             dto.setAvatarUrl(message.getCharacter().getAvatarUrl());
+        }
+
+        if (message.getUser() != null) {
+            dto.setUserId(message.getUser().getId().toString());
         }
 
         dto.setContent(message.getContent());
@@ -48,6 +53,9 @@ public class MessageDto {
 
     public String getSenderType() { return senderType; }
     public void setSenderType(String senderType) { this.senderType = senderType; }
+
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }

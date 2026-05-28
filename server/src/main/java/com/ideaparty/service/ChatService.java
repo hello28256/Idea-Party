@@ -4,11 +4,13 @@ import com.ideaparty.dto.MessageDto;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
+import com.ideaparty.entity.User;
 import com.ideaparty.exception.CharacterNotFoundException;
 import com.ideaparty.exception.RoomNotFoundException;
 import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,22 +30,25 @@ public class ChatService {
     private final MessageRepository messageRepository;
     private final RoomRepository roomRepository;
     private final CharacterRepository characterRepository;
+    private final UserRepository userRepository;
     private final AIService aiService;
 
     public ChatService(MessageRepository messageRepository,
                       RoomRepository roomRepository,
                       CharacterRepository characterRepository,
+                      UserRepository userRepository,
                       AIService aiService) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
+        this.userRepository = userRepository;
         this.aiService = aiService;
     }
 
     /**
      * Save a user or character message.
      */
-    public MessageDto saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content) {
+    public MessageDto saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content, UUID userId) {
         Room room = roomRepository.findById(roomId)
             .orElseThrow(() -> new RoomNotFoundException("Room not found: " + roomId));
 
@@ -56,6 +61,11 @@ public class ChatService {
             Character character = characterRepository.findById(characterId)
                 .orElseThrow(() -> new CharacterNotFoundException("Character not found: " + characterId));
             message.setCharacter(character);
+        }
+
+        if (userId != null && senderType == Message.SenderType.USER) {
+            User user = userRepository.findById(userId).orElse(null);
+            message.setUser(user);
         }
 
         Message saved = messageRepository.save(message);
@@ -103,14 +113,15 @@ public class ChatService {
      *
      * @param roomId Room ID
      * @param content User message content
+     * @param userId User ID of the sender
      * @param characters List of characters in the room (in display order)
      * @param onThinking Callback when a character starts thinking: (characterId) -> void
      * @param onMessage Callback when a message is ready: (MessageDto) -> void
      */
-    public void processUserMessage(UUID roomId, String content, List<Character> characters,
+    public void processUserMessage(UUID roomId, String content, UUID userId, List<Character> characters,
                                    Consumer<String> onThinking, Consumer<MessageDto> onMessage) {
         // Step 1: Save user message
-        MessageDto userMsg = saveMessage(roomId, null, Message.SenderType.USER, content);
+        MessageDto userMsg = saveMessage(roomId, null, Message.SenderType.USER, content, userId);
         onMessage.accept(userMsg);
 
         // Step 2: Round-robin AI responses
@@ -130,7 +141,7 @@ public class ChatService {
             final UUID roomUuid = roomId;
 
             futureResponse.thenAccept(response -> {
-                MessageDto aiMsg = saveMessage(roomUuid, charId, Message.SenderType.CHARACTER, response);
+                MessageDto aiMsg = saveMessage(roomUuid, charId, Message.SenderType.CHARACTER, response, null);
                 onMessage.accept(aiMsg);
             });
         }

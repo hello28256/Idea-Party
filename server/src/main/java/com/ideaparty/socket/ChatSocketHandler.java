@@ -179,12 +179,17 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         // Save message to database and get generated ID
         String messageId = null;
+        String msgUserId = sessionUsers.get(session.getId());
         try {
             Message.SenderType type = Message.SenderType.valueOf(senderType);
             UUID roomUuid = UUID.fromString(roomId);
             UUID characterUuid = characterId != null ? UUID.fromString(characterId) : null;
-            Message savedMessage = messageService.saveMessage(roomUuid, characterUuid, type, content);
+            UUID userUuid = msgUserId != null ? UUID.fromString(msgUserId) : null;
+            Message savedMessage = messageService.saveMessage(roomUuid, characterUuid, type, content, userUuid);
             messageId = savedMessage.getId();
+            if (savedMessage.getUser() != null) {
+                msgUserId = savedMessage.getUser().getId().toString();
+            }
         } catch (Exception e) {
             log.error("[WS] Failed to save message: {}", e.getMessage());
         }
@@ -194,6 +199,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         broadcastData.put("content", content);
         broadcastData.put("senderType", senderType);
         broadcastData.put("characterId", characterId != null ? characterId : "");
+        broadcastData.put("userId", msgUserId != null ? msgUserId : "");
         broadcastData.put("roomId", roomId);
         if (messageId != null) {
             broadcastData.put("id", messageId);
@@ -426,7 +432,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         // 保存消息到数据库
                         UUID characterUuid = UUID.fromString(fragment.getCharacterId());
                         Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
-                            Message.SenderType.CHARACTER, fragment.getContent());
+                            Message.SenderType.CHARACTER, fragment.getContent(), null);
 
                         // 广播到 WebSocket 房间（包含 message id 用于去重）
                         Map<String, Object> responseData = new java.util.HashMap<>();
@@ -535,7 +541,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     // 保存消息到数据库
                     UUID characterUuid = UUID.fromString(fragment.getCharacterId());
                     Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
-                        Message.SenderType.CHARACTER, fragment.getContent());
+                        Message.SenderType.CHARACTER, fragment.getContent(), null);
 
                     // Update active thread owner
                     roomActiveThreadOwner.put(roomId, fragment.getCharacterName());

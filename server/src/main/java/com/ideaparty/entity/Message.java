@@ -31,6 +31,10 @@ public class Message {
     @JoinColumn(name = "room_id", nullable = false)
     private Room room;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -55,6 +59,9 @@ public class Message {
 
     public Room getRoom() { return room; }
     public void setRoom(Room room) { this.room = room; }
+
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

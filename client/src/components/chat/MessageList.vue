@@ -10,6 +10,7 @@ const props = defineProps<{
   thinkingCharacterId: string | null
   characters: Character[]
   streamingMessages?: Record<string, string>
+  currentUserId?: string | null
 }>()
 
 // 消息分组：判断是否是连续消息（同一发送者，间隔 < 5分钟）
@@ -70,6 +71,7 @@ const streamingMessageBubbles = computed(() => {
       characterId,
       characterName: getCharacterName(characterId),
       senderType: 'CHARACTER',
+      userId: null,
       content,
       avatarUrl: null,
       createdAt: new Date().toISOString()
@@ -82,6 +84,12 @@ function getCharacterName(characterId: string | null): string {
   if (!characterId) return 'AI'
   const char = props.characters.find(c => c.id === characterId)
   return char?.name || 'AI'
+}
+
+// 判断消息是否为当前用户发送
+function isOwnMessage(msg: ChatMessage): boolean {
+  if (msg.senderType !== 'USER') return false
+  return msg.userId === props.currentUserId
 }
 
 const hasMessages = () => props.messages.length > 0 || streamingMessageBubbles.value.length > 0
@@ -104,13 +112,24 @@ defineExpose({ scrollToBottom })
   <div class="message-list">
     <div ref="scrollContainer" class="messages">
       <div v-if="!hasMessages()" class="empty-state">
-        <div class="empty-icon">
-          <svg class="w-16 h-16 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
+        <h3 class="empty-title">今天想聊点什么？</h3>
+        <p v-if="characters.length > 0" class="empty-subtitle">
+          {{ characters.length }} 位角色正在等待加入讨论
+        </p>
+        <div v-if="characters.length > 0" class="empty-avatars">
+          <div
+            v-for="char in characters.slice(0, 5)"
+            :key="char.id"
+            class="empty-avatar-item"
+          >
+            <img
+              :src="char.avatarUrl || '/image.png'"
+              :alt="char.name"
+              class="empty-avatar"
+            />
+            <span class="empty-avatar-name">{{ char.name }}</span>
+          </div>
         </div>
-        <h3 class="empty-title">思想的火花等待点燃</h3>
-        <p class="empty-body">发送消息，开启与历史伟人的对话</p>
       </div>
 
       <template v-else>
@@ -118,7 +137,7 @@ defineExpose({ scrollToBottom })
           v-for="group in messageGroups"
           :key="group.message.id"
           :message="group.message"
-          :is-own="group.message.senderType === 'USER'"
+          :is-own="isOwnMessage(group.message)"
           :show-avatar="group.showAvatar"
           :show-name="group.showName"
           :is-first-of-group="group.isFirstOfGroup"
@@ -213,19 +232,46 @@ defineExpose({ scrollToBottom })
 
 .empty-title {
   font-family: 'Playfair Display', serif;
-  font-size: 1.25rem;
-  font-weight: 500;
+  font-size: 1.35rem;
+  font-weight: 600;
   color: var(--color-navy);
-  margin: 0 0 0.75rem 0;
+  margin: 0 0 0.5rem 0;
   letter-spacing: 0.02em;
 }
 
-.empty-body {
+.empty-subtitle {
   font-size: 0.9rem;
   color: var(--color-text-secondary);
-  margin: 0;
-  max-width: 280px;
-  line-height: 1.6;
+  margin: 0 0 1.5rem 0;
+}
+
+.empty-avatars {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.empty-avatar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.empty-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-gold);
+  box-shadow: 0 2px 8px rgba(201, 169, 98, 0.3);
+}
+
+.empty-avatar-name {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .thinking-area {

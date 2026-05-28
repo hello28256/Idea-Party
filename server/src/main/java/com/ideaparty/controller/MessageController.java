@@ -89,7 +89,8 @@ public class MessageController {
                 roomUuid,
                 characterUuid,
                 senderType,
-                request.getContent()
+                request.getContent(),
+                userId
             );
             return ResponseEntity.ok(MessageResponse.fromEntity(message));
         } catch (IllegalArgumentException e) {

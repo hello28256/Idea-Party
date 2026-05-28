@@ -8,6 +8,7 @@ public class MessageResponse {
     private String id;
     private String content;
     private String senderType;
+    private String userId;
     private String characterId;
     private String characterName;
     private String characterAvatar;
@@ -30,6 +31,10 @@ public class MessageResponse {
             response.setCharacterAvatar(message.getCharacter().getAvatarUrl());
         }
 
+        if (message.getUser() != null) {
+            response.setUserId(message.getUser().getId().toString());
+        }
+
         return response;
     }
 
@@ -41,6 +46,9 @@ public class MessageResponse {
 
     public String getSenderType() { return senderType; }
     public void setSenderType(String senderType) { this.senderType = senderType; }
+
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
 
     public String getCharacterId() { return characterId; }
     public void setCharacterId(String characterId) { this.characterId = characterId; }

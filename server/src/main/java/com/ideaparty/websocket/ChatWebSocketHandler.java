@@ -6,6 +6,8 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.entity.Room;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
+import com.ideaparty.service.AuthService;
 import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
@@ -43,20 +45,28 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
     // Maps sessionId -> roomId
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
+    // Maps sessionId -> userId
+    private final ConcurrentHashMap<String, UUID> sessionUsers = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final MessageService messageService;
     private final ChatService chatService;
     private final ModerationService moderationService;
     private final RoomRepository roomRepository;
+    private final AuthService authService;
+    private final UserRepository userRepository;
 
     public ChatWebSocketHandler(MessageService messageService, ChatService chatService,
                                ModerationService moderationService,
-                               RoomRepository roomRepository) {
+                               RoomRepository roomRepository,
+                               AuthService authService,
+                               UserRepository userRepository) {
         this.messageService = messageService;
         this.chatService = chatService;
         this.moderationService = moderationService;
         this.roomRepository = roomRepository;
+        this.authService = authService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -107,6 +117,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private void handleJoinRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         joinRoom(roomId, session);
+
+        // Extract and validate user from token if provided
+        if (data.has("token") && !data.get("token").isNull()) {
+            try {
+                String token = data.get("token").asText();
+                UUID userId = authService.validateToken(token);
+                sessionUsers.put(session.getId(), userId);
+                log.info("[WS] User {} joined room {}", userId, roomId);
+            } catch (Exception e) {
+                log.warn("[WS] Failed to validate token on join: {}", e.getMessage());
+            }
+        }
+
         session.sendMessage(new TextMessage("42[\"room-joined\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
@@ -118,6 +141,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private void handleChatMessage(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String content = data.get("content").asText();
+
+        // Get userId from session
+        UUID userId = sessionUsers.get(session.getId());
 
         // Check moderation
         ModerationService.ModerationResult result = moderationService.moderate(content);
@@ -152,6 +178,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         chatService.processUserMessage(
             java.util.UUID.fromString(roomId),
             content,
+            userId,
             characters,
             // onThinking callback
             (characterId) -> {
@@ -167,13 +194,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // onMessage callback
             (messageDto) -> {
                 try {
-                    String msgEvent = "42[\"message\","
+                    String msgEvent = "42[\"chat message\","
                         + objectMapper.writeValueAsString(Map.of(
                             "id", messageDto.getId() != null ? messageDto.getId() : "",
                             "roomId", messageDto.getRoomId() != null ? messageDto.getRoomId() : "",
                             "characterId", messageDto.getCharacterId() != null ? messageDto.getCharacterId() : "",
                             "characterName", messageDto.getCharacterName() != null ? messageDto.getCharacterName() : "",
                             "senderType", messageDto.getSenderType() != null ? messageDto.getSenderType() : "",
+                            "userId", messageDto.getUserId() != null ? messageDto.getUserId() : "",
                             "content", messageDto.getContent() != null ? messageDto.getContent() : "",
                             "createdAt", messageDto.getCreatedAt() != null ? messageDto.getCreatedAt().toString() : ""
                         ))
@@ -189,6 +217,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String roomId = sessionRooms.remove(session.getId());
+        sessionUsers.remove(session.getId());
         if (roomId != null) {
             leaveRoom(roomId, session);
         }

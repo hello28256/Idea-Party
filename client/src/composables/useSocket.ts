@@ -6,6 +6,7 @@ export interface ChatMessage {
   characterId: string | null
   characterName: string | null
   senderType: 'USER' | 'CHARACTER'
+  userId: string | null
   content: string
   avatarUrl: string | null
   createdAt: string
