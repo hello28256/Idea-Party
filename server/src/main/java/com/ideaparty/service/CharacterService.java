@@ -353,10 +353,10 @@ public class CharacterService {
         String scrapedContent = firecrawlService.scrape(characterName);
         log.info("[DEBUG] Scraped content length: {}", scrapedContent.length());
 
-        // Step 2: Try AI generation with raw content first (cleanMarkdown may drop too much)
+        // Step 2: Try AI generation with raw content and external template
         if (userApiKey != null && !userApiKey.isBlank() && !userApiKey.equals("sk-dummy-key-for-testing")) {
             try {
-                String aiGeneratedPrompt = generatePromptWithAI(characterName, scrapedContent, userApiKey);
+                String aiGeneratedPrompt = generatePromptWithAIFromWebContent(characterName, scrapedContent, userApiKey);
                 if (aiGeneratedPrompt != null && !aiGeneratedPrompt.isBlank()) {
                     log.info("[DEBUG] AI generated prompt length: {}", aiGeneratedPrompt.length());
                     return aiGeneratedPrompt;
@@ -368,6 +368,63 @@ public class CharacterService {
 
         // Step 3: Fallback - use simple prompt with character name
         return "You are " + characterName + ". " + scrapedContent.substring(0, Math.min(scrapedContent.length(), 1000));
+    }
+
+    /**
+     * Generate prompt using AI from web scraped content with external template.
+     */
+    private String generatePromptWithAIFromWebContent(String characterName, String scrapedContent, String apiKey) {
+        RestTemplate restTemplate = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", "Bearer " + apiKey);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", "deepseek-chat");
+
+        String systemPrompt = loadPromptTemplate();
+        String userMessage;
+        if (isChineseContent(characterName) || isChineseContent(scrapedContent)) {
+            userMessage = String.format(
+                "请根据以下信息为「%s」创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：",
+                characterName, scrapedContent
+            );
+        } else {
+            userMessage = String.format(
+                "Create a character prompt for \"%s\" based on the following information:\n\n%s\n\nGenerate the character prompt now:",
+                characterName, scrapedContent
+            );
+        }
+
+        body.put("messages", List.of(
+            Map.of("role", "system", "content", systemPrompt),
+            Map.of("role", "user", "content", userMessage)
+        ));
+        body.put("temperature", 0.7);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        log.info("[DEBUG] Calling DeepSeek API to generate prompt for: {}", characterName);
+
+        ResponseEntity<Map> response = restTemplate.exchange(
+            deepseekBaseUrl + "/chat/completions",
+            HttpMethod.POST,
+            request,
+            Map.class
+        );
+
+        if (response.getBody() != null && response.getBody().containsKey("choices")) {
+            List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+            if (!choices.isEmpty()) {
+                Map<String, Object> choice = choices.get(0);
+                Map<String, Object> message = (Map<String, Object>) choice.get("message");
+                String content = (String) message.get("content");
+                return content.trim();
+            }
+        }
+
+        return null;
     }
 
     private String cleanMarkdown(String markdown) {

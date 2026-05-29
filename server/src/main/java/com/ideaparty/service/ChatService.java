@@ -124,14 +124,17 @@ public class ChatService {
         MessageDto userMsg = saveMessage(roomId, null, Message.SenderType.USER, content, userId);
         onMessage.accept(userMsg);
 
-        // Step 2: Round-robin AI responses
+        // Step 2: Load conversation history for context
+        String conversationHistory = buildConversationHistory(roomId);
+
+        // Step 3: Round-robin AI responses
         for (Character character : characters) {
             // Emit thinking event
             onThinking.accept(character.getId().toString());
 
-            // Generate and save AI response using AIService
+            // Generate and save AI response using AIService (with history context)
             CompletableFuture<String> futureResponse = CompletableFuture.supplyAsync(() ->
-                aiService.generateResponse(buildCharacterPrompt(character), content)
+                aiService.generateResponseWithHistory(buildCharacterPrompt(character), content, conversationHistory)
             );
 
             // Note: In a real implementation, we would wait for each character's
@@ -145,5 +148,27 @@ public class ChatService {
                 onMessage.accept(aiMsg);
             });
         }
+    }
+
+    /**
+     * Build conversation history string from messages in the room.
+     * Formats as: "User: xxx\nCharacter: yyy\nUser: zzz\nCharacter: ..."
+     */
+    private String buildConversationHistory(UUID roomId) {
+        List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomId);
+        if (messages.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder history = new StringBuilder();
+        for (Message msg : messages) {
+            if (msg.getSenderType() == Message.SenderType.USER) {
+                history.append("User: ").append(msg.getContent()).append("\n");
+            } else {
+                String charName = msg.getCharacter() != null ? msg.getCharacter().getName() : "Character";
+                history.append(charName).append(": ").append(msg.getContent()).append("\n");
+            }
+        }
+        return history.toString();
     }
 }

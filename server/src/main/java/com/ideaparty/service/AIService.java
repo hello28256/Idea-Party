@@ -85,6 +85,25 @@ public class AIService {
     }
 
     /**
+     * Generate a response with conversation history context.
+     * @param characterPrompt The character's system prompt
+     * @param userMessage The current user message
+     * @param conversationHistory Formatted history string (e.g., "User: xxx\nResponse: yyy\nUser: zzz\nResponse: ...")
+     * @return AI response
+     */
+    public String generateResponseWithHistory(String characterPrompt, String userMessage, String conversationHistory) {
+        String userApiKey = settingsService.getApiKey();
+        ChatLanguageModel chatModel = createChatModel(userApiKey);
+
+        String fullPrompt = characterPrompt;
+        if (conversationHistory != null && !conversationHistory.isBlank()) {
+            fullPrompt += "\n\n[Conversation History]\n" + conversationHistory + "\n[/Conversation History]\n\n";
+        }
+        fullPrompt += "User: " + userMessage + "\n\nResponse:";
+        return chatModel.chat(fullPrompt);
+    }
+
+    /**
      * Generate a chat model with the user's API key for moderator selection.
      */
     public ChatLanguageModel createChatModelWithApiKey(String userApiKey) {
