@@ -173,7 +173,6 @@ const navItems = [
   { id: 'trending', label: '热门', emoji: '🔥' },
   { id: 'categories', label: '分类', emoji: '📂' },
   { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
-  { id: 'recent', label: '最近', emoji: '🕐' },
 ]
 
 // Active nav item based on current route
@@ -805,6 +804,7 @@ async function handleInviteMember() {
             <template v-if="selectedRoomId">
               <ChatRoomPanel
                 :room-id="selectedRoomId"
+                :key="selectedRoomId"
                 :embedded="true"
                 :show-room-list-toggle="true"
                 :show-role-panel-toggle="true"
