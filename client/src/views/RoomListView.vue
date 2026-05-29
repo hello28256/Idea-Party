@@ -252,6 +252,58 @@ function handleCharacterUpdated(updatedCharacter: any) {
   closeEditCharacterModal()
 }
 
+// Start chat with a character - creates/joins a single-person chat room
+async function startChat(character: any) {
+  try {
+    console.log('[DEBUG] startChat called with character:', character)
+
+    // Refresh myRooms to get the latest data
+    await roomStore.fetchMyRooms()
+
+    console.log('[DEBUG] myRooms after fetch:', JSON.stringify(roomStore.myRooms.map(r => ({
+      id: r.id,
+      name: r.name,
+      characters: r.characters
+    }))))
+
+    // Check if this character already has a chat room in my-rooms
+    const existingRoom = roomStore.myRooms.find(room =>
+      room.characters?.some(c => c.id === character.id)
+    )
+
+    console.log('[DEBUG] looking for character.id:', character.id)
+    console.log('[DEBUG] existingRoom:', existingRoom)
+
+    if (existingRoom) {
+      // Navigate to existing room
+      router.replace({
+        path: '/rooms',
+        query: {
+          ...route.query,
+          tab: 'my-rooms',
+          roomId: existingRoom.id
+        }
+      })
+    } else {
+      // Create new room for this character
+      const room = await roomStore.createRoom(character.name)
+      await roomStore.addCharacterToRoom(room.id, character.id)
+      // Navigate to my-rooms tab with the room selected
+      router.replace({
+        path: '/rooms',
+        query: {
+          ...route.query,
+          tab: 'my-rooms',
+          roomId: room.id
+        }
+      })
+    }
+  } catch (e) {
+    console.error('[DEBUG] Failed to start chat:', e)
+    alert('创建对话失败，请重试')
+  }
+}
+
 // Navigation handler
 function handleNavClick(itemId: string) {
   if (itemId === 'discover') {
@@ -701,12 +753,20 @@ async function handleInviteMember() {
               <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
               <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
-            <button class="edit-btn" @click.stop="openEditCharacterModal(character)">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              编辑
-            </button>
+            <div class="card-footer">
+              <button class="chat-btn" @click.stop="startChat(character)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                对话
+              </button>
+              <button class="edit-btn" @click.stop="openEditCharacterModal(character)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                编辑
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -2135,6 +2195,33 @@ async function handleInviteMember() {
   color: var(--text-primary);
 }
 
+.character-card-item .card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.character-card-item .chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--button-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--button-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.character-card-item .chat-btn:hover {
+  opacity: 0.85;
+}
+
 /* ===== My Rooms Styles ===== */
 .page-subtitle {
   font-size: 0.9rem;
@@ -3298,6 +3385,9 @@ async function handleInviteMember() {
   border-radius: 16px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .dark .character-chip-card {
@@ -3335,11 +3425,15 @@ async function handleInviteMember() {
   align-items: center;
   flex: 1;
   gap: 12px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .character-info-row .character-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  max-width: calc(100% - 80px);
 }
 
 .edit-char-btn {
@@ -3381,7 +3475,10 @@ async function handleInviteMember() {
   color: #94a3b8;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  display: -webkit-box;
+  word-break: break-word;
 }
 
 .conversation-mode-card {

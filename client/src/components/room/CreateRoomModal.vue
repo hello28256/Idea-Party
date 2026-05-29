@@ -202,9 +202,21 @@ async function handleSubmit() {
     error.value = null
 
     try {
-      const room = await roomStore.createRoom(selectedCharacter.value.name)
-      await roomStore.addCharacterToRoom(room.id, selectedCharacter.value.id)
-      emit('created', room.id)
+      // Check if this character already has a chat room
+      await roomStore.fetchMyRooms()
+      const existingRoom = roomStore.myRooms.find(room =>
+        room.characters?.some(c => c.id === selectedCharacter.value!.id)
+      )
+
+      if (existingRoom) {
+        // Navigate to existing room
+        emit('created', existingRoom.id)
+      } else {
+        // Create new room for this character
+        const room = await roomStore.createRoom(selectedCharacter.value.name)
+        await roomStore.addCharacterToRoom(room.id, selectedCharacter.value.id)
+        emit('created', room.id)
+      }
       emit('close')
     } catch (e) {
       error.value = e instanceof Error ? e.message : '创建失败'

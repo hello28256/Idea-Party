@@ -160,6 +160,10 @@ export const useRoomStore = defineStore('room', () => {
       if (index !== -1) {
         rooms.value[index] = updatedRoom
       }
+      const myIndex = myRooms.value.findIndex(r => r.id === roomId)
+      if (myIndex !== -1) {
+        myRooms.value[myIndex] = updatedRoom
+      }
       if (currentRoom.value?.id === roomId) {
         currentRoom.value = updatedRoom
       }
