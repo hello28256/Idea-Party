@@ -3,12 +3,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
+import { useRoomStore } from '@/stores/room'
 import type { Character } from '@/types'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 
 const router = useRouter()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
+const roomStore = useRoomStore()
 
 const mounted = ref(false)
 const showCreateModal = ref(false)
@@ -68,6 +70,17 @@ function handleCharacterUpdated(updatedCharacter: Character) {
     characterStore.characters[index] = updatedCharacter
   }
   closeEditModal()
+}
+
+async function startChat(character: Character) {
+  try {
+    const room = await roomStore.createRoom(character.name)
+    await roomStore.addCharacterToRoom(room.id, character.id)
+    router.push(`/chat/${room.id}`)
+  } catch (e) {
+    console.error('[DEBUG] Failed to start chat:', e)
+    alert('创建对话失败，请重试')
+  }
 }
 
 function formatDate(dateStr: string): string {
@@ -178,25 +191,35 @@ function formatDate(dateStr: string): string {
           :key="character.id"
           class="character-card"
         >
-          <div class="character-avatar">
-            <img
-              v-if="character.avatarUrl"
-              :src="character.avatarUrl"
-              :alt="character.name"
-            />
-            <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
+          <div class="card-header">
+            <div class="character-avatar">
+              <img
+                v-if="character.avatarUrl"
+                :src="character.avatarUrl"
+                :alt="character.name"
+              />
+              <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
+            </div>
+            <button class="chat-btn" @click.stop="startChat(character)">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              对话
+            </button>
           </div>
           <div class="character-info">
             <h3 class="character-name">{{ character.name }}</h3>
             <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
             <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
           </div>
-          <button class="edit-btn" @click.stop="openEditModal(character)">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-            编辑
-          </button>
+          <div class="card-footer">
+            <button class="edit-btn" @click.stop="openEditModal(character)">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              编辑
+            </button>
+          </div>
         </div>
       </div>
     </main>
@@ -423,8 +446,7 @@ function formatDate(dateStr: string): string {
 
 .character-card {
   display: flex;
-  align-items: flex-start;
-  gap: 1rem;
+  flex-direction: column;
   padding: 1.25rem;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -436,6 +458,20 @@ function formatDate(dateStr: string): string {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   border-color: #3f3f46;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.card-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 0.75rem;
 }
 
 .character-avatar {
@@ -508,6 +544,25 @@ function formatDate(dateStr: string): string {
 .edit-btn:hover {
   background: var(--border-color);
   color: var(--text-primary);
+}
+
+.chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--button-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--button-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-btn:hover {
+  opacity: 0.85;
 }
 
 @media (max-width: 768px) {
