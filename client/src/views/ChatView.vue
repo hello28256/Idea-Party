@@ -16,5 +16,5 @@ onMounted(() => {
 </script>
 
 <template>
-  <ChatRoomPanel v-if="roomId" :room-id="roomId" />
+  <ChatRoomPanel v-if="roomId" :room-id="roomId" :key="roomId" />
 </template>

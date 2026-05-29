@@ -173,7 +173,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   leaveRoom()
-  messageStore.clearMessages()
+  messageStore.clearMessages(props.roomId)
   roomStore.setCurrentRoom(null)
 })
 
