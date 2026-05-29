@@ -166,12 +166,10 @@ watch(
   { immediate: true }
 )
 
-// Navigation items - only 5 primary nav items
+// Navigation items
 const navItems = [
   { id: 'discover', label: '发现', emoji: '🔍' },
   { id: 'characters', label: '角色库', emoji: '📚' },
-  { id: 'trending', label: '热门', emoji: '🔥' },
-  { id: 'categories', label: '分类', emoji: '📂' },
   { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
 ]
 
