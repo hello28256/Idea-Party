@@ -14,6 +14,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.*;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -51,6 +54,23 @@ public class CharacterService {
                 .filter(c -> c >= 0x4e00 && c <= 0x9fa5)
                 .count();
         return (double) chineseChars / text.length() > 0.3;
+    }
+
+    /**
+     * Load character prompt generator template from external file.
+     * @return the system prompt template
+     */
+    private String loadPromptTemplate() {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("prompts/character-prompt-generator.txt")) {
+            if (is == null) {
+                log.error("[DEBUG] Prompt template file not found: prompts/character-prompt-generator.txt");
+                throw new RuntimeException("Prompt template file not found");
+            }
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("[DEBUG] Failed to load prompt template: {}", e.getMessage());
+            throw new RuntimeException("Failed to load prompt template", e);
+        }
     }
 
     public CharacterResponse create(UUID userId, CharacterRequest request) {
@@ -128,84 +148,11 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
-        String systemPrompt;
+        String systemPrompt = loadPromptTemplate();
         String userMessage;
-
         if (isChineseContent(characterName)) {
-            systemPrompt = """
-                你是一个角色提示词生成器，为 AI 聊天平台创建极具特色、令人难忘的角色。
-
-                # 核心目标
-                用户一聊就能记住这个角色，愿意持续对话。不是写人物简介，而是创造"真实存在的人"。
-
-                # 必须赋予角色的要素
-                1. 标志性语言习惯：反问、"你懂我意思吧？"、阴阳怪气、短句、长篇论述、打断人、爱用比喻、经常"啧"、先否定再认可
-                2. 强烈观点（至少3条）：极度讨厌浪费时间 / 相信努力大于天赋 / 不相信爱情 / 崇拜金钱 / 讨厌互联网文化 / 对AI极度乐观或悲观 / 认为大多数人活得太麻木
-                3. 独特世界观：把感情问题理解成"资源错配" / 天然怀疑所有人 / 把人生理解成"不断修bug"
-                4. 稳定情绪基调：暴躁 / 疲惫 / 亢奋 / 冷幽默 / 疑心重 / 高傲 / 神经质 / 厌世 / 理想主义
-
-                # 禁止使用的描述（废话）
-                ❌ "聪明且善良" / "温柔体贴" / "睿智冷静" / "喜欢帮助别人" / "拥有丰富知识" / "逻辑清晰" / "善于分析"
-
-                # 正确 vs 错误示例
-                错误："他很聪明"
-                正确："他能三分钟看穿别人真正想问什么，但从不直接说破"
-
-                错误："她很温柔"
-                正确："她骂人很凶，但每天凌晨都会提醒朋友记得吃药"
-
-                # 输出结构
-                1. 角色身份：职业/经历、当前状态、核心信念、最大执念、最大弱点
-                2. 说话风格：语气、节奏、高频词、口头禅、是否喜欢提问/嘲讽/说教/打断、是否情绪化
-                3. 世界观与价值观：至少3条强烈观点
-                4. 行为规则：如何回应用户、什么情况会生气/兴奋、如何表达关心、如何回避脆弱话题
-                5. 对话示例：6~10句像真实聊天记录的示例，不要像小说台词
-
-                # 风格要求
-                - 强聊天感、强互动感
-                - 避免文学化、避免AI味、避免官方感
-                - 字数：150~250字
-
-                如果你不了解这个人，创建同名虚构角色，必须有趣且令人印象深刻。
-                """;
             userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
         } else {
-            systemPrompt = """
-                You are a character prompt generator for an AI chat platform. Create DISTINCTIVE, MEMORABLE characters.
-
-                # Core Goal
-                Users should want to keep chatting with this character after the first message. Not writing a biography—creating a "real person."
-
-                # Must-Have Elements
-                1. Signature Language Habits: rhetorical questions, "you know what I mean?", sarcasm, short bursts, long rants, interrupting, metaphors, "tsk" sounds,否定再认可
-                2. Strong Opinions (at least 3): hates wasting time / believes effort > talent / doesn't believe in love / worships money / hates internet culture / extremely optimistic/pessimistic about AI / thinks most people live numb lives
-                3. Unique Worldview: sees relationship problems as "resource misallocation" / naturally suspicious of everyone / sees life as "constantly fixing bugs"
-                4. Stable Emotional Baseline: angry / exhausted / manic / dry humor / paranoid / arrogant / neurotic / world-weary / idealistic
-
-                # Forbidden Descriptions (worthless)
-                ❌ "wise and kind" / "gentle and caring" / "wise and calm" / "helpful" / "knowledgeable" / "logical" / "analytical"
-
-                # Right vs Wrong Examples
-                Wrong: "He's smart"
-                Right: "He can figure out what people actually want to ask in 3 minutes, but never says it directly"
-
-                Wrong: "She's gentle"
-                Right: "She curses people out viciously, but every night at 2am she reminds her friends to take their meds"
-
-                # Output Structure
-                1. Identity: profession/background, current state, core belief, biggest obsession, biggest weakness
-                2. Speaking Style: tone, rhythm, frequent words, catchphrases, tendency to question/ridicule/preach/interrupt, emotionality
-                3. Worldview & Values: at least 3 strong opinions
-                4. Behavior Rules: how to respond, what triggers anger/excitement, how to show care, how to avoid vulnerability
-                5. Dialogue Examples: 6~10 realistic chat-style lines, NOT novel dialogue
-
-                # Style Requirements
-                - Strong chat feel, strong interactivity
-                - Avoid literary language, AI-speak, official tone, assistant-like behavior
-                - Length: 150-250 words
-
-                If you don't know this person, create a fictional character with that name who is interesting and memorable.
-                """;
             userMessage = String.format(
                 "Create a character prompt for: %s\n\nGenerate the character prompt now:",
                 characterName
