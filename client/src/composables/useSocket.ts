@@ -23,8 +23,22 @@ export interface UseSocketOptions {
   onModeratorMessage?: (data: { content: string; type: string }) => void
 }
 
-const SERVER_PORT = import.meta.env.VITE_SERVER_PROXY_PORT || '8080'
-const DEFAULT_SERVER_URL = `ws://localhost:${SERVER_PORT}`
+// Resolve the WebSocket endpoint:
+//   1. VITE_WS_URL (build-time) — use it as a full base (e.g. wss://api.example.com)
+//   2. Otherwise — same-origin /ws (works in dev via vite proxy and in prod via nginx)
+// The 'localhost' hard-coding is removed so the same bundle works in any domain.
+const WS_BASE_URL: string = (() => {
+  const explicit = import.meta.env.VITE_WS_URL
+  if (explicit && typeof explicit === 'string' && explicit.trim() !== '') {
+    return explicit.replace(/\/+$/, '')
+  }
+  if (typeof window !== 'undefined' && window.location?.host) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.host}`
+  }
+  // SSR / tests fallback
+  return `ws://localhost:${import.meta.env.VITE_SERVER_PROXY_PORT || '8080'}`
+})()
 
 export function useSocket(roomId: string, options: UseSocketOptions = {}, token?: string | null) {
   const {
@@ -38,7 +52,7 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
     onModeratorMessage
   } = options
 
-  const ws = new WebSocket(`${DEFAULT_SERVER_URL}/ws`)
+  const ws = new WebSocket(`${WS_BASE_URL}/ws`)
   const isConnected = ref(false)
 
   ws.onopen = () => {
