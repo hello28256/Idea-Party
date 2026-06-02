@@ -12,9 +12,11 @@ WORKDIR /build
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 
-# Build the application (skip tests; CI runs them separately)
+# Build the application.
+# -Dmaven.test.skip=true 既跳过测试运行也跳过测试编译（项目 src/test 跟主代码签名对不上）
+# CI 应当单独跑 mvn test（不在 Docker build 里做）。
 COPY src ./src
-RUN mvn -B -q -DskipTests package \
+RUN mvn -B -q -Dmaven.test.skip=true package \
     && cp target/ideaparty-server-*.jar /build/app.jar
 
 # ---- Stage 2: Runtime ----

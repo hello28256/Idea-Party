@@ -15,5 +15,4 @@ playwright-report/
 .DS_Store
 Dockerfile
 .dockerignore
-nginx.conf
 *.local

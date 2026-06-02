@@ -9,8 +9,10 @@ FROM node:20-alpine AS builder
 WORKDIR /build
 
 # Install deps with cache-friendly layer
+# --legacy-peer-deps: 项目把 vite 锁在 v8，但部分 dev-deps 的 peer 仍声明 v5/v6，
+# 不绕过的话 npm ci 会硬性退出。运行时无影响。
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund --legacy-peer-deps
 
 # Build args → Vite env (VITE_* is exposed to client code at build time)
 ARG VITE_SERVER_PROXY_PORT=8080
