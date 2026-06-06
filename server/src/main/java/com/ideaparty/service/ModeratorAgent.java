@@ -620,12 +620,28 @@ public class ModeratorAgent implements DisposableBean {
                     String roundContext = buildRoundContext(
                         state.context, state.responses, state.currentRound - 1);
 
-                    runJointSingleRound(roomId, userId, userMessage, roundContext, characters,
-                        onChunk, onResponse);
+                    // Wrap onResponse so each completed speaker block is captured into
+                    // state.responses — the next round's buildRoundContext needs this
+                    // to feed the previous round's output back to the LLM. Without
+                    // this, round 2+ have no idea what round 1 said and just ramble.
+                    final int roundBeingRun = state.currentRound;
+                    Consumer<ResponseFragment> capturingOnResponse = fragment -> {
+                        // Capture for next round's context, then forward to caller.
+                        state.responses.add(fragment);
+                        onResponse.accept(fragment);
+                    };
 
-                    // Snapshot this round's responses
+                    // For round > 1, clear stale responses from the prior round so the
+                    // context section only shows what we want the LLM to react to.
+                    if (state.currentRound > 1) {
+                        state.responses.clear();
+                    }
+
+                    runJointSingleRound(roomId, userId, userMessage, roundContext, characters,
+                        onChunk, capturingOnResponse);
+
+                    // Snapshot this round's responses for the next iteration
                     List<ResponseFragment> thisRound = new ArrayList<>(state.responses);
-                    // (state.responses was populated by the parser via onResponse)
 
                     state.currentRound++;
                     if (!state.isRunning) break;
@@ -1341,15 +1357,21 @@ public class ModeratorAgent implements DisposableBean {
     private String buildRoundContext(String previousContext, List<ResponseFragment> responses, int roundNum) {
         StringBuilder context = new StringBuilder();
         context.append(previousContext);
-        context.append("\n\n=== Round ").append(roundNum).append(" Responses ===\n");
+        context.append("\n\n=== 上一轮 ").append(roundNum).append(" 发言 ===\n");
 
         for (ResponseFragment r : responses) {
             context.append("[").append(r.getCharacterName()).append("]: ").append(r.getContent()).append("\n");
         }
 
-        context.append("\n=== Round ").append(roundNum + 1).append(" ===\n");
-        context.append("Now COMMENT on or RESPOND to what others said. Agree, disagree, or add new perspectives. " +
-                      "Keep it conversational (2-4 sentences). Address specific points others made.");
+        context.append("\n=== 现在是第 ").append(roundNum + 1).append(" 轮 ===\n");
+        context.append("**这一轮是讨论**，不要把用户消息当成主语。");
+        context.append("**必须**针对上一轮里某个人**具体的观点/用词/数据**做回应：\n");
+        context.append("- 同意对方哪一点？为什么？\n");
+        context.append("- 反驳对方哪一点？理由是什么？\n");
+        context.append("- 在对方观点上**补充**一个他没提到的角度。\n");
+        context.append("- 或者把 A 和 B 的观点做**对比**，点出矛盾。\n");
+        context.append("**禁止**大家各说各的、不引用上一轮。**禁止**绕回用户原始消息。\n");
+        context.append("每位角色 2~4 句，必须**直接点名**或**直接引用**上一轮里别人的某句话。");
 
         return context.toString();
     }
