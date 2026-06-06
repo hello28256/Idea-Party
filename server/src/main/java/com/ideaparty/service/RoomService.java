@@ -108,6 +108,12 @@ public class RoomService {
             throw new AccessDeniedException("You are not a member of this room");
         }
 
+        // Single rooms are 1-on-1 and immutable in membership.
+        if ("single".equalsIgnoreCase(room.getMode())) {
+            log.warn("[DEBUG] User {} tried to add character to single-mode room {}", userId, roomId);
+            throw new AccessDeniedException("Single-mode rooms cannot accept additional characters");
+        }
+
         Character character = characterRepository.findById(characterId)
                 .orElseThrow(() -> new IllegalArgumentException("Character not found: " + characterId));
 
