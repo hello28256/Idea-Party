@@ -7,7 +7,6 @@ import com.ideaparty.dto.ModeratorMessage;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
 import com.ideaparty.repository.MessageRepository;
-import com.ideaparty.service.FirecrawlService;
 import com.ideaparty.socket.ChatSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,12 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Lazy;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -47,7 +43,6 @@ public class ModeratorAgent implements DisposableBean {
 
     private final AIService aiService;
     private final MessageRepository messageRepository;
-    private final FirecrawlService firecrawlService;
     private final SettingsService settingsService;
     private final ChatSocketHandler chatSocketHandler;
     private final ResourceLoader resourceLoader;
@@ -65,11 +60,6 @@ public class ModeratorAgent implements DisposableBean {
 
     // Room-level futures tracking for cancellation
     private final ConcurrentHashMap<String, List<CompletableFuture<?>>> roomFutures = new ConcurrentHashMap<>();
-
-    // Track last sent length per character for delta computation
-    private final ConcurrentHashMap<String, Integer> lastSentLengths = new ConcurrentHashMap<>();
-
-
 
     // Room-level current discussion state
     private final ConcurrentHashMap<String, DiscussionState> roomDiscussionState = new ConcurrentHashMap<>();
@@ -414,10 +404,9 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader, CharacterPromptBuilder characterPromptBuilder) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader, CharacterPromptBuilder characterPromptBuilder) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
-        this.firecrawlService = firecrawlService;
         this.settingsService = settingsService;
         this.chatSocketHandler = chatSocketHandler;
         this.resourceLoader = resourceLoader;
