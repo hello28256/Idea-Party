@@ -27,8 +27,6 @@ import lombok.RequiredArgsConstructor;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
@@ -310,42 +308,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * Extract multiple character names from message content for multi-target scenarios.
-     * e.g., "马云和马化腾观点有什么不同" → [马云, 马化腾]
+     * Routing is delegated to the moderator LLM via the joint prompt. The only
+     * structural rule we keep in Java is explicit @-mention detection (above).
+     * Topical / thread-continuity / multi-character decisions are all made by
+     * the LLM reading the character roster + chat history.
      */
-    private List<String> extractMultipleMentions(String content, List<Character> characters) {
-        List<String> mentioned = new ArrayList<>();
-        if (content == null || characters == null || characters.isEmpty()) {
-            return mentioned;
-        }
-
-        String trimmed = content.trim();
-
-        // Check for "角色1和角色2" or "角色1、角色2" patterns
-        // Both names can appear before or after the separator
-        for (Character c : characters) {
-            String name = c.getName();
-            // Check if this character name appears in the content
-            if (trimmed.contains(name)) {
-                // Check if it's part of a "X和Y" or "X、Y" pattern
-                // X can be before OR after the separator
-                String beforeAnd = name + "和";
-                String beforeComma = name + "、";
-                String afterAnd = "和" + name;
-                String afterComma = "、" + name;
-
-                boolean isPartOfMultiTarget =
-                    trimmed.contains(beforeAnd) || trimmed.contains(beforeComma) ||
-                    trimmed.contains(afterAnd) || trimmed.contains(afterComma);
-
-                if (isPartOfMultiTarget && !mentioned.contains(name)) {
-                    mentioned.add(name);
-                }
-            }
-        }
-
-        return mentioned;
-    }
 
     public void triggerAIForRoom(String roomId, String userMessage, String userId) {
         triggerAIForRoom(roomId, userMessage, userId, null);
@@ -619,86 +586,29 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
-            // Step 1: Check if user explicitly mentioned a character (overrides thread continuity)
+            // Routing policy: Java only handles the ONE thing it's good at —
+            // structural detection of explicit @-mentions. Everything else
+            // (topical matching, group invitations, thread continuity, "should
+            // I pick 1 or 3 speakers?") is delegated to the moderator LLM via
+            // the joint prompt. Hand-coding keyword tables in Java for this
+            // is brittle and lossy by construction.
+
+            // 1. Explicit single @-mention (e.g., "@马化腾 你怎么看") — route to that one.
             String mentionedCharacter = extractMentionedCharacter(content, allCharacters);
-            String recentContext = getRecentContext(roomId);
             if (mentionedCharacter != null) {
                 log.info("[WS] triggerAIViaModerator - explicit @mention detected: {}", mentionedCharacter);
-                // Update last speaker when user explicitly mentions someone
                 roomLastSpeaker.put(roomId, mentionedCharacter);
                 roomActiveThreadOwner.put(roomId, mentionedCharacter);
-                // Append recent context so the new character knows what was discussed
-                String messageWithContext = content + recentContext;
+                String messageWithContext = content + getRecentContext(roomId);
                 triggerAIForRoom(roomId, messageWithContext, userId, mentionedCharacter);
                 return;
             }
 
-            // Step 1.5: Check for multi-target mentions (e.g., "马云和马化腾观点有什么不同")
-            List<String> multipleMentions = extractMultipleMentions(content, allCharacters);
-            if (multipleMentions.size() > 1) {
-                log.info("[WS] triggerAIViaModerator - multi-target mentions detected: {}", multipleMentions);
-                // Route to first mentioned character for now (sequential responses)
-                String firstMention = multipleMentions.get(0);
-                roomLastSpeaker.put(roomId, firstMention);
-                roomActiveThreadOwner.put(roomId, firstMention);
-                String messageWithContext = content + recentContext;
-                triggerAIForRoom(roomId, messageWithContext, userId, firstMention);
-                return;
-            }
-
-            // Step 2: Check thread continuity FIRST (before semantic matching)
-            // If message is short/contextual and we have an active thread owner, continue that thread
-            String activeThreadOwner = roomActiveThreadOwner.get(roomId);
-            boolean isContextualMessage = isShortOrContextualMessage(content);
-            if (activeThreadOwner != null && isContextualMessage) {
-                // Verify the active thread owner is still in the room
-                Character threadOwner = allCharacters.stream()
-                    .filter(c -> c.getName().equals(activeThreadOwner))
-                    .findFirst()
-                    .orElse(null);
-                if (threadOwner != null) {
-                    log.info("[WS] triggerAIViaModerator - thread continuity: routing to active thread owner: {}", activeThreadOwner);
-                    triggerAIForRoom(roomId, content, userId, activeThreadOwner);
-                    return;
-                }
-            }
-
-            // Step 3: Check last speaker if message is short/contextual (fallback to recent speaker)
-            String lastSpeaker = roomLastSpeaker.get(roomId);
-            if (lastSpeaker != null && isContextualMessage) {
-                log.info("[WS] triggerAIViaModerator - using last speaker: {} for contextual message", lastSpeaker);
-                triggerAIForRoom(roomId, content, userId, lastSpeaker);
-                return;
-            }
-
-            // Step 3.5: Check for open-ended question - invite multiple characters
-            if (isOpenEndedQuestion(content)) {
-                log.info("[WS] triggerAIViaModerator - open-ended question detected, inviting multiple characters");
-                // Let all characters respond (pass null to indicate no single target)
-                triggerAIForRoom(roomId, content, userId, null);
-                return;
-            }
-
-            // Step 3.6: Topical routing — if the message mentions a known brand / company
-            // / domain that one of the room's characters is the expert of, route to that
-            // character even when the user didn't @-mention them. This avoids the
-            // 'fallback to first character' problem (e.g. user asks about Tencent and
-            // 马化腾 is the obvious answer, not whoever happened to be first in the list).
-            String topicalTarget = pickTopicalTarget(content, allCharacters);
-            if (topicalTarget != null) {
-                log.info("[WS] triggerAIViaModerator - topical routing: {} -> {}", content, topicalTarget);
-                roomLastSpeaker.put(roomId, topicalTarget);
-                roomActiveThreadOwner.put(roomId, topicalTarget);
-                String messageWithContext = content + recentContext;
-                triggerAIForRoom(roomId, messageWithContext, userId, topicalTarget);
-                return;
-            }
-
-            // Step 4: Fallback to first character (simple default)
-            log.info("[WS] triggerAIViaModerator - falling back to first character");
-            // For first character in a new topic, include recent context
-            String messageWithContext = content + recentContext;
-            triggerAIForRoom(roomId, messageWithContext, userId, allCharacters.get(0).getName());
+            // 2. Anything else — pass ALL characters to the moderator LLM and let
+            //    it decide who speaks (1, several, or nobody), based on the joint
+            //    prompt's routing rules + the room's actual character personas.
+            log.info("[WS] triggerAIViaModerator - delegating to moderator (no @mention, {} chars)", allCharacters.size());
+            triggerAIForRoom(roomId, content, userId, null);
 
         } catch (Exception e) {
             log.error("[WS] triggerAIViaModerator - error: {}", e.getMessage(), e);
@@ -718,63 +628,12 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         log.info("[WS] Updated active thread owner for room {}: {}", roomId, characterName);
     }
 
-    /**
-     * Check if message is an open-ended question that invites multiple responses.
-     * Examples: "大家怎么看", "每个人都说说", "你们觉得呢"
-     */
-    private boolean isOpenEndedQuestion(String content) {
-        if (content == null || content.isBlank()) return false;
-        String trimmed = content.trim();
-
-        // First check: direct question patterns - these are NOT open-ended
-        // Single person addressed directly
-        if (trimmed.matches("^(你|您)觉得.*") ||
-            trimmed.matches("^(你|您)怎么.*") ||
-            trimmed.matches("^(你|您)看.*")) {
-            return false;
-        }
-
-        // Ends with question particle "吗" (definite yes/no question, addressed to
-        // a single entity). Note: we deliberately do NOT reject "？" here — many
-        // open-ended / group invitations also end with "？" (e.g. "一起去聚餐？",
-        // "讨论一下有什么新项目？"). Treating those as single-target is wrong.
-        if (trimmed.endsWith("吗")) {
-            return false;
-        }
-
-        // Open-ended patterns - these INVITE multiple responses
-        String[] openPatterns = {
-            // 直接 @ 群里所有人
-            "群里各位", "群里的各位", "在座各位", "群里各位大佬",
-            "群里", "群里人", "群里的小伙伴", "群里的大佬",
-            "各位", "各位大佬", "各位怎么看", "各位觉得",
-            // 经典"大家怎么看"
-            "大家", "大家怎么看", "大家觉得", "大家说", "大家说下", "大家聊下",
-            "大家有何", "大家有什么", "大家怎么看", "大家怎么看？",
-            "你们", "你们都", "你们怎么", "你们觉得", "你们怎么看", "你们说",
-            "各位说说", "说说", "聊一下", "聊一聊", "讨论一下", "讨论讨论",
-            "每个人都", "每个人都说说", "大家都说说", "大家都出来",
-            "都有什么", "都有些什么", "都说说", "都发表一下",
-            // 群邀请：聚/一起/我们 这类明显是 1vN 的词
-            "一起", "一起去", "一起聚", "一起聊", "一起吃", "一起干",
-            "聚餐", "聚个餐", "聚聚", "聚一下", "碰一碰", "约个",
-            "我们", "我们一起", "咱们", "咱们一起", "兄弟们", "伙伴们",
-            "新项目", "有什么好点子", "有什么好主意", "有什么好想法",
-            "头脑风暴", "开个小会", "开黑", "团建"
-        };
-        for (String pattern : openPatterns) {
-            if (trimmed.contains(pattern)) {
-                return true;
-            }
-        }
-
-        // If starts with "大家" or "你们" and short, likely open-ended
-        if ((trimmed.startsWith("大家") || trimmed.startsWith("你们")) && trimmed.length() <= 15) {
-            return true;
-        }
-
-        return false;
-    }
+    // NOTE: Previously this class contained isOpenEndedQuestion,
+    // isShortOrContextualMessage, pickTopicalTarget, and firstLongChineseWord —
+    // hand-coded routing heuristics. Removed in the "routing to LLM" refactor.
+    // The moderator LLM (joint prompt) is now the single source of truth for
+    // who speaks, how many, and in what order. Java only detects explicit
+    // @-mentions, which is a structural signal.
 
     /**
      * Store a recent AI response for cross-agent context.
@@ -807,134 +666,6 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             sb.append("- ").append(r.characterName).append(": \"").append(truncated).append("\"\n");
         }
         return sb.toString();
-    }
-
-    /**
-     * Check if a message is short or highly contextual (likely a reply).
-     * Used for thread continuity decisions.
-     */
-    private boolean isShortOrContextualMessage(String content) {
-        if (content == null || content.isBlank()) {
-            return false;
-        }
-        String trimmed = content.trim();
-
-        // If message ends with question mark, NOT contextual (direct question)
-        if (trimmed.contains("？") || trimmed.contains("?")) {
-            return false;
-        }
-
-        // Short messages (less than 8 chars for Chinese) - highly likely to be contextual
-        if (trimmed.length() <= 8) {
-            return true;
-        }
-
-        // Contextual phrases that indicate a reply - only for relatively short messages
-        if (trimmed.length() <= 30) {
-            String[] contextualPhrases = {
-                "好", "好的", "同意", "有道理", "对", "没错",
-                "继续", "展开", "为什么", "不是", "我不同意", "我同意",
-                "哈哈", "嗯", "嗯嗯", "有意思", "继续说", "然后呢", "后来呢"
-            };
-            for (String phrase : contextualPhrases) {
-                if (trimmed.equals(phrase) || trimmed.startsWith(phrase + " ") || trimmed.endsWith(" " + phrase)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Pick the best character to answer based on topical keywords in the message.
-     * Two strategies:
-     *   1. Hard-coded well-known keyword → character map (e.g. "腾讯" → 马化腾)
-     *   2. Scan character.name / persona / expertise for words that appear in the message
-     * Returns null if no topical match is found (caller should fall through to other rules).
-     */
-    private String pickTopicalTarget(String content, List<Character> characters) {
-        if (content == null || content.isBlank() || characters == null || characters.isEmpty()) {
-            return null;
-        }
-        String lower = content.toLowerCase();
-
-        // Strategy 1: hard-coded well-known mappings (covers the common case where
-        // a character data row is sparse or the user mentions a brand directly).
-        Map<String, String> hardcoded = new HashMap<>();
-        hardcoded.put("腾讯", "马化腾");
-        hardcoded.put("微信", "马化腾");
-        hardcoded.put("qq", "马化腾");
-        hardcoded.put("游戏", "马化腾");
-        hardcoded.put("王者荣耀", "马化腾");
-        hardcoded.put("阿里", "马云");
-        hardcoded.put("淘宝", "马云");
-        hardcoded.put("天猫", "马云");
-        hardcoded.put("支付宝", "马云");
-        hardcoded.put("电商", "马云");
-        hardcoded.put("特斯拉", "马斯克");
-        hardcoded.put("spacex", "马斯克");
-        hardcoded.put("火星", "马斯克");
-        hardcoded.put("星链", "马斯克");
-        hardcoded.put("starlink", "马斯克");
-        hardcoded.put("neuralink", "马斯克");
-
-        for (Map.Entry<String, String> e : hardcoded.entrySet()) {
-            if (lower.contains(e.getKey())) {
-                Character match = characters.stream()
-                    .filter(c -> c.getName().equals(e.getValue()))
-                    .findFirst()
-                    .orElse(null);
-                if (match != null) {
-                    return match.getName();
-                }
-            }
-        }
-
-        // Strategy 2: scan each character's persona / expertise for substrings in the
-        // message. This catches the long tail where we don't have a hardcoded entry
-        // but the character data clearly tags them as the expert.
-        for (Character c : characters) {
-            String name = c.getName();
-            if (name != null && !name.isBlank() && content.contains(name)) {
-                return name;
-            }
-            if (c.getExpertise() != null) {
-                for (String tag : c.getExpertise()) {
-                    if (tag != null && !tag.isBlank() && content.contains(tag)) {
-                        return name;
-                    }
-                }
-            }
-            if (c.getPersona() != null) {
-                String hit = firstLongChineseWord(c.getPersona(), 2);
-                if (hit != null && content.contains(hit)) {
-                    return name;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Return the first Chinese word of at least {@code minLen} characters from the input.
-     * Used to extract a distinctive keyword from a freeform persona string.
-     */
-    private String firstLongChineseWord(String s, int minLen) {
-        if (s == null) return null;
-        StringBuilder cur = new StringBuilder();
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            if (ch >= 0x4E00 && ch <= 0x9FA5) {
-                cur.append(ch);
-            } else {
-                if (cur.length() >= minLen) return cur.toString();
-                cur.setLength(0);
-            }
-        }
-        if (cur.length() >= minLen) return cur.toString();
-        return null;
     }
 
     @Override
