@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
@@ -678,6 +679,21 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
+            // Step 3.6: Topical routing — if the message mentions a known brand / company
+            // / domain that one of the room's characters is the expert of, route to that
+            // character even when the user didn't @-mention them. This avoids the
+            // 'fallback to first character' problem (e.g. user asks about Tencent and
+            // 马化腾 is the obvious answer, not whoever happened to be first in the list).
+            String topicalTarget = pickTopicalTarget(content, allCharacters);
+            if (topicalTarget != null) {
+                log.info("[WS] triggerAIViaModerator - topical routing: {} -> {}", content, topicalTarget);
+                roomLastSpeaker.put(roomId, topicalTarget);
+                roomActiveThreadOwner.put(roomId, topicalTarget);
+                String messageWithContext = content + recentContext;
+                triggerAIForRoom(roomId, messageWithContext, userId, topicalTarget);
+                return;
+            }
+
             // Step 4: Fallback to first character (simple default)
             log.info("[WS] triggerAIViaModerator - falling back to first character");
             // For first character in a new topic, include recent context
@@ -811,6 +827,97 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
 
         return false;
+    }
+
+    /**
+     * Pick the best character to answer based on topical keywords in the message.
+     * Two strategies:
+     *   1. Hard-coded well-known keyword → character map (e.g. "腾讯" → 马化腾)
+     *   2. Scan character.name / persona / expertise for words that appear in the message
+     * Returns null if no topical match is found (caller should fall through to other rules).
+     */
+    private String pickTopicalTarget(String content, List<Character> characters) {
+        if (content == null || content.isBlank() || characters == null || characters.isEmpty()) {
+            return null;
+        }
+        String lower = content.toLowerCase();
+
+        // Strategy 1: hard-coded well-known mappings (covers the common case where
+        // a character data row is sparse or the user mentions a brand directly).
+        Map<String, String> hardcoded = new HashMap<>();
+        hardcoded.put("腾讯", "马化腾");
+        hardcoded.put("微信", "马化腾");
+        hardcoded.put("qq", "马化腾");
+        hardcoded.put("游戏", "马化腾");
+        hardcoded.put("王者荣耀", "马化腾");
+        hardcoded.put("阿里", "马云");
+        hardcoded.put("淘宝", "马云");
+        hardcoded.put("天猫", "马云");
+        hardcoded.put("支付宝", "马云");
+        hardcoded.put("电商", "马云");
+        hardcoded.put("特斯拉", "马斯克");
+        hardcoded.put("spacex", "马斯克");
+        hardcoded.put("火星", "马斯克");
+        hardcoded.put("星链", "马斯克");
+        hardcoded.put("starlink", "马斯克");
+        hardcoded.put("neuralink", "马斯克");
+
+        for (Map.Entry<String, String> e : hardcoded.entrySet()) {
+            if (lower.contains(e.getKey())) {
+                Character match = characters.stream()
+                    .filter(c -> c.getName().equals(e.getValue()))
+                    .findFirst()
+                    .orElse(null);
+                if (match != null) {
+                    return match.getName();
+                }
+            }
+        }
+
+        // Strategy 2: scan each character's persona / expertise for substrings in the
+        // message. This catches the long tail where we don't have a hardcoded entry
+        // but the character data clearly tags them as the expert.
+        for (Character c : characters) {
+            String name = c.getName();
+            if (name != null && !name.isBlank() && content.contains(name)) {
+                return name;
+            }
+            if (c.getExpertise() != null) {
+                for (String tag : c.getExpertise()) {
+                    if (tag != null && !tag.isBlank() && content.contains(tag)) {
+                        return name;
+                    }
+                }
+            }
+            if (c.getPersona() != null) {
+                String hit = firstLongChineseWord(c.getPersona(), 2);
+                if (hit != null && content.contains(hit)) {
+                    return name;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Return the first Chinese word of at least {@code minLen} characters from the input.
+     * Used to extract a distinctive keyword from a freeform persona string.
+     */
+    private String firstLongChineseWord(String s, int minLen) {
+        if (s == null) return null;
+        StringBuilder cur = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch >= 0x4E00 && ch <= 0x9FA5) {
+                cur.append(ch);
+            } else {
+                if (cur.length() >= minLen) return cur.toString();
+                cur.setLength(0);
+            }
+        }
+        if (cur.length() >= minLen) return cur.toString();
+        return null;
     }
 
     @Override
