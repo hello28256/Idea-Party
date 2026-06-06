@@ -354,7 +354,7 @@ public class ModeratorAgent implements DisposableBean {
         synchronized (state.pendingQueue) {
             if (!state.pendingQueue.isEmpty()) {
                 Character character = state.pendingQueue.remove(0);
-                generateCharacterResponse(roomId, character, state);
+                generateCharacterResponse(roomId, character, state, state.userId, state.currentUserMessage, state.context);
             }
         }
     }
