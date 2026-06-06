@@ -486,27 +486,337 @@ public class ModeratorAgent implements DisposableBean {
         try {
             if (isContinuous) {
                 // Discussion mode: sequential turn-based discussion
-                DiscussionState state = new DiscussionState();
-                state.characters = new ArrayList<>(characters);
-                state.userMessage = userMessage;
-                state.currentUserMessage = userMessage;
-                state.context = initialContext;
-                state.currentRound = 1;
-                state.maxRounds = maxRounds;
-                state.isRunning = true;
-                state.paused = false;
-                state.userTriggered.set(false);
-                state.userId = userId;
-                roomDiscussionState.put(roomId, state);
-
-                runSequentialDiscussion(roomId, userId, state, onThinking);
+                // Each round uses ONE joint LLM call so all characters in a round
+                // come from the same inference (cheaper, smarter cross-character context).
+                runJointDiscussion(roomId, userId, userMessage, characters, maxRounds,
+                    initialContext, onThinking, onChunk, onResponse);
             } else {
-                // Dialogue mode: single round only
-                runSingleRound(roomId, userId, userMessage, initialContext, characters,
-                    roundResponses, onThinking, onChunk, onResponse);
+                // Dialogue mode: a single joint round — moderator picks 1..N speakers
+                // and we stream each speaker's reply in order from one inference.
+                runJointSingleRound(roomId, userId, userMessage, initialContext, characters,
+                    onChunk, onResponse);
             }
         } catch (Exception e) {
             log.error("[Moderator] processMessage caught exception: {}", e.getMessage(), e);
+        }
+    }
+
+    // ================== JOINT (single-LLM-call) FLOW ==================
+
+    private void runJointSingleRound(String roomId, String userId, String userMessage, String context,
+                                     List<Character> characters,
+                                     Consumer<ResponseFragment> onChunk,
+                                     Consumer<ResponseFragment> onResponse) {
+        log.info("[Moderator] runJointSingleRound - roomId: {}, userId: {}, charCount: {}",
+            roomId, userId, characters.size());
+
+        String userApiKey = settingsService.getApiKeyById(userId);
+        if (userApiKey == null || userApiKey.isBlank()) {
+            log.error("[Moderator] runJointSingleRound - no API key for userId: {}", userId);
+            return;
+        }
+
+        // Load last 10 messages for the prompt
+        String conversationHistory = loadRecentHistory(roomId, 10);
+        String prompt = buildJointPrompt(userMessage, conversationHistory, context, characters);
+        log.info("[Moderator] runJointSingleRound - prompt length: {}", prompt.length());
+
+        JointStreamParser parser = new JointStreamParser(characters, onChunk, onResponse);
+
+        StringBuilder accumulated = new StringBuilder();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicBoolean settled = new AtomicBoolean(false);
+
+        aiService.generateResponseStream(
+            prompt,
+            userMessage,
+            userApiKey,
+            chunk -> {
+                accumulated.append(chunk);
+                try {
+                    parser.onChunk(chunk);
+                } catch (Exception e) {
+                    log.warn("[Moderator] joint parser.onChunk failed: {}", e.getMessage());
+                }
+            },
+            complete -> {
+                if (!settled.compareAndSet(false, true)) return;
+                try {
+                    parser.flush(accumulated.toString());
+                } catch (Exception e) {
+                    log.warn("[Moderator] joint parser.flush failed: {}", e.getMessage());
+                }
+                latch.countDown();
+            },
+            error -> {
+                if (!settled.compareAndSet(false, true)) return;
+                log.error("[Moderator] runJointSingleRound - LLM error: {}", error.getMessage());
+                try {
+                    String errorEvent = "42[\"error\","
+                        + objectMapper.writeValueAsString(Map.of("message", error.getMessage()))
+                        + "]";
+                    chatSocketHandler.broadcastToRoom(roomId, errorEvent);
+                } catch (Exception e) {
+                    log.warn("[Moderator] joint error broadcast failed: {}", e.getMessage());
+                }
+                latch.countDown();
+            }
+        );
+
+        try {
+            boolean done = latch.await(120, TimeUnit.SECONDS);
+            if (!done) {
+                log.warn("[Moderator] runJointSingleRound - 120s timeout, flushing");
+                parser.flush(accumulated.toString());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void runJointDiscussion(String roomId, String userId, String userMessage, List<Character> characters,
+                                    int maxRounds, String initialContext,
+                                    Consumer<String> onThinking,
+                                    Consumer<ResponseFragment> onChunk,
+                                    Consumer<ResponseFragment> onResponse) {
+        log.info("[Moderator] runJointDiscussion START - roomId: {}, charCount: {}, maxRounds: {}",
+            roomId, characters.size(), maxRounds);
+
+        DiscussionState state = new DiscussionState();
+        state.characters = new ArrayList<>(characters);
+        state.userMessage = userMessage;
+        state.currentUserMessage = userMessage;
+        state.context = initialContext;
+        state.currentRound = 1;
+        state.maxRounds = maxRounds;
+        state.isRunning = true;
+        state.paused = false;
+        state.userId = userId;
+        roomDiscussionState.put(roomId, state);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                while (state.isRunning && state.currentRound <= state.maxRounds) {
+                    // Wait for pause
+                    while (state.paused && state.isRunning) {
+                        Thread.sleep(500);
+                    }
+                    if (!state.isRunning) break;
+
+                    // Inter-round delay 1.5s
+                    for (int i = 0; i < 3; i++) {
+                        if (!state.isRunning) break;
+                        if (state.userTriggered.get()) {
+                            state.userTriggered.set(false);
+                            break;
+                        }
+                        Thread.sleep(500);
+                    }
+                    if (!state.isRunning) break;
+
+                    log.info("[Moderator] [Joint Round {}/{}] starting", state.currentRound, state.maxRounds);
+
+                    // Build the round context that includes prior round responses
+                    String roundContext = buildRoundContext(
+                        state.context, state.responses, state.currentRound - 1);
+
+                    runJointSingleRound(roomId, userId, userMessage, roundContext, characters,
+                        onChunk, onResponse);
+
+                    // Snapshot this round's responses
+                    List<ResponseFragment> thisRound = new ArrayList<>(state.responses);
+                    // (state.responses was populated by the parser via onResponse)
+
+                    state.currentRound++;
+                    if (!state.isRunning) break;
+                }
+
+                log.info("[Moderator] Discussion ended - rounds: {}", state.currentRound - 1);
+                state.isRunning = false;
+                roomDiscussionState.remove(roomId);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                state.isRunning = false;
+            } catch (Exception e) {
+                log.error("[Moderator] runJointDiscussion error: {}", e.getMessage(), e);
+                state.isRunning = false;
+            }
+        }, executor);
+    }
+
+    /**
+     * Build the joint prompt by loading the moderator-joint-prompt.txt template and
+     * filling in character roster, recent history, and user message.
+     */
+    private String buildJointPrompt(String userMessage, String conversationHistory,
+                                    String context, List<Character> characters) {
+        try {
+            Resource resource = resourceLoader.getResource("classpath:prompts/moderator-joint-prompt.txt");
+            String template = resource.getContentAsString(StandardCharsets.UTF_8);
+
+            StringBuilder charactersList = new StringBuilder();
+            for (Character c : characters) {
+                charactersList.append("- 角色名：**").append(c.getName()).append("**\n");
+                if (c.getPersona() != null && !c.getPersona().isBlank()) {
+                    charactersList.append("  人设：").append(c.getPersona()).append("\n");
+                }
+                if (c.getExpertise() != null && !c.getExpertise().isEmpty()) {
+                    charactersList.append("  专长：").append(String.join("、", c.getExpertise())).append("\n");
+                }
+                if (c.getPrompt() != null && !c.getPrompt().isBlank()) {
+                    // Include the first 800 chars of the character prompt as flavor
+                    String snippet = c.getPrompt();
+                    if (snippet.length() > 800) snippet = snippet.substring(0, 800) + "...";
+                    charactersList.append("  设定摘录：").append(snippet).append("\n");
+                }
+                charactersList.append("\n");
+            }
+
+            String historySection = (conversationHistory == null || conversationHistory.isBlank())
+                ? "（暂无历史对话）"
+                : conversationHistory;
+
+            return template
+                .replace("{characters}", charactersList.toString())
+                .replace("{conversationHistory}", historySection)
+                .replace("{userMessage}", userMessage == null ? "" : userMessage);
+        } catch (Exception e) {
+            log.error("[Moderator] Failed to load joint prompt template: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * Load recent N messages from the room as a formatted history string.
+     */
+    private String loadRecentHistory(String roomId, int limit) {
+        try {
+            UUID roomUuid = UUID.fromString(roomId);
+            List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomUuid);
+            if (messages.isEmpty()) return "";
+
+            int from = Math.max(0, messages.size() - limit);
+            StringBuilder sb = new StringBuilder();
+            for (int i = from; i < messages.size(); i++) {
+                Message m = messages.get(i);
+                if (m.getSenderType() == Message.SenderType.USER) {
+                    sb.append("User: ").append(m.getContent()).append("\n");
+                } else {
+                    String name = m.getCharacter() != null ? m.getCharacter().getName() : "Character";
+                    sb.append(name).append(": ").append(m.getContent()).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("[Moderator] loadRecentHistory failed: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * Incremental parser for the joint LLM stream. Output protocol from the LLM:
+     *
+     *   [角色名]: 台词内容（可换行）
+     *   <<<END>>>
+     *   [另一角色]: ...
+     *   <<<END>>>
+     *
+     * For each complete block:
+     *  - onChunk(fragment, isComplete=false) is called with the full content
+     *    (so the frontend sees the speaker's text appear when the turn ends)
+     *  - onResponse(fragment, isComplete=true) is called so the orchestrator
+     *    can persist and broadcast
+     */
+    private static class JointStreamParser {
+        private static final String END_MARKER = "<<<END>>>";
+        private static final Pattern BLOCK = Pattern.compile(
+            "\\[([^\\]]+)\\]:\\s*([\\s\\S]*?)<<<END>>>");
+
+        private final Map<String, Character> byName;
+        private final List<String> knownNames;
+        private final Consumer<ResponseFragment> onChunk;
+        private final Consumer<ResponseFragment> onResponse;
+        private final StringBuilder buffer = new StringBuilder();
+        private int consumed = 0;
+        private final Set<String> emittedSpeakers = new HashSet<>();
+
+        JointStreamParser(List<Character> characters,
+                          Consumer<ResponseFragment> onChunk,
+                          Consumer<ResponseFragment> onResponse) {
+            this.byName = new HashMap<>();
+            this.knownNames = new ArrayList<>();
+            for (Character c : characters) {
+                String key = c.getName().trim().toLowerCase();
+                byName.put(key, c);
+                knownNames.add(c.getName());
+            }
+            this.onChunk = onChunk;
+            this.onResponse = onResponse;
+        }
+
+        void onChunk(String chunk) {
+            buffer.append(chunk);
+            parseNewBlocks();
+        }
+
+        void flush(String finalText) {
+            // Make sure the buffer contains whatever the LLM produced in full
+            if (buffer.length() < finalText.length()) {
+                buffer.append(finalText.substring(buffer.length()));
+            }
+            parseNewBlocks();
+            // Anything left that looks like an unfinished block — drop with a warning
+            if (consumed < buffer.length()) {
+                String leftover = buffer.substring(consumed).trim();
+                if (!leftover.isEmpty()) {
+                    log.warn("[Moderator] joint stream ended with unterminated block: {}",
+                        leftover.substring(0, Math.min(120, leftover.length())));
+                }
+            }
+        }
+
+        private void parseNewBlocks() {
+            while (true) {
+                Matcher m = BLOCK.matcher(buffer);
+                m.region(consumed, buffer.length());
+                if (!m.find()) break;
+                String rawName = m.group(1).trim();
+                String content = m.group(2).trim();
+                Character c = byName.get(rawName.toLowerCase());
+                if (c == null) {
+                    log.warn("[Moderator] joint stream emitted unknown speaker '{}' — skipping block", rawName);
+                    consumed = m.end();
+                    continue;
+                }
+                if (emittedSpeakers.contains(c.getId().toString())) {
+                    // Same speaker appears twice in one joint response — keep the first
+                    log.warn("[Moderator] joint stream repeated speaker '{}' — keeping first block", rawName);
+                    consumed = m.end();
+                    continue;
+                }
+                emit(c, content);
+                emittedSpeakers.add(c.getId().toString());
+                consumed = m.end();
+            }
+            // Trim consumed prefix periodically to keep the buffer small
+            if (consumed > 4096) {
+                buffer.delete(0, consumed);
+                consumed = 0;
+            }
+        }
+
+        private void emit(Character c, String content) {
+            if (content == null || content.isEmpty()) {
+                log.info("[Moderator] joint stream: speaker {} emitted empty block, skipped", c.getName());
+                return;
+            }
+            String charId = c.getId().toString();
+            // Stream chunk: the user sees the text appear as the turn ends
+            onChunk.accept(new ResponseFragment(
+                charId, c.getName(), content, false, c.getAvatarUrl()));
+            // Complete: orchestrator persists + broadcasts
+            onResponse.accept(new ResponseFragment(
+                charId, c.getName(), content, true, c.getAvatarUrl()));
         }
     }
 
