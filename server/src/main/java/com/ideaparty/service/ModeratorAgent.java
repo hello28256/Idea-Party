@@ -24,7 +24,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -759,15 +758,6 @@ public class ModeratorAgent implements DisposableBean {
         return messageRepository.save(message);
     }
 
-    private String getApiKey(String userId) {
-        try {
-            return settingsService.getApiKeyById(userId);
-        } catch (Exception e) {
-            log.error("[Moderator] Failed to get API key: {}", e.getMessage());
-            return null;
-        }
-    }
-
     /**
      * Pause discussion for a room.
      */
@@ -1052,7 +1042,7 @@ public class ModeratorAgent implements DisposableBean {
      * Call LLM to select characters for the discussion.
      */
     private String callModeratorForSelection(String userId, String userMessage, List<String> userMessageHistory, List<Character> characters) {
-        String userApiKey = getApiKey(userId);
+        String userApiKey = settingsService.getApiKeyById(userId);
         if (userApiKey == null) {
             log.warn("[Moderator] No API key for user {}, using fallback selection", userId);
             return "[SELECT:" + characters.stream().limit(2).map(Character::getName).collect(Collectors.joining(",")) + "]";
