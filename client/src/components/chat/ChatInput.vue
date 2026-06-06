@@ -20,9 +20,18 @@ const canSend = computed(() => {
 })
 
 function handleKeydown(event: KeyboardEvent) {
-  // Enter just inserts a newline (default textarea behavior).
-  // The send button is the only way to send. This avoids the "typing
-  // mid-message and accidentally firing Enter sends" footgun.
+  // When a CJK IME (pinyin / kana / hangul) is composing, Enter is used to
+  // confirm a candidate — not to send the message. Skip in that case so the
+  // user can pick an English letter from the candidate list without losing
+  // whatever they've already typed.
+  if (event.isComposing || event.keyCode === 229) {
+    return;
+  }
+  // Enter sends message, Shift+Enter allows new line
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    handleSend()
+  }
 }
 
 function handleSend() {
@@ -67,18 +76,10 @@ function autoResize() {
       >
         <Send :size="18" />
       </button>
-
-      <button
-        class="send-button"
-        :disabled="!canSend"
-        @click="handleSend"
-      >
-        <Send :size="18" />
-      </button>
     </div>
     <div class="input-footer">
       <p class="disclaimer">内容由 AI 生成，仅供参考</p>
-      <p class="input-hint">Enter 换行，点击右侧按钮发送</p>
+      <p class="input-hint">回车发送消息，Shift+Enter 换行</p>
     </div>
   </div>
 </template>
