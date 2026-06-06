@@ -29,6 +29,7 @@ public class RoomResponse {
     private Instant lastEnterTime;
     private String chatMode;
     private Integer maxDiscussionRounds;
+    private String mode;
 
     public static RoomResponse fromEntity(Room room) {
         List<CharacterResponse> characterList = null;
@@ -50,6 +51,7 @@ public class RoomResponse {
                 .lastEnterTime(room.getLastEnterTime())
                 .chatMode(room.getChatMode())
                 .maxDiscussionRounds(room.getMaxDiscussionRounds())
+                .mode(room.getMode())
                 .build();
     }
 }

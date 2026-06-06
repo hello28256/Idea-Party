@@ -42,6 +42,7 @@ public class RoomService {
                 .name(request.getName())
                 .topic(request.getTopic())
                 .owner(owner)
+                .mode(normalizeMode(request.getMode()))
                 .build();
 
         Room saved = roomRepository.save(room);
@@ -165,5 +166,17 @@ public class RoomService {
         log.info("[DEBUG] Room {} chat mode updated to {}", roomId, chatMode);
 
         return RoomResponse.fromEntity(saved);
+    }
+
+    /**
+     * Normalize the requested room mode.
+     * Accepts "single" or "group" (case-insensitive). Anything else falls back
+     * to "group" so legacy clients (and the existing "starts-chat-with-character"
+     * flow) still work.
+     */
+    private static String normalizeMode(String requested) {
+        if (requested == null) return "group";
+        String lower = requested.trim().toLowerCase();
+        return "single".equals(lower) ? "single" : "group";
     }
 }

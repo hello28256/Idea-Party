@@ -58,6 +58,10 @@ public class Room {
     @Builder.Default
     private String chatMode = "dialogue"; // "dialogue" or "discussion"
 
+    @Column(name = "mode", length = 20, nullable = false)
+    @Builder.Default
+    private String mode = "group"; // "single" (1-on-1) or "group" (multi-character)
+
     @Column(name = "max_discussion_rounds")
     @Builder.Default
     private Integer maxDiscussionRounds = 5;

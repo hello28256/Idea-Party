@@ -17,6 +17,12 @@ public class CreateRoomRequest {
     @Size(max = 50, message = "At most 50 characters per room")
     private List<UUID> characterIds;
 
+    /**
+     * Room conversation shape: "single" (1-on-1 with one character) or
+     * "group" (multi-character discussion). Optional — backend defaults to "group".
+     */
+    private String mode;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
@@ -25,4 +31,7 @@ public class CreateRoomRequest {
 
     public List<UUID> getCharacterIds() { return characterIds; }
     public void setCharacterIds(List<UUID> characterIds) { this.characterIds = characterIds; }
+
+    public String getMode() { return mode; }
+    public void setMode(String mode) { this.mode = mode; }
 }
