@@ -734,8 +734,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return false;
         }
 
-        // Ends with question particle "吗" (definite question)
-        if (trimmed.matches(".*[吗吗？?]$")) {
+        // Ends with question particle "吗" (definite yes/no question, addressed to
+        // a single entity). Note: we deliberately do NOT reject "？" here — many
+        // open-ended / group invitations also end with "？" (e.g. "一起去聚餐？",
+        // "讨论一下有什么新项目？"). Treating those as single-target is wrong.
+        if (trimmed.endsWith("吗")) {
             return false;
         }
 
@@ -748,10 +751,16 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             // 经典"大家怎么看"
             "大家", "大家怎么看", "大家觉得", "大家说", "大家说下", "大家聊下",
             "大家有何", "大家有什么", "大家怎么看", "大家怎么看？",
-            "你们", "你们都", "你们觉得", "你们怎么看", "你们说",
+            "你们", "你们都", "你们怎么", "你们觉得", "你们怎么看", "你们说",
             "各位说说", "说说", "聊一下", "聊一聊", "讨论一下", "讨论讨论",
             "每个人都", "每个人都说说", "大家都说说", "大家都出来",
-            "都有什么", "都有些什么", "都说说", "都发表一下"
+            "都有什么", "都有些什么", "都说说", "都发表一下",
+            // 群邀请：聚/一起/我们 这类明显是 1vN 的词
+            "一起", "一起去", "一起聚", "一起聊", "一起吃", "一起干",
+            "聚餐", "聚个餐", "聚聚", "聚一下", "碰一碰", "约个",
+            "我们", "我们一起", "咱们", "咱们一起", "兄弟们", "伙伴们",
+            "新项目", "有什么好点子", "有什么好主意", "有什么好想法",
+            "头脑风暴", "开个小会", "开黑", "团建"
         };
         for (String pattern : openPatterns) {
             if (trimmed.contains(pattern)) {
