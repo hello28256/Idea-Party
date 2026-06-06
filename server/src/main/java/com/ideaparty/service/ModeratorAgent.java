@@ -688,14 +688,31 @@ public class ModeratorAgent implements DisposableBean {
 
     /**
      * Load recent N messages from the room as a formatted history string.
-     * Wrapped in a read-only transaction so lazy Character associations resolve.
+     * Avoids lazy Character access by pre-fetching character names in a single
+     * findAllById round-trip. Self-invocation from runJointSingleRound would
+     * otherwise bypass the @Transactional proxy, so we do not rely on it here.
      */
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public String loadRecentHistory(String roomId, int limit) {
         try {
             UUID roomUuid = UUID.fromString(roomId);
             List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomUuid);
             if (messages.isEmpty()) return "";
+
+            // Collect all character ids referenced by CHARACTER messages
+            Set<UUID> charIds = new HashSet<>();
+            for (Message m : messages) {
+                if (m.getCharacter() != null) {
+                    charIds.add(m.getCharacter().getId());
+                }
+            }
+
+            // Resolve names in one round-trip (eager load — no lazy proxy issues)
+            Map<UUID, String> nameById = new HashMap<>();
+            if (!charIds.isEmpty()) {
+                for (Character c : characterRepository.findAllById(charIds)) {
+                    nameById.put(c.getId(), c.getName());
+                }
+            }
 
             int from = Math.max(0, messages.size() - limit);
             StringBuilder sb = new StringBuilder();
@@ -704,7 +721,10 @@ public class ModeratorAgent implements DisposableBean {
                 if (m.getSenderType() == Message.SenderType.USER) {
                     sb.append("User: ").append(m.getContent()).append("\n");
                 } else {
-                    String name = m.getCharacter() != null ? m.getCharacter().getName() : "Character";
+                    String name = "Character";
+                    if (m.getCharacter() != null) {
+                        name = nameById.getOrDefault(m.getCharacter().getId(), "Character");
+                    }
                     sb.append(name).append(": ").append(m.getContent()).append("\n");
                 }
             }
