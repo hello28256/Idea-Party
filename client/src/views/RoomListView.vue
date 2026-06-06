@@ -18,6 +18,7 @@ const authStore = useAuthStore()
 
 const showCreateModal = ref(false)
 const showCreateCharacterModal = ref(false)
+const showAddExistingCharacterModal = ref(false)
 const showCreateDropdown = ref(false)
 const showEditCharacterModal = ref(false)
 const editingCharacter = ref<any>(null)
@@ -102,6 +103,23 @@ const currentRoomCharacters = computed(() => {
   }
   const room = roomStore.myRooms.find(r => r.id === selectedRoomId.value)
   return room?.characters || []
+})
+
+// Current room conversation mode (single 1-on-1 vs group multi-character).
+// Driven by the backend room.mode field; legacy rooms default to 'group' on the server.
+const currentRoomMode = computed<'single' | 'group'>(() => {
+  if (!selectedRoomId.value) return 'group'
+  if (roomStore.currentRoom?.id === selectedRoomId.value) {
+    return (roomStore.currentRoom as any).mode || 'group'
+  }
+  const room = roomStore.myRooms.find(r => r.id === selectedRoomId.value)
+  return ((room as any)?.mode as 'single' | 'group') || 'group'
+})
+
+// Characters available to add to the current room (all known - already-in-room)
+const availableCharactersForRoom = computed(() => {
+  const inRoom = new Set(currentRoomCharacters.value.map((c: any) => c.id))
+  return characterStore.characters.filter((c: any) => !inRoom.has(c.id))
 })
 
 // Current room chat mode
@@ -881,7 +899,7 @@ async function handleInviteMember() {
           <!-- Right: Characters Panel -->
           <aside class="room-characters-panel">
             <!-- Single Chat Mode: Just show character info without tabs -->
-            <template v-if="currentRoomCharacters.length === 1">
+            <template v-if="currentRoomMode === 'single'">
               <div class="panel-tabs-wrapper">
                 <button
                   class="icon-close-role-panel-button"
