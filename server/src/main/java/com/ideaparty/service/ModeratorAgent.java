@@ -499,7 +499,7 @@ public class ModeratorAgent implements DisposableBean {
                 state.userId = userId;
                 roomDiscussionState.put(roomId, state);
 
-                runSequentialDiscussion(roomId, userId, state, onThinking, onChunk, onResponse);
+                runSequentialDiscussion(roomId, userId, state, onThinking);
             } else {
                 // Dialogue mode: single round only
                 runSingleRound(roomId, userId, userMessage, initialContext, characters,
@@ -516,8 +516,7 @@ public class ModeratorAgent implements DisposableBean {
      * Supports pause/resume and user message triggering.
      */
     private void runSequentialDiscussion(String roomId, String userId, DiscussionState state,
-                                         Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
-                                         Consumer<ResponseFragment> onResponse) {
+                                         Consumer<String> onThinking) {
         log.info("[Moderator] runSequentialDiscussion START - roomId: {}, chars: {}, rounds: {}",
             roomId, state.characters.size(), state.maxRounds);
 
