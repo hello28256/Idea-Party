@@ -48,6 +48,7 @@ export interface Room {
   characters?: Character[]
   chatMode: 'dialogue' | 'discussion'
   maxDiscussionRounds: number
+  mode: 'single' | 'group'
   createdAt: string
   updatedAt: string
   lastEnterTime?: string
@@ -57,6 +58,7 @@ export interface CreateRoomRequest {
   name: string
   topic?: string
   characterIds?: string[]
+  mode?: 'single' | 'group'
 }
 
 export interface UpdateRoomModeRequest {
