@@ -688,8 +688,10 @@ public class ModeratorAgent implements DisposableBean {
 
     /**
      * Load recent N messages from the room as a formatted history string.
+     * Wrapped in a read-only transaction so lazy Character associations resolve.
      */
-    private String loadRecentHistory(String roomId, int limit) {
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public String loadRecentHistory(String roomId, int limit) {
         try {
             UUID roomUuid = UUID.fromString(roomId);
             List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomUuid);
