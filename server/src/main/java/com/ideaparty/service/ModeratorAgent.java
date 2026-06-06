@@ -517,7 +517,7 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         // Load last 10 messages for the prompt
-        String conversationHistory = loadRecentHistory(roomId, 10);
+        String conversationHistory = loadRecentHistory(roomId, 100);
         String prompt = buildJointPrompt(userMessage, conversationHistory, context, characters);
         log.info("[Moderator] runJointSingleRound - prompt length: {}", prompt.length());
 
