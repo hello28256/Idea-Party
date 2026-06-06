@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useSocket, type ChatMessage } from '@/composables/useSocket'
 import { useMessageStore } from '@/stores/message'
 import { useRoomStore } from '@/stores/room'
@@ -154,6 +154,13 @@ async function loadRoomData() {
     await roomStore.fetchRoomById(props.roomId)
     await characterStore.fetchCharacters()
     await messageStore.loadMessages(props.roomId)
+    // After messages render, jump to the bottom so the user sees the latest
+    // exchange instead of having to scroll past history. Two nextTick hops
+    // because the MessageList's inner scroll container is nested one level
+    // below the ref's host element.
+    await nextTick()
+    await nextTick()
+    scrollToBottom()
   } catch (error) {
     console.error('[DEBUG] Failed to load chat data:', error)
   }
