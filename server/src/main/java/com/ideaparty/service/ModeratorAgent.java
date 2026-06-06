@@ -6,7 +6,12 @@ import com.ideaparty.dto.DiscussionStateEvent;
 import com.ideaparty.dto.ModeratorMessage;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Message;
+import com.ideaparty.entity.Room;
+import com.ideaparty.entity.User;
+import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
+import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
 import com.ideaparty.socket.ChatSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -47,6 +52,9 @@ public class ModeratorAgent implements DisposableBean {
     private final ChatSocketHandler chatSocketHandler;
     private final ResourceLoader resourceLoader;
     private final CharacterPromptBuilder characterPromptBuilder;
+    private final CharacterRepository characterRepository;
+    private final RoomRepository roomRepository;
+    private final UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Maximum discussion rounds
@@ -404,13 +412,16 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader, CharacterPromptBuilder characterPromptBuilder) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader, CharacterPromptBuilder characterPromptBuilder, CharacterRepository characterRepository, RoomRepository roomRepository, UserRepository userRepository) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.settingsService = settingsService;
         this.chatSocketHandler = chatSocketHandler;
         this.resourceLoader = resourceLoader;
         this.characterPromptBuilder = characterPromptBuilder;
+        this.characterRepository = characterRepository;
+        this.roomRepository = roomRepository;
+        this.userRepository = userRepository;
         // Wrap executor so SecurityContext is inherited by async threads
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
