@@ -46,6 +46,17 @@ public class RoomService {
 
         Room saved = roomRepository.save(room);
 
+        // Add characters (group mode). Mirrors the findById + add pattern from addCharacterToRoom.
+        // No ownership/visibility check here because the existing addCharacterToRoom does not perform one either.
+        if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
+            for (UUID characterId : request.getCharacterIds()) {
+                Character character = characterRepository.findById(characterId)
+                        .orElseThrow(() -> new IllegalArgumentException("Character not found: " + characterId));
+                saved.getCharacters().add(character);
+            }
+            saved = roomRepository.save(saved);
+        }
+
         // Add owner as a member
         RoomMember ownerMember = RoomMember.builder()
                 .room(saved)
@@ -55,7 +66,7 @@ public class RoomService {
                 .build();
         roomMemberRepository.save(ownerMember);
 
-        log.info("[DEBUG] Room created with id: {}", saved.getId());
+        log.info("[DEBUG] Room created with id: {} with {} characters", saved.getId(), saved.getCharacters().size());
 
         return RoomResponse.fromEntity(saved);
     }
