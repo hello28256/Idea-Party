@@ -56,6 +56,7 @@ export interface Room {
 export interface CreateRoomRequest {
   name: string
   topic?: string
+  characterIds?: string[]
 }
 
 export interface UpdateRoomModeRequest {
