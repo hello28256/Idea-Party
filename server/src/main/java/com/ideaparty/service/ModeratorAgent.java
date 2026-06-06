@@ -590,14 +590,21 @@ public class ModeratorAgent implements DisposableBean {
 
     /**
      * Generate response for a single character with streaming.
+     * Merged overload: internally fetches API key, broadcasts canonical events
+     * (message stream / chat message / error) directly, and persists the
+     * complete message via messageRepository.save.
      */
     private void generateCharacterResponse(String roomId, Character character, DiscussionState state,
-                                           String userApiKey,
-                                           Consumer<ResponseFragment> onChunk,
-                                           Consumer<ResponseFragment> onResponse) {
+                                           String userId, String userMessage, String context) {
+        String userApiKey = settingsService.getApiKeyById(userId);
+        if (userApiKey == null) {
+            log.error("[Moderator] [{}] No API key available for user: {}", character.getName(), userId);
+            return;
+        }
+
         try {
             String characterPrompt = characterPromptBuilder.build(character, true);
-            String fullPrompt = characterPrompt + "\n\n" + state.context;
+            String fullPrompt = characterPrompt + "\n\n" + context + "\n\nUser's question: " + userMessage;
 
             log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
 
@@ -606,45 +613,82 @@ public class ModeratorAgent implements DisposableBean {
 
             aiService.generateResponseStream(
                 fullPrompt,
-                state.userMessage,
+                userMessage,
                 userApiKey,
                 chunk -> {
                     fullResponse.append(chunk);
                     try {
-                        onChunk.accept(new ResponseFragment(
-                            character.getId().toString(),
-                            character.getName(),
-                            chunk,
-                            false,
-                            character.getAvatarUrl()
-                        ));
+                        // Stream chunk to frontend via canonical 'message stream' event
+                        Map<String, Object> chunkData = new java.util.HashMap<>();
+                        chunkData.put("content", chunk);
+                        chunkData.put("senderType", "CHARACTER");
+                        chunkData.put("characterId", character.getId().toString());
+                        chunkData.put("characterName", character.getName());
+                        chunkData.put("roomId", roomId);
+                        chunkData.put("avatarUrl", character.getAvatarUrl());
+                        chunkData.put("streaming", true);
+                        String chunkEvent = "42[\"message stream\","
+                            + objectMapper.writeValueAsString(chunkData)
+                            + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, chunkEvent);
                     } catch (Exception e) {
-                        log.warn("[Moderator] [{}] onChunk failed: {}", character.getName(), e.getMessage());
+                        log.warn("[Moderator] [{}] chunk broadcast failed: {}", character.getName(), e.getMessage());
                     }
                 },
                 completeResponse -> {
                     String responseText = fullResponse.toString();
-                    ResponseFragment fragment = new ResponseFragment(
-                        character.getId().toString(),
-                        character.getName(),
-                        responseText,
-                        true,
-                        character.getAvatarUrl()
-                    );
-                    state.responses.add(fragment);
-                    log.info("[Moderator] [{}] Complete - length: {}", character.getName(), responseText.length());
+
+                    // Persist message to DB
+                    try {
+                        Message savedMessage = persistCharacterMessage(roomId, character, userId, responseText);
+                        state.responses.add(new ResponseFragment(
+                            character.getId().toString(),
+                            character.getName(),
+                            responseText,
+                            true,
+                            character.getAvatarUrl()
+                        ));
+                        log.info("[Moderator] [{}] Complete - length: {}, saved id: {}",
+                            character.getName(), responseText.length(), savedMessage.getId());
+
+                        // Broadcast complete response via canonical 'chat message' event
+                        Map<String, Object> responseData = new java.util.HashMap<>();
+                        responseData.put("content", responseText);
+                        responseData.put("senderType", "CHARACTER");
+                        responseData.put("characterId", character.getId().toString());
+                        responseData.put("characterName", character.getName());
+                        responseData.put("avatarUrl", character.getAvatarUrl());
+                        responseData.put("roomId", roomId);
+                        responseData.put("id", savedMessage.getId());
+                        responseData.put("streaming", false);
+                        String responseEvent = "42[\"chat message\","
+                            + objectMapper.writeValueAsString(responseData)
+                            + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, responseEvent);
+                    } catch (Exception e) {
+                        log.error("[Moderator] [{}] persist/broadcast complete failed: {}",
+                            character.getName(), e.getMessage());
+                    }
                     latch.countDown();
                 },
                 error -> {
                     log.error("[Moderator] [{}] Error: {}", character.getName(), error.getMessage());
-                    ResponseFragment fragment = new ResponseFragment(
+                    state.responses.add(new ResponseFragment(
                         character.getId().toString(),
                         character.getName(),
                         "Error: " + error.getMessage(),
                         true,
                         character.getAvatarUrl()
-                    );
-                    state.responses.add(fragment);
+                    ));
+                    // Broadcast error to frontend
+                    try {
+                        String errorEvent = "42[\"error\","
+                            + objectMapper.writeValueAsString(Map.of("message", error.getMessage()))
+                            + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, errorEvent);
+                    } catch (Exception e) {
+                        log.warn("[Moderator] [{}] error broadcast failed: {}", character.getName(), e.getMessage());
+                    }
                     latch.countDown();
                 }
             );
@@ -652,39 +696,70 @@ public class ModeratorAgent implements DisposableBean {
             boolean completed = latch.await(90, TimeUnit.SECONDS);
             if (!completed) {
                 log.warn("[Moderator] [{}] Timeout", character.getName());
-                // Timeout - send timeout response
-                String timeoutResponse = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
-                ResponseFragment timeoutFragment = new ResponseFragment(
+                String responseText = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
+                try {
+                    Message savedMessage = persistCharacterMessage(roomId, character, userId, responseText);
+                    Map<String, Object> responseData = new java.util.HashMap<>();
+                    responseData.put("content", responseText);
+                    responseData.put("senderType", "CHARACTER");
+                    responseData.put("characterId", character.getId().toString());
+                    responseData.put("characterName", character.getName());
+                    responseData.put("avatarUrl", character.getAvatarUrl());
+                    responseData.put("roomId", roomId);
+                    responseData.put("id", savedMessage.getId());
+                    responseData.put("streaming", false);
+                    String responseEvent = "42[\"chat message\","
+                        + objectMapper.writeValueAsString(responseData)
+                        + "]";
+                    chatSocketHandler.broadcastToRoom(roomId, responseEvent);
+                } catch (Exception e) {
+                    log.error("[Moderator] [{}] timeout persist/broadcast failed: {}",
+                        character.getName(), e.getMessage());
+                }
+                state.responses.add(new ResponseFragment(
                     character.getId().toString(),
                     character.getName(),
-                    timeoutResponse,
+                    responseText,
                     true,
                     character.getAvatarUrl()
-                );
-                state.responses.add(timeoutFragment);
-                onResponse.accept(timeoutFragment);
-                return;
-            }
-
-            // Send final response callback
-            if (!state.responses.isEmpty()) {
-                ResponseFragment last = state.responses.get(state.responses.size() - 1);
-                if (last.getCharacterId().equals(character.getId().toString())) {
-                    onResponse.accept(last);
-                }
+                ));
             }
 
             // State machine: after completion, process next in queue
             state.aiMessageCount++;
-            if (shouldWaitForUser(state)) {
-                waitForUserInput(roomId);
-            } else {
-                processNextInQueue(roomId);
+            synchronized (state.pendingQueue) {
+                if (shouldWaitForUser(state)) {
+                    waitForUserInput(roomId);
+                } else {
+                    processNextInQueue(roomId);
+                }
             }
 
         } catch (Exception e) {
             log.error("[Moderator] [{}] generateCharacterResponse failed: {}", character.getName(), e.getMessage());
         }
+    }
+
+    /**
+     * Persist a CHARACTER message to the DB. Looks up Character/Room/User entities
+     * by id, populates the Message, and returns the saved entity (with id).
+     */
+    private Message persistCharacterMessage(String roomId, Character character, String userId, String content) {
+        UUID characterUuid = character.getId();
+        UUID roomUuid = UUID.fromString(roomId);
+        Character characterEntity = characterRepository.findById(characterUuid).orElse(character);
+        Room roomEntity = roomRepository.findById(roomUuid).orElse(null);
+        User userEntity = (userId != null && !userId.isEmpty())
+            ? userRepository.findById(UUID.fromString(userId)).orElse(null)
+            : null;
+
+        Message message = new Message();
+        message.setContent(content);
+        message.setSenderType(Message.SenderType.CHARACTER);
+        message.setCharacter(characterEntity);
+        message.setRoom(roomEntity);
+        message.setUser(userEntity);
+        return messageRepository.save(message);
     }
 
     /**
