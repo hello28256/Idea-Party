@@ -226,8 +226,12 @@ async function handleSubmit() {
         emit('created', existingRoom.id)
       } else {
         // Create new room for this character
-        const room = await roomStore.createRoom(selectedCharacter.value.name)
-        await roomStore.addCharacterToRoom(room.id, selectedCharacter.value.id)
+        const room = await roomStore.createRoom(
+          selectedCharacter.value.name,
+          undefined,
+          [selectedCharacter.value.id],
+          'single'
+        )
         emit('created', room.id)
       }
       emit('close')
@@ -254,7 +258,8 @@ async function handleSubmit() {
       const room = await roomStore.createRoom(
         name.value.trim(),
         topic.value.trim() || undefined,
-        [...selectedCharacterIds.value]
+        [...selectedCharacterIds.value],
+        'group'
       )
       emit('created', room.id)
       emit('close')
