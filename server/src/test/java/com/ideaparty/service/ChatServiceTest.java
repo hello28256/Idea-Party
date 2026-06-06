@@ -106,7 +106,7 @@ class ChatServiceTest {
 
         // When
         MessageDto result = chatService.saveMessage(
-                roomId, null, Message.SenderType.USER, content);
+                roomId, null, Message.SenderType.USER, content, null);
 
         // Then
         assertNotNull(result);
@@ -127,7 +127,7 @@ class ChatServiceTest {
         assertThrows(
                 RoomNotFoundException.class,
                 () -> chatService.saveMessage(
-                        nonExistentRoomId, null, Message.SenderType.USER, "Hello")
+                        nonExistentRoomId, null, Message.SenderType.USER, "Hello", null)
         );
 
         verify(roomRepository).findById(nonExistentRoomId);
@@ -152,7 +152,7 @@ class ChatServiceTest {
 
         // When
         MessageDto result = chatService.saveMessage(
-                roomId, characterId, Message.SenderType.CHARACTER, content);
+                roomId, characterId, Message.SenderType.CHARACTER, content, null);
 
         // Then
         assertNotNull(result);
@@ -213,12 +213,10 @@ class ChatServiceTest {
             msg.setCreatedAt(LocalDateTime.now());
             return msg;
         });
-        when(aiService.generateResponse(anyString(), anyString()))
-                .thenReturn("AI response content");
 
         // When
         chatService.processUserMessage(
-                roomId, content, List.of(testCharacter),
+                roomId, content, null, List.of(testCharacter),
                 mockThinkingCallback, mockMessageCallback);
 
         // Then
@@ -243,7 +241,7 @@ class ChatServiceTest {
         ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
 
         // When
-        chatService.saveMessage(roomId, null, Message.SenderType.USER, content);
+        chatService.saveMessage(roomId, null, Message.SenderType.USER, content, null);
 
         // Then
         verify(messageRepository).save(messageCaptor.capture());

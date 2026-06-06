@@ -5,6 +5,8 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Room;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
+import com.ideaparty.service.AuthService;
 import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
@@ -49,6 +51,12 @@ class WebSocketIntegrationTest {
     private RoomRepository roomRepository;
 
     @Mock
+    private AuthService authService;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
     private WebSocketSession mockSession;
 
     private ChatWebSocketHandler handler;
@@ -62,7 +70,8 @@ class WebSocketIntegrationTest {
     @BeforeEach
     void setUp() {
         handler = new ChatWebSocketHandler(
-            messageService, chatService, moderationService, roomRepository
+            messageService, chatService, moderationService, roomRepository,
+            authService, userRepository
         );
 
         roomId = UUID.randomUUID();
@@ -129,7 +138,7 @@ class WebSocketIntegrationTest {
             onMessage.accept(response);
             return null;
         }).when(chatService).processUserMessage(
-            any(UUID.class), anyString(), anyList(),
+            any(UUID.class), anyString(), any(UUID.class), anyList(),
             any(Consumer.class), any(Consumer.class)
         );
 
@@ -146,7 +155,7 @@ class WebSocketIntegrationTest {
 
         // Verify chat processing
         verify(chatService).processUserMessage(
-            eq(roomId), eq("Hello"), anyList(),
+            eq(roomId), eq("Hello"), any(), anyList(),
             any(Consumer.class), any(Consumer.class)
         );
     }
@@ -254,7 +263,7 @@ class WebSocketIntegrationTest {
 
         // ChatService should NOT be called
         verify(chatService, never()).processUserMessage(
-            any(), any(), anyList(), any(), any()
+            any(), any(), any(), anyList(), any(), any()
         );
     }
 

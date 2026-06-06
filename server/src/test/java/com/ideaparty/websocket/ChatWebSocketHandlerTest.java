@@ -5,6 +5,8 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.Room;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.RoomRepository;
+import com.ideaparty.repository.UserRepository;
+import com.ideaparty.service.AuthService;
 import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
@@ -52,6 +54,12 @@ class ChatWebSocketHandlerTest {
     private RoomRepository roomRepository;
 
     @Mock
+    private AuthService authService;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
     private WebSocketSession mockSession;
 
     private ChatWebSocketHandler handler;
@@ -66,7 +74,8 @@ class ChatWebSocketHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ChatWebSocketHandler(
-            messageService, chatService, moderationService, roomRepository
+            messageService, chatService, moderationService, roomRepository,
+            authService, userRepository
         );
         objectMapper = new ObjectMapper();
 
@@ -137,11 +146,12 @@ class ChatWebSocketHandlerTest {
         TextMessage message = new TextMessage(payload);
 
         when(mockSession.isOpen()).thenReturn(true);
+        when(mockSession.getId()).thenReturn("test-session-id");
         when(moderationService.moderate(anyString()))
             .thenReturn(new ModerationService.ModerationResult(true, null));
         when(roomRepository.findById(roomId)).thenReturn(Optional.of(testRoom));
         doNothing().when(chatService).processUserMessage(
-            any(UUID.class), anyString(), anyList(),
+            any(UUID.class), anyString(), any(UUID.class), anyList(),
             any(Consumer.class), any(Consumer.class)
         );
 
@@ -150,7 +160,7 @@ class ChatWebSocketHandlerTest {
 
         // Then - should not throw
         verify(chatService).processUserMessage(
-            eq(roomId), eq("Hello"), anyList(),
+            eq(roomId), eq("Hello"), any(), anyList(),
             any(Consumer.class), any(Consumer.class)
         );
     }
