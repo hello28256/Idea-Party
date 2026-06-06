@@ -521,8 +521,6 @@ public class ModeratorAgent implements DisposableBean {
         log.info("[Moderator] runSequentialDiscussion START - roomId: {}, chars: {}, rounds: {}",
             roomId, state.characters.size(), state.maxRounds);
 
-        String userApiKey = getApiKey(userId);
-
         // Start the discussion loop in a background thread
         CompletableFuture.runAsync(() -> {
             try {
@@ -556,7 +554,7 @@ public class ModeratorAgent implements DisposableBean {
 
                     // Character speaks (blocking stream)
                     log.info("[Moderator] [Round {}] {} is now speaking", state.currentRound, character.getName());
-                    generateCharacterResponse(roomId, character, state, userApiKey, onChunk, onResponse);
+                    generateCharacterResponse(roomId, character, state, state.userId, state.userMessage, state.context);
 
                     // Move to next character
                     state.currentCharacterIndex++;
