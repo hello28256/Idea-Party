@@ -60,15 +60,6 @@ public class ModeratorAgent implements DisposableBean {
     // Maximum discussion rounds
     private static final int MAX_ROUNDS = 3;
 
-    // Per-token throttle (ms). Sits between consecutive LLM stream chunks so
-    // the user perceives character-by-character typing instead of one paragraph
-    // dropping in. Tune lower for snappier, higher for more deliberate pacing.
-    private static final long STREAM_THROTTLE_MS = 30L;
-
-    // Inter-speaker gap (ms). After one speaker finishes, give the user a moment
-    // to read before the next character starts streaming.
-    private static final long SPEAKER_GAP_MS = 800L;
-
     // Delay between rounds (milliseconds) to let responses propagate
     private static final long ROUND_DELAY_MS = 1500;
 
@@ -530,7 +521,7 @@ public class ModeratorAgent implements DisposableBean {
         String prompt = buildJointPrompt(userMessage, conversationHistory, context, characters);
         log.info("[Moderator] runJointSingleRound - prompt length: {}", prompt.length());
 
-        JointStreamParser parser = new JointStreamParser(characters, onChunk, onResponse, SPEAKER_GAP_MS);
+        JointStreamParser parser = new JointStreamParser(characters, onChunk, onResponse);
 
         StringBuilder accumulated = new StringBuilder();
         CountDownLatch latch = new CountDownLatch(1);
@@ -541,16 +532,6 @@ public class ModeratorAgent implements DisposableBean {
             userMessage,
             userApiKey,
             chunk -> {
-                // Per-token throttle so the frontend sees character-by-character
-                // typing instead of one big burst. The LLM stream consumer is
-                // single-threaded so sleeping here paces the whole pipeline.
-                if (STREAM_THROTTLE_MS > 0) {
-                    try {
-                        Thread.sleep(STREAM_THROTTLE_MS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
                 accumulated.append(chunk);
                 try {
                     parser.onChunk(chunk);
@@ -778,43 +759,42 @@ public class ModeratorAgent implements DisposableBean {
      *   [另一角色]: ...
      *   <<<END>>>
      *
-     * For each character-by-character chunk from the LLM, this parser forwards
-     * the new content (text between the speaker tag and the `<<<END>>>` marker)
-     * directly to onChunk, so the frontend sees the text appear in real time as
-     * if someone were typing. onResponse is fired only when the `<<<END>>>`
-     * marker is seen, so the orchestrator persists the message at the end of
-     * the turn (not mid-stream).
+     * For each complete block:
+     *  - onChunk(fragment, isComplete=false) is called with the full content
+     *    (so the frontend sees the speaker's text appear when the turn ends)
+     *  - onResponse(fragment, isComplete=true) is called so the orchestrator
+     *    can persist and broadcast
      */
     private static class JointStreamParser {
         private static final String END_MARKER = "<<<END>>>";
+        private static final Pattern BLOCK = Pattern.compile(
+            "\\[([^\\]]+)\\]:\\s*([\\s\\S]*?)<<<END>>>");
 
         private final Map<String, Character> byName;
+        private final List<String> knownNames;
         private final Consumer<ResponseFragment> onChunk;
         private final Consumer<ResponseFragment> onResponse;
-        private final long speakerGapMs;
         private final StringBuilder buffer = new StringBuilder();
-        private int consumed = 0;          // bytes in buffer already "scanned"
-        private int lastEmittedPos = 0;    // bytes in buffer already forwarded to onChunk
-        private Character currentSpeaker = null;  // null = between speakers / looking for next tag
-        private Character lastFinishedSpeaker = null;  // for inter-speaker pause
+        private int consumed = 0;
         private final Set<String> emittedSpeakers = new HashSet<>();
 
         JointStreamParser(List<Character> characters,
                           Consumer<ResponseFragment> onChunk,
-                          Consumer<ResponseFragment> onResponse,
-                          long speakerGapMs) {
+                          Consumer<ResponseFragment> onResponse) {
             this.byName = new HashMap<>();
+            this.knownNames = new ArrayList<>();
             for (Character c : characters) {
-                byName.put(c.getName().trim().toLowerCase(), c);
+                String key = c.getName().trim().toLowerCase();
+                byName.put(key, c);
+                knownNames.add(c.getName());
             }
             this.onChunk = onChunk;
             this.onResponse = onResponse;
-            this.speakerGapMs = speakerGapMs;
         }
 
         void onChunk(String chunk) {
             buffer.append(chunk);
-            advance();
+            parseNewBlocks();
         }
 
         void flush(String finalText) {
@@ -822,179 +802,59 @@ public class ModeratorAgent implements DisposableBean {
             if (buffer.length() < finalText.length()) {
                 buffer.append(finalText.substring(buffer.length()));
             }
-            advance();
-            // If we have an in-flight speaker with no end marker, complete it
-            // with whatever content we have so the user still sees it.
-            if (currentSpeaker != null && lastEmittedPos < buffer.length()) {
-                String tail = buffer.substring(lastEmittedPos).replace(END_MARKER, "").trim();
-                if (!tail.isEmpty()) {
-                    log.warn("[Moderator] joint stream: speaker {} ended without <<<END>>>; flushing {} chars",
-                        currentSpeaker.getName(), tail.length());
-                    onChunk.accept(new ResponseFragment(
-                        currentSpeaker.getId().toString(), currentSpeaker.getName(),
-                        tail, false, currentSpeaker.getAvatarUrl()));
-                    onResponse.accept(new ResponseFragment(
-                        currentSpeaker.getId().toString(), currentSpeaker.getName(),
-                        tail, true, currentSpeaker.getAvatarUrl()));
+            parseNewBlocks();
+            // Anything left that looks like an unfinished block — drop with a warning
+            if (consumed < buffer.length()) {
+                String leftover = buffer.substring(consumed).trim();
+                if (!leftover.isEmpty()) {
+                    log.warn("[Moderator] joint stream ended with unterminated block: {}",
+                        leftover.substring(0, Math.min(120, leftover.length())));
                 }
             }
         }
 
-        /**
-         * Drive the state machine as far as the current buffer allows.
-         * Loops because a single chunk may advance through several states
-         * (e.g., end of one speaker → start of next).
-         */
-        private void advance() {
+        private void parseNewBlocks() {
             while (true) {
-                if (currentSpeaker == null) {
-                    // Looking for the next [Name]: tag at or after `consumed`.
-                    int tagOpen = buffer.indexOf("[", consumed);
-                    if (tagOpen < 0) return;
-                    int tagClose = buffer.indexOf("]", tagOpen);
-                    if (tagClose < 0) return;  // tag not yet complete
-                    String rawName = buffer.substring(tagOpen + 1, tagClose).trim();
-                    Character c = byName.get(rawName.toLowerCase());
-                    if (c == null) {
-                        // Unknown speaker name (LLM hallucinated) — skip the tag
-                        // and keep scanning.
-                        consumed = tagClose + 1;
-                        lastEmittedPos = consumed;
-                        continue;
-                    }
-                    if (emittedSpeakers.contains(c.getId().toString())) {
-                        // Same speaker twice in one joint response — skip the duplicate
-                        consumed = tagClose + 1;
-                        lastEmittedPos = consumed;
-                        continue;
-                    }
-                    // Tag found and valid. Skip past ']' AND the trailing colon
-                    // AND any whitespace so we don't leak "[" or "]: " into
-                    // the streamed content.
-                    int contentStart = skipMarkerTail(tagClose + 1);
-                    // Inter-speaker gap: pause before the new speaker starts so
-                    // the user has time to finish reading the previous turn.
-                    if (lastFinishedSpeaker != null && lastFinishedSpeaker != c && speakerGapMs > 0) {
-                        try {
-                            Thread.sleep(speakerGapMs);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
-                    currentSpeaker = c;
-                    emittedSpeakers.add(c.getId().toString());
-                    consumed = contentStart;
-                    lastEmittedPos = contentStart;
-                    // Fall through to the in-speaker branch on the same iteration
-                }
-
-                // In-speaker: stream content out, but hold back any partial
-                // <<<END>>> marker prefix that hasn't fully arrived yet.
-                int endMarkerPos = buffer.indexOf(END_MARKER, lastEmittedPos);
-                int nextTagPos = buffer.indexOf("[", lastEmittedPos);
-                int safeEmitEnd = computeSafeEmitEnd(lastEmittedPos);
-
-                int endPos;
-                if (endMarkerPos >= 0 && (nextTagPos < 0 || endMarkerPos < nextTagPos)) {
-                    endPos = endMarkerPos;
-                } else if (nextTagPos >= 0) {
-                    endPos = nextTagPos;
-                } else {
-                    endPos = safeEmitEnd;
-                }
-
-                // Stream any new content between lastEmittedPos and endPos
-                if (endPos > lastEmittedPos) {
-                    String piece = buffer.substring(lastEmittedPos, endPos);
-                    lastEmittedPos = endPos;
-                    onChunk.accept(new ResponseFragment(
-                        currentSpeaker.getId().toString(),
-                        currentSpeaker.getName(),
-                        piece, false, currentSpeaker.getAvatarUrl()));
-                }
-
-                if (endMarkerPos >= 0 && endPos == endMarkerPos) {
-                    // End of this speaker. Fire onResponse with the trimmed text.
-                    String fullContent = buffer.substring(consumed, endMarkerPos).trim();
-                    consumed = endMarkerPos + END_MARKER.length();
-                    lastEmittedPos = consumed;
-                    Character finished = currentSpeaker;
-                    currentSpeaker = null;
-                    lastFinishedSpeaker = finished;  // remember for next speaker's gap
-                    if (!fullContent.isEmpty()) {
-                        onResponse.accept(new ResponseFragment(
-                            finished.getId().toString(),
-                            finished.getName(),
-                            fullContent, true, finished.getAvatarUrl()));
-                    }
-                    // Loop to look for the next speaker
+                Matcher m = BLOCK.matcher(buffer);
+                m.region(consumed, buffer.length());
+                if (!m.find()) break;
+                String rawName = m.group(1).trim();
+                String content = m.group(2).trim();
+                Character c = byName.get(rawName.toLowerCase());
+                if (c == null) {
+                    log.warn("[Moderator] joint stream emitted unknown speaker '{}' — skipping block", rawName);
+                    consumed = m.end();
                     continue;
-                } else if (nextTagPos >= 0 && endPos == nextTagPos) {
-                    // LLM omitted <<<END>>> before the next [Name]:. Treat the
-                    // current as ended and start over to pick up the new tag.
-                    String fullContent = buffer.substring(consumed, nextTagPos).trim();
-                    consumed = nextTagPos;
-                    lastEmittedPos = nextTagPos;
-                    Character finished = currentSpeaker;
-                    currentSpeaker = null;
-                    lastFinishedSpeaker = finished;
-                    if (!fullContent.isEmpty()) {
-                        onResponse.accept(new ResponseFragment(
-                            finished.getId().toString(),
-                            finished.getName(),
-                            fullContent, true, finished.getAvatarUrl()));
-                    }
-                    continue;
-                } else {
-                    // No boundary yet; wait for more chunks
-                    return;
                 }
+                if (emittedSpeakers.contains(c.getId().toString())) {
+                    // Same speaker appears twice in one joint response — keep the first
+                    log.warn("[Moderator] joint stream repeated speaker '{}' — keeping first block", rawName);
+                    consumed = m.end();
+                    continue;
+                }
+                emit(c, content);
+                emittedSpeakers.add(c.getId().toString());
+                consumed = m.end();
+            }
+            // Trim consumed prefix periodically to keep the buffer small
+            if (consumed > 4096) {
+                buffer.delete(0, consumed);
+                consumed = 0;
             }
         }
 
-        /**
-         * Advance {@code start} past the colon + whitespace that follow a
-         * closing ']' (e.g. "]: " after [Name]). Defensive against missing
-         * colon so we don't loop forever.
-         */
-        private int skipMarkerTail(int start) {
-            int p = start;
-            // Optional colon
-            if (p < buffer.length() && buffer.charAt(p) == ':') {
-                p++;
+        private void emit(Character c, String content) {
+            if (content == null || content.isEmpty()) {
+                log.info("[Moderator] joint stream: speaker {} emitted empty block, skipped", c.getName());
+                return;
             }
-            // Whitespace
-            while (p < buffer.length()) {
-                char ch = buffer.charAt(p);
-                if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
-                    p++;
-                } else {
-                    break;
-                }
-            }
-            return p;
-        }
-
-        /**
-         * Returns the largest position >= lastEmittedPos at which it is safe
-         * to emit content. This holds back any suffix of the buffer that
-         * could still be the start of the {@code <<<END>>>} marker — until
-         * either the full marker appears (we'll skip it) or a different
-         * character arrives (we'll emit the held-back bytes as content).
-         */
-        private int computeSafeEmitEnd(int fromPos) {
-            // Find the rightmost '<' at or after fromPos. If the bytes from
-            // that '<' to the buffer end are a prefix of "<<<END>>>", hold
-            // them back.
-            for (int i = buffer.length() - 1; i >= fromPos; i--) {
-                if (buffer.charAt(i) != '<') continue;
-                String tail = buffer.substring(i);
-                if (END_MARKER.startsWith(tail)) {
-                    return i;
-                }
-                break;
-            }
-            return buffer.length();
+            String charId = c.getId().toString();
+            // Stream chunk: the user sees the text appear as the turn ends
+            onChunk.accept(new ResponseFragment(
+                charId, c.getName(), content, false, c.getAvatarUrl()));
+            // Complete: orchestrator persists + broadcasts
+            onResponse.accept(new ResponseFragment(
+                charId, c.getName(), content, true, c.getAvatarUrl()));
         }
     }
 
