@@ -1049,7 +1049,7 @@ async function handleInviteMember() {
                   <span class="mode-label right" :class="{ active: currentChatMode === 'discussion' }">讨论模式</span>
                 </div>
               </div>
-              <p class="mode-desc">{{ currentChatMode === 'dialogue' ? '角色响应一次结束' : '多角色轮流讨论' }}</p>
+              <p class="mode-desc">{{ currentChatMode === 'dialogue' ? '多角色同时响应 (1~N)' : '多角色轮流讨论' }}</p>
             </div>
             </template>
           </aside>
