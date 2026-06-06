@@ -26,6 +26,11 @@ export default defineConfig({
       '/uploads': {
         target: `http://127.0.0.1:${env.VITE_SERVER_PROXY_PORT || '8082'}`,
         changeOrigin: true
+      },
+      '/ws': {
+        target: `ws://127.0.0.1:${env.VITE_SERVER_PROXY_PORT || '8082'}`,
+        ws: true,
+        changeOrigin: true
       }
     }
   }
