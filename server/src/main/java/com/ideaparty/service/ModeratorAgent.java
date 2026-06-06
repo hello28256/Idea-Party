@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -600,12 +601,22 @@ public class ModeratorAgent implements DisposableBean {
 
         try {
             String characterPrompt = characterPromptBuilder.build(character, true);
-            String fullPrompt = characterPrompt + "\n\n" + context + "\n\nUser's question: " + userMessage;
+            // Note: in discussion mode, `context` already contains the user's question
+            // (see buildInitialContext L976 which embeds "The user has asked: ...").
+            // In dialogue mode (runSingleRound), `context` is the raw conversation history
+            // and does not embed the question. We only need the trailing line when context
+            // does not already include it — but to keep both paths simple, the caller is
+            // expected to embed the question in context. So we don't append it here.
+            String fullPrompt = characterPrompt + "\n\n" + context;
 
             log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
 
             StringBuilder fullResponse = new StringBuilder();
             CountDownLatch latch = new CountDownLatch(1);
+            // Guard against the race where latch.await times out but the AI stream
+            // completes shortly after — without this, the same response would be
+            // persisted to DB twice and broadcast to the frontend twice.
+            AtomicBoolean settled = new AtomicBoolean(false);
 
             aiService.generateResponseStream(
                 fullPrompt,
@@ -632,6 +643,10 @@ public class ModeratorAgent implements DisposableBean {
                     }
                 },
                 completeResponse -> {
+                    if (!settled.compareAndSet(false, true)) {
+                        latch.countDown();
+                        return;
+                    }
                     String responseText = fullResponse.toString();
 
                     // Persist message to DB
@@ -668,6 +683,10 @@ public class ModeratorAgent implements DisposableBean {
                     latch.countDown();
                 },
                 error -> {
+                    if (!settled.compareAndSet(false, true)) {
+                        latch.countDown();
+                        return;
+                    }
                     log.error("[Moderator] [{}] Error: {}", character.getName(), error.getMessage());
                     state.responses.add(new ResponseFragment(
                         character.getId().toString(),
@@ -692,33 +711,37 @@ public class ModeratorAgent implements DisposableBean {
             boolean completed = latch.await(90, TimeUnit.SECONDS);
             if (!completed) {
                 log.warn("[Moderator] [{}] Timeout", character.getName());
-                String responseText = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
-                try {
-                    Message savedMessage = persistCharacterMessage(roomId, character, userId, responseText);
-                    Map<String, Object> responseData = new java.util.HashMap<>();
-                    responseData.put("content", responseText);
-                    responseData.put("senderType", "CHARACTER");
-                    responseData.put("characterId", character.getId().toString());
-                    responseData.put("characterName", character.getName());
-                    responseData.put("avatarUrl", character.getAvatarUrl());
-                    responseData.put("roomId", roomId);
-                    responseData.put("id", savedMessage.getId());
-                    responseData.put("streaming", false);
-                    String responseEvent = "42[\"chat message\","
-                        + objectMapper.writeValueAsString(responseData)
-                        + "]";
-                    chatSocketHandler.broadcastToRoom(roomId, responseEvent);
-                } catch (Exception e) {
-                    log.error("[Moderator] [{}] timeout persist/broadcast failed: {}",
-                        character.getName(), e.getMessage());
+                if (!settled.compareAndSet(false, true)) {
+                    // onComplete or onError already won the race while we were waiting
+                } else {
+                    String responseText = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
+                    try {
+                        Message savedMessage = persistCharacterMessage(roomId, character, userId, responseText);
+                        Map<String, Object> responseData = new java.util.HashMap<>();
+                        responseData.put("content", responseText);
+                        responseData.put("senderType", "CHARACTER");
+                        responseData.put("characterId", character.getId().toString());
+                        responseData.put("characterName", character.getName());
+                        responseData.put("avatarUrl", character.getAvatarUrl());
+                        responseData.put("roomId", roomId);
+                        responseData.put("id", savedMessage.getId());
+                        responseData.put("streaming", false);
+                        String responseEvent = "42[\"chat message\","
+                            + objectMapper.writeValueAsString(responseData)
+                            + "]";
+                        chatSocketHandler.broadcastToRoom(roomId, responseEvent);
+                    } catch (Exception e) {
+                        log.error("[Moderator] [{}] timeout persist/broadcast failed: {}",
+                            character.getName(), e.getMessage());
+                    }
+                    state.responses.add(new ResponseFragment(
+                        character.getId().toString(),
+                        character.getName(),
+                        responseText,
+                        true,
+                        character.getAvatarUrl()
+                    ));
                 }
-                state.responses.add(new ResponseFragment(
-                    character.getId().toString(),
-                    character.getName(),
-                    responseText,
-                    true,
-                    character.getAvatarUrl()
-                ));
             }
 
             // State machine: after completion, process next in queue
