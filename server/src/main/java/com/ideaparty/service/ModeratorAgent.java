@@ -51,6 +51,7 @@ public class ModeratorAgent implements DisposableBean {
     private final SettingsService settingsService;
     private final ChatSocketHandler chatSocketHandler;
     private final ResourceLoader resourceLoader;
+    private final CharacterPromptBuilder characterPromptBuilder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Maximum discussion rounds
@@ -413,13 +414,14 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader) {
+    public ModeratorAgent(AIService aiService, MessageRepository messageRepository, FirecrawlService firecrawlService, SettingsService settingsService, @Lazy ChatSocketHandler chatSocketHandler, ResourceLoader resourceLoader, CharacterPromptBuilder characterPromptBuilder) {
         this.aiService = aiService;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
         this.settingsService = settingsService;
         this.chatSocketHandler = chatSocketHandler;
         this.resourceLoader = resourceLoader;
+        this.characterPromptBuilder = characterPromptBuilder;
         // Wrap executor so SecurityContext is inherited by async threads
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
@@ -594,7 +596,7 @@ public class ModeratorAgent implements DisposableBean {
                                            Consumer<ResponseFragment> onChunk,
                                            Consumer<ResponseFragment> onResponse) {
         try {
-            String characterPrompt = buildCharacterPrompt(character);
+            String characterPrompt = characterPromptBuilder.build(character, true);
             String fullPrompt = characterPrompt + "\n\n" + state.context;
 
             log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
@@ -698,7 +700,7 @@ public class ModeratorAgent implements DisposableBean {
         }
 
         try {
-            String characterPrompt = buildCharacterPrompt(character);
+            String characterPrompt = characterPromptBuilder.build(character, true);
             String fullPrompt = characterPrompt + "\n\n" + state.context + "\n\nUser's question: " + state.currentUserMessage;
 
             log.info("[Moderator] [StateMachine] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
@@ -914,7 +916,7 @@ public class ModeratorAgent implements DisposableBean {
 
             // Build character prompt and generate response synchronously (blocking)
             try {
-                String characterPrompt = buildCharacterPrompt(character);
+                String characterPrompt = characterPromptBuilder.build(character, true);
                 String fullPrompt = characterPrompt + "\n\n" + context;
 
                 log.info("[Moderator] [{}] Prompt built, length: {}, calling AI service",
@@ -1044,89 +1046,6 @@ public class ModeratorAgent implements DisposableBean {
                       "Keep it conversational (2-4 sentences). Address specific points others made.");
 
         return context.toString();
-    }
-
-    /**
-     * Build the system prompt for a character.
-     */
-    private String buildCharacterPrompt(Character character) {
-        log.info("[Moderator] [{}] Building character prompt", character.getName());
-        StringBuilder prompt = new StringBuilder();
-
-        // First fetch web context for role info
-        log.info("[Moderator] [{}] Calling firecrawlService.scrape()", character.getName());
-        long startTime = System.currentTimeMillis();
-        String webContext = firecrawlService.scrape(character.getName());
-        long scrapeTime = System.currentTimeMillis() - startTime;
-        log.info("[Moderator] [{}] firecrawlService.scrape() returned in {}ms, content length: {}",
-            character.getName(), scrapeTime, webContext != null ? webContext.length() : 0);
-
-        if (webContext != null && !webContext.isBlank()) {
-            prompt.append("Background information: ").append(webContext).append("\n\n");
-        }
-
-        prompt.append("You are ").append(character.getName());
-        if (character.getEra() != null) {
-            prompt.append(", from the ").append(character.getEra());
-        }
-        prompt.append(".\n\n");
-
-        if (character.getDescription() != null) {
-            prompt.append("Description: ").append(character.getDescription()).append("\n\n");
-        }
-
-        if (character.getSpeakingStyle() != null) {
-            prompt.append("Speaking Style: ").append(character.getSpeakingStyle()).append("\n\n");
-        }
-
-        if (character.getPersona() != null) {
-            prompt.append("Personality: ").append(character.getPersona()).append("\n\n");
-        }
-
-        if (character.getExpertise() != null && !character.getExpertise().isEmpty()) {
-            prompt.append("Areas of expertise: ").append(String.join(", ", character.getExpertise())).append("\n\n");
-        }
-
-        prompt.append("IMPORTANT: This is an AI simulation for educational/entertainment purposes only.\n\n");
-
-        prompt.append("You are in a GROUP DISCUSSION. Engage with the topic and with what others say. " +
-                      "Be concise, conversational, and true to your character's perspective.\n\n");
-
-        prompt.append("IMPORTANT RESTRICTION: Your response MUST be exactly 2-4 sentences. No more than 4 sentences total. Be concise and direct.\n\n");
-
-        prompt.append("CRITICAL: When responding, ONLY speak as yourself. Do NOT repeat, quote, or include " +
-                      "other people's messages in your response. Your reply should be your own words only, " +
-                      "expressed from your character's perspective.\n\n");
-
-        // Add character consistency rules
-        prompt.append("=== CHARACTER CONSISTENCY RULES ===\n\n");
-        prompt.append("You are a CONSISTENT CHARACTER with long-term memory. You must maintain:\n");
-        prompt.append("1. VIEWPOINT CONSISTENCY - Don't contradict yourself across messages\n");
-        prompt.append("2. PERSONALITY CONSISTENCY - Your character traits remain stable\n");
-        prompt.append("3. PREFERENCE CONSISTENCY - Your likes/dislikes are long-term (e.g., spicy food tolerance)\n");
-        prompt.append("4. EMOTIONAL CONTINUITY - Your mood evolves naturally, not reset each message\n\n");
-
-        prompt.append("CRITICAL: You must remember what YOU have said recently.\n");
-        prompt.append("- If user quotes something you said before, ACKNOWLEDGE it (\"Yes, I mentioned that...\")\n");
-        prompt.append("- Don't deny your previous statements\n");
-        prompt.append("- Build on your earlier points, don't contradict them\n");
-        prompt.append("- If you change your mind, explain WHY (\"I've been thinking about this...\")\n\n");
-
-        prompt.append("When user references your past statements:\n");
-        prompt.append("WRONG: \"I never said that\"\n");
-        prompt.append("RIGHT: \"Yes, you're right, I did mention that earlier. Let me expand on that...\"\n\n");
-
-        prompt.append("Response consistency check before replying:\n");
-        prompt.append("1. What have I said recently?\n");
-        prompt.append("2. Is my current response consistent with my earlier stance?\n");
-        prompt.append("3. Am I contradicting myself?\n");
-        prompt.append("4. Does this response maintain my character's personality?\n\n");
-
-        prompt.append("IMPORTANT: Character consistency TRUMPS trying to please the user.\n");
-        prompt.append("Don't change your stance just because the user disagrees.");
-
-        log.info("[Moderator] [{}] Character prompt built, total length: {}", character.getName(), prompt.length());
-        return prompt.toString();
     }
 
     /**

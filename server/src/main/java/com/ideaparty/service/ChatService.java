@@ -32,17 +32,20 @@ public class ChatService {
     private final CharacterRepository characterRepository;
     private final UserRepository userRepository;
     private final AIService aiService;
+    private final CharacterPromptBuilder characterPromptBuilder;
 
     public ChatService(MessageRepository messageRepository,
                       RoomRepository roomRepository,
                       CharacterRepository characterRepository,
                       UserRepository userRepository,
-                      AIService aiService) {
+                      AIService aiService,
+                      CharacterPromptBuilder characterPromptBuilder) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.aiService = aiService;
+        this.characterPromptBuilder = characterPromptBuilder;
     }
 
     /**
@@ -84,27 +87,6 @@ public class ChatService {
     }
 
     /**
-     * Build character prompt for AI service.
-     */
-    private String buildCharacterPrompt(Character character) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are ").append(character.getName());
-        if (character.getEra() != null) {
-            prompt.append(", from the ").append(character.getEra());
-        }
-        prompt.append(".\n\n");
-        if (character.getDescription() != null) {
-            prompt.append("Description: ").append(character.getDescription()).append("\n\n");
-        }
-        if (character.getSpeakingStyle() != null) {
-            prompt.append("Speaking Style: ").append(character.getSpeakingStyle()).append("\n\n");
-        }
-        prompt.append("IMPORTANT: This is an AI simulation for educational/entertainment purposes only.\n");
-        prompt.append("Keep responses conversational and in character.");
-        return prompt.toString();
-    }
-
-    /**
      * Process a user message and trigger round-robin AI responses.
      * For each character in the room, in order:
      * 1. Emit "character thinking" event
@@ -134,7 +116,7 @@ public class ChatService {
 
             // Generate and save AI response using AIService (with history context)
             CompletableFuture<String> futureResponse = CompletableFuture.supplyAsync(() ->
-                aiService.generateResponseWithHistory(buildCharacterPrompt(character), content, conversationHistory)
+                aiService.generateResponseWithHistory(characterPromptBuilder.build(character, false), content, conversationHistory)
             );
 
             // Note: In a real implementation, we would wait for each character's
