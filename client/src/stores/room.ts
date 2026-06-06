@@ -116,11 +116,11 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
-  async function createRoom(name: string, topic?: string): Promise<Room> {
+  async function createRoom(name: string, topic?: string, characterIds?: string[]): Promise<Room> {
     loading.value = true
     error.value = null
     try {
-      const request: CreateRoomRequest = { name, topic }
+      const request: CreateRoomRequest = { name, topic, characterIds }
       const room = await roomsApi.create(request)
       rooms.value.push(room)
       myRooms.value.unshift(room)
