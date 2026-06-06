@@ -68,8 +68,7 @@ public class ModeratorAgent implements DisposableBean {
     // Track last sent length per character for delta computation
     private final ConcurrentHashMap<String, Integer> lastSentLengths = new ConcurrentHashMap<>();
 
-    // Room-level paused state for discussion mode
-    private final ConcurrentHashMap<String, AtomicBoolean> roomPaused = new ConcurrentHashMap<>();
+
 
     // Room-level current discussion state
     private final ConcurrentHashMap<String, DiscussionState> roomDiscussionState = new ConcurrentHashMap<>();
@@ -497,7 +496,6 @@ public class ModeratorAgent implements DisposableBean {
                 state.userTriggered.set(false);
                 state.userId = userId;
                 roomDiscussionState.put(roomId, state);
-                roomPaused.put(roomId, new AtomicBoolean(false));
 
                 runSequentialDiscussion(roomId, userId, state, onThinking, onChunk, onResponse);
             } else {
@@ -812,10 +810,8 @@ public class ModeratorAgent implements DisposableBean {
      */
     public void pauseDiscussion(String roomId) {
         DiscussionState state = roomDiscussionState.get(roomId);
-        AtomicBoolean paused = roomPaused.get(roomId);
-        if (state != null && paused != null) {
+        if (state != null) {
             state.paused = true;
-            paused.set(true);
             log.info("[Moderator] Discussion paused for room: {}", roomId);
         }
     }
@@ -825,10 +821,8 @@ public class ModeratorAgent implements DisposableBean {
      */
     public void resumeDiscussion(String roomId) {
         DiscussionState state = roomDiscussionState.get(roomId);
-        AtomicBoolean paused = roomPaused.get(roomId);
-        if (state != null && paused != null) {
+        if (state != null) {
             state.paused = false;
-            paused.set(false);
             state.userTriggered.set(true); // Trigger immediate continuation
             log.info("[Moderator] Discussion resumed for room: {}", roomId);
         }
@@ -844,8 +838,6 @@ public class ModeratorAgent implements DisposableBean {
             // Also resume if paused
             if (state.paused) {
                 state.paused = false;
-                AtomicBoolean paused = roomPaused.get(roomId);
-                if (paused != null) paused.set(false);
             }
             log.info("[Moderator] User message triggered discussion for room: {}", roomId);
         }
@@ -860,7 +852,6 @@ public class ModeratorAgent implements DisposableBean {
             state.isRunning = false;
             log.info("[Moderator] Discussion stopped for room: {}", roomId);
         }
-        roomPaused.remove(roomId);
     }
 
     /**
