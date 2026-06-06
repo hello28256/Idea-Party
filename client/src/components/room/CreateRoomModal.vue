@@ -28,6 +28,7 @@ const dialogMode = ref<'single' | 'group'>('single')
 // Group mode form (多人对话)
 const name = ref('')
 const topic = ref('')
+const selectedCharacterIds = ref<Set<string>>(new Set())
 
 // Single mode: 'select' (选择角色) or 'create' (创建角色)
 const singleTab = ref<'select' | 'create'>('select')
@@ -66,6 +67,7 @@ watch(() => props.show, (newShow) => {
     name.value = ''
     topic.value = ''
     selectedCharacter.value = null
+    selectedCharacterIds.value = new Set()
     createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
     avatarPreview.value = null
     error.value = null
@@ -79,6 +81,17 @@ watch(() => props.show, (newShow) => {
 
 function selectCharacter(character: Character) {
   selectedCharacter.value = character
+  error.value = null
+}
+
+function toggleGroupCharacter(characterId: string) {
+  const next = new Set(selectedCharacterIds.value)
+  if (next.has(characterId)) {
+    next.delete(characterId)
+  } else {
+    next.add(characterId)
+  }
+  selectedCharacterIds.value = next
   error.value = null
 }
 
@@ -229,12 +242,20 @@ async function handleSubmit() {
       error.value = '请输入聊天室名称'
       return
     }
+    if (selectedCharacterIds.value.size === 0) {
+      error.value = '请至少选择一个角色'
+      return
+    }
 
     loading.value = true
     error.value = null
 
     try {
-      const room = await roomStore.createRoom(name.value.trim(), topic.value.trim() || undefined)
+      const room = await roomStore.createRoom(
+        name.value.trim(),
+        topic.value.trim() || undefined,
+        [...selectedCharacterIds.value]
+      )
       emit('created', room.id)
       emit('close')
     } catch (e) {
@@ -445,7 +466,7 @@ function handleClose() {
 
             <!-- Group Mode Form (多人对话) -->
             <div v-else class="room-form">
-              <p class="form-description">设置聊天室名称和主题，发起多角色讨论</p>
+              <p class="form-description">设置聊天室名称和主题，选择多个角色发起讨论</p>
 
               <!-- Name -->
               <div class="form-group">
@@ -471,6 +492,39 @@ function handleClose() {
                 ></textarea>
               </div>
 
+              <!-- Character multi-select -->
+              <div class="form-group">
+                <label class="form-label">
+                  选择角色 <span class="required">*</span>
+                </label>
+                <div class="character-list">
+                  <div
+                    v-for="character in myCharacters"
+                    :key="character.id"
+                    class="character-item"
+                    :class="{ selected: selectedCharacterIds.has(character.id) }"
+                    @click="toggleGroupCharacter(character.id)"
+                  >
+                    <div class="character-avatar">
+                      <img v-if="character.avatarUrl" :src="character.avatarUrl" :alt="character.name" />
+                      <span v-else>{{ character.name.charAt(0) }}</span>
+                    </div>
+                    <div class="character-info">
+                      <span class="character-item-name">{{ character.name }}</span>
+                      <span class="character-item-desc">{{ character.description || '暂无描述' }}</span>
+                    </div>
+                    <div v-if="selectedCharacterIds.has(character.id)" class="check-icon">
+                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div v-if="myCharacters.length === 0" class="character-empty">
+                    暂无可用角色，请先创建角色
+                  </div>
+                </div>
+              </div>
+
               <!-- Error -->
               <p v-if="error" class="form-error">{{ error }}</p>
             </div>
@@ -491,7 +545,7 @@ function handleClose() {
                 type="button"
                 class="footer-submit-btn"
                 @click="handleSubmit"
-                :disabled="loading || (dialogMode === 'single' && !selectedCharacter)"
+                :disabled="loading || (dialogMode === 'single' ? !selectedCharacter : selectedCharacterIds.size === 0)"
               >
                 {{ loading ? '创建中...' : (dialogMode === 'single' ? '开始对话' : '创建') }}
               </button>
