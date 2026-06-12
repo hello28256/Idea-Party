@@ -240,8 +240,9 @@ async function handleCharacterAdded(character: Character) {
   <div class="chat-panel h-full flex flex-col overflow-hidden">
     <!-- Room Header -->
     <header v-if="!props.embedded" class="header">
-      <!-- Mobile: hamburger menu -->
+      <!-- Mobile: hamburger menu (hidden when the 我的聊天 drawer is already open) -->
       <button
+        v-if="!sidebarOpen"
         class="lg:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
         @click="openSidebar"
         aria-label="打开角色列表"
@@ -290,15 +291,6 @@ async function handleCharacterAdded(character: Character) {
       </div>
 
       <div class="chat-header-right">
-        <span
-          v-if="currentRoom?.characters?.length > 0"
-          class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-[var(--color-parchment)] text-[var(--color-navy)] rounded-full border border-[var(--color-border)]"
-        >
-          <svg class="w-3.5 h-3.5 text-[var(--color-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          {{ currentRoom.characters.length }}
-        </span>
         <button
           v-if="props.showRolePanelToggle"
           class="chat-header-icon-button"

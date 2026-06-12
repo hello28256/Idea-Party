@@ -958,7 +958,7 @@ async function handleInviteMember() {
                 :room-id="selectedRoomId"
                 :key="selectedRoomId"
                 :embedded="true"
-                :show-room-list-toggle="true"
+                :show-room-list-toggle="isRoomListCollapsed"
                 :show-role-panel-toggle="true"
                 :on-toggle-room-list="() => isRoomListCollapsed = !isRoomListCollapsed"
                 :on-toggle-role-panel="() => isRolePanelCollapsed = !isRolePanelCollapsed"
