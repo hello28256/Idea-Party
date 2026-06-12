@@ -1,38 +1,29 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import SettingsModal from '@/components/settings/SettingsModal.vue'
+import { useSettingsStore } from '@/stores/settings'
 
 const router = useRouter()
+const settingsStore = useSettingsStore()
 
-function handleClose() {
-  if (window.history.length > 1) {
-    router.back()
-  } else {
-    router.push('/characters')
-  }
-}
+// When the /settings route is entered, open the floating modal and
+// bounce back to the previous page so the user sees the modal over
+// their original content (instead of a full-page route replacement).
+onMounted(() => {
+  settingsStore.openSettings()
+  router.replace('/characters')
+})
 </script>
 
 <template>
   <div class="settings-page-shell">
-    <!-- Background -->
-    <div class="settings-background"></div>
-    <!-- Settings Modal -->
-    <SettingsModal :open="true" @close="handleClose" />
+    <!-- Page intentionally empty: the floating SettingsModal is
+         rendered by App.vue and overlays whatever the user was on. -->
   </div>
 </template>
 
 <style scoped>
 .settings-page-shell {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-}
-
-.settings-background {
-  position: absolute;
-  inset: 0;
-  background: var(--color-ivory, #faf7f2);
-  opacity: 0.5;
+  display: none;
 }
 </style>

@@ -785,15 +785,15 @@ async function confirmDangerous() {
 }
 
 .rsm-btn-cancel {
-  background: var(--btn-secondary-bg);
-  border-color: var(--btn-secondary-border);
-  color: var(--btn-secondary-text);
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
 }
 
 .rsm-btn-cancel:hover:not(:disabled) {
-  background: #E2E8F0;
-  border-color: #E2E8F0;
-  color: var(--text-primary);
+  opacity: 0.92;
 }
 
 @keyframes modal-pop {

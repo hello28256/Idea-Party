@@ -190,13 +190,14 @@ const emit = defineEmits<{
 }>()
 
 function handleClose() {
+  settingsStore.closeSettings()
   emit('close')
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="settings-overlay" @click.self="handleClose">
+    <div v-if="settingsStore.settingsModalOpen" class="settings-overlay" @click.self="handleClose">
       <div class="settings-modal">
         <!-- Left Sidebar -->
         <aside class="settings-sidebar">
@@ -498,7 +499,6 @@ function handleClose() {
 <style scoped>
 /*** CSS Variables for Light Mode ***/
 .settings-overlay {
-  --overlay-bg: rgba(15, 23, 42, 0.18);
   --modal-bg: rgba(255, 255, 255, 0.98);
   --sidebar-bg: rgba(248, 250, 252, 0.95);
   --content-bg: rgba(255, 255, 255, 0.95);
@@ -528,7 +528,6 @@ function handleClose() {
 
 /*** Dark Mode Variables ***/
 .dark .settings-overlay {
-  --overlay-bg: rgba(0, 0, 0, 0.25);
   --modal-bg: rgba(17, 24, 39, 0.98);
   --sidebar-bg: rgba(15, 23, 42, 0.98);
   --content-bg: rgba(17, 24, 39, 0.95);
@@ -565,8 +564,9 @@ function handleClose() {
   align-items: center;
   justify-content: center;
   padding: 32px;
-  background: var(--overlay-bg);
-  backdrop-filter: blur(4px);
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /*** Modal ***/

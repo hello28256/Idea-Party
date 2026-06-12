@@ -7,6 +7,16 @@ export const useSettingsStore = defineStore('settings', () => {
   const showApiKey = ref(false)
   const loading = ref(false)
 
+  // Settings modal open/close (replaces the /settings route)
+  const settingsModalOpen = ref(false)
+
+  function openSettings() {
+    settingsModalOpen.value = true
+  }
+  function closeSettings() {
+    settingsModalOpen.value = false
+  }
+
   const hasApiKey = computed(() => !!deepseekApiKey.value && deepseekApiKey.value.length > 0)
 
   async function fetchApiKey() {
@@ -63,6 +73,9 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchApiKey,
     setApiKey,
     clearApiKey,
-    toggleShowKey
+    toggleShowKey,
+    settingsModalOpen,
+    openSettings,
+    closeSettings
   }
 })

@@ -2,10 +2,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useSettingsStore } from '@/stores/settings'
 import ConfirmLogoutModal from './ConfirmLogoutModal.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const settingsStore = useSettingsStore()
 
 const isOpen = ref(false)
 const showLogoutModal = ref(false)
@@ -15,7 +17,7 @@ const cardRef = ref<HTMLElement | null>(null)
 const avatarError = ref(false)
 
 const menuItems = [
-  { id: 'settings', label: '设置', emoji: '⚙️', action: () => router.push('/settings') },
+  { id: 'settings', label: '设置', emoji: '⚙️', action: () => { settingsStore.openSettings(); closeMenu() } },
   { id: 'my-characters', label: '我的角色', emoji: '✨', disabled: true },
   { id: 'my-rooms', label: '我的聊天', emoji: '💬', disabled: true },
 ]

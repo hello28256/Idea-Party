@@ -93,11 +93,12 @@ async function handleConfirm() {
 .modal-container {
   position: relative;
   background: #FFFFFF;
-  border-radius: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 24px;
   padding: 2rem;
   width: 100%;
-  max-width: 380px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  max-width: 420px;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
   text-align: center;
 }
 
@@ -141,9 +142,9 @@ async function handleConfirm() {
 }
 
 .modal-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1E293B;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
   margin-bottom: 0.5rem;
 }
 
@@ -162,12 +163,13 @@ async function handleConfirm() {
 .btn-cancel,
 .btn-confirm {
   flex: 1;
-  padding: 0.85rem 1.25rem;
-  border-radius: 12px;
-  font-size: 0.95rem;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -185,19 +187,20 @@ async function handleConfirm() {
 }
 
 .btn-confirm {
-  background: #EF4444;
+  background: #0f172a;
   border: none;
-  color: white;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
 }
 
 .btn-confirm:hover:not(:disabled) {
-  background: #DC2626;
-  transform: translateY(-1px);
+  opacity: 0.92;
 }
 
 .btn-cancel:disabled,
 .btn-confirm:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
 }
@@ -218,7 +221,12 @@ async function handleConfirm() {
 /* Transitions */
 .modal-enter-active,
 .modal-leave-active {
-  transition: all 0.25s ease;
+  transition: opacity 0.3s ease;
+}
+
+.modal-enter-active .modal-container,
+.modal-leave-active .modal-container {
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
 .modal-enter-from,
@@ -228,6 +236,7 @@ async function handleConfirm() {
 
 .modal-enter-from .modal-container,
 .modal-leave-to .modal-container {
-  transform: scale(0.9) translateY(20px);
+  transform: scale(0.95) translateY(10px);
+  opacity: 0;
 }
 </style>
