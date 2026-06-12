@@ -46,6 +46,49 @@ const inviteKeyword = ref('')
 const inviteLoading = ref(false)
 const inviteError = ref<string | null>(null)
 
+// Per-row more menu state for the My-Rooms list
+const openMenuRoomId = ref<string | null>(null)
+const moreBtnRefs = ref<Record<string, HTMLElement | null>>({})
+const menuRefs = ref<Record<string, HTMLElement | null>>({})
+
+function toggleRoomMenu(roomId: string, event: MouseEvent) {
+  event.stopPropagation()
+  openMenuRoomId.value = openMenuRoomId.value === roomId ? null : roomId
+}
+
+function closeRoomMenu() {
+  openMenuRoomId.value = null
+}
+
+async function handleDeleteRoom(roomId: string, event: MouseEvent) {
+  event.stopPropagation()
+  closeRoomMenu()
+  const room = roomStore.myRooms.find((r: any) => r.id === roomId)
+  const name = room?.name || '该聊天室'
+  if (!confirm(`确定删除「${name}」吗？此操作不可恢复。`)) return
+  try {
+    await roomStore.deleteRoom(roomId)
+    if (selectedRoomId.value === roomId) {
+      selectedRoomId.value = null
+      router.replace({
+        path: '/rooms',
+        query: { ...route.query, tab: 'my-rooms', roomId: undefined }
+      })
+    }
+  } catch (e) {
+    console.error('[DEBUG] Failed to delete room:', e)
+    alert('删除聊天室失败，请重试')
+  }
+}
+
+function onRoomMenuOutsideClick(e: MouseEvent) {
+  if (!openMenuRoomId.value) return
+  const t = e.target as Node
+  const inBtn = moreBtnRefs.value[openMenuRoomId.value]?.contains(t)
+  const inMenu = menuRefs.value[openMenuRoomId.value]?.contains(t)
+  if (!inBtn && !inMenu) closeRoomMenu()
+}
+
 // Resolve avatar URL for member avatars
 function resolveAvatarUrl(url: string | null | undefined): string {
   if (!url) return ''
@@ -494,6 +537,7 @@ onMounted(() => {
 
   // Close dropdown when clicking outside
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('click', onRoomMenuOutsideClick)
 
   // Load saved collapse state
   loadLayoutState()
@@ -501,6 +545,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('click', onRoomMenuOutsideClick)
 })
 
 function handleClickOutside(e: MouseEvent) {
@@ -855,7 +900,7 @@ async function handleInviteMember() {
 
             <!-- Room List -->
             <div v-else class="rooms-list-scroll">
-              <button
+              <div
                 v-for="room in roomStore.sortedMyRooms"
                 :key="room.id"
                 class="room-list-item"
@@ -866,12 +911,43 @@ async function handleInviteMember() {
                 <div class="room-list-content">
                   <div class="room-list-title-row">
                     <strong>{{ room.name }}</strong>
-                    <span>{{ formatDate(room.updatedAt) }}</span>
+                    <span class="room-list-time">{{ formatDate(room.updatedAt) }}</span>
                   </div>
                   <p>{{ room.topic || (room.characters?.[0]?.description) || '暂无主题' }}</p>
                   <small>{{ room.characterCount }} 个角色</small>
                 </div>
-              </button>
+                <button
+                  :ref="(el) => (moreBtnRefs[room.id] = el as HTMLElement)"
+                  class="room-list-more-btn"
+                  aria-label="更多操作"
+                  :aria-expanded="openMenuRoomId === room.id"
+                  aria-haspopup="menu"
+                  @click.stop="toggleRoomMenu(room.id, $event)"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="5"  cy="12" r="1.8" fill="currentColor" />
+                    <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+                    <circle cx="19" cy="12" r="1.8" fill="currentColor" />
+                  </svg>
+                </button>
+                <ul
+                  v-if="openMenuRoomId === room.id"
+                  :ref="(el) => (menuRefs[room.id] = el as HTMLElement)"
+                  class="room-list-dropdown"
+                  role="menu"
+                  @click.stop
+                >
+                  <li>
+                    <button class="room-list-menu-item danger" role="menuitem" @click="handleDeleteRoom(room.id, $event)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
+                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                      <span>删除</span>
+                    </button>
+                  </li>
+                </ul>
+              </div>
             </div>
           </aside>
 
@@ -2195,7 +2271,9 @@ async function handleInviteMember() {
 .character-card-item .edit-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+  width: 100px;
   padding: 0.5rem 0.75rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -2215,16 +2293,18 @@ async function handleInviteMember() {
 
 .character-card-item .card-footer {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .character-card-item .chat-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+  width: 100px;
   padding: 0.5rem 0.75rem;
   background: var(--button-bg);
   border: 1px solid var(--border-color);
@@ -2624,8 +2704,10 @@ async function handleInviteMember() {
 }
 
 .room-list-item {
+  position: relative;
   width: 100%;
   display: flex;
+  align-items: center;
   gap: 12px;
   padding: 14px 12px;
   border: none;
@@ -2727,6 +2809,116 @@ async function handleInviteMember() {
   margin-top: 2px;
   font-size: 12px;
   color: #94a3b8;
+}
+
+/* Per-row more (three-dot) button + dropdown */
+.room-list-time {
+  font-size: 12px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.room-list-more-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.room-list-item:hover .room-list-more-btn,
+.room-list-more-btn:focus-visible,
+.room-list-more-btn[aria-expanded="true"] {
+  opacity: 1;
+}
+.room-list-more-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+.room-list-more-btn:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.3);
+  outline-offset: 1px;
+}
+.dark .room-list-more-btn {
+  color: #94a3b8;
+}
+.dark .room-list-more-btn:hover {
+  background: rgba(248, 250, 252, 0.08);
+  color: #f1f5f9;
+}
+.room-list-item.active .room-list-more-btn {
+  color: #ffffff;
+}
+.room-list-item.active .room-list-more-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+.dark .room-list-item.active .room-list-more-btn {
+  color: #0f172a;
+}
+.dark .room-list-item.active .room-list-more-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.room-list-dropdown {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 8px;
+  z-index: 50;
+  min-width: 120px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+.dark .room-list-dropdown {
+  background: #1e293b;
+  border-color: rgba(71, 85, 105, 0.85);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.room-list-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.room-list-menu-item:hover,
+.room-list-menu-item:focus {
+  background: rgba(15, 23, 42, 0.06);
+  outline: none;
+}
+.dark .room-list-menu-item:hover,
+.dark .room-list-menu-item:focus {
+  background: rgba(248, 250, 252, 0.08);
+}
+.room-list-menu-item.danger {
+  color: #e53935;
+}
+.room-list-menu-item.danger:hover,
+.room-list-menu-item.danger:focus {
+  background: rgba(229, 57, 53, 0.08);
 }
 
 /* Center: Chat Main Panel */

@@ -200,20 +200,20 @@ function formatDate(dateStr: string): string {
               />
               <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
             </div>
-            <button class="chat-btn" @click.stop="startChat(character)">
+            <div class="character-info">
+              <h3 class="character-name">{{ character.name }}</h3>
+              <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
+              <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
+            </div>
+          </div>
+          <div class="card-footer">
+            <button class="action-btn chat-btn" @click.stop="startChat(character)">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               对话
             </button>
-          </div>
-          <div class="character-info">
-            <h3 class="character-name">{{ character.name }}</h3>
-            <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
-            <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
-          </div>
-          <div class="card-footer">
-            <button class="edit-btn" @click.stop="openEditModal(character)">
+            <button class="action-btn edit-btn" @click.stop="openEditModal(character)">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -469,9 +469,11 @@ function formatDate(dateStr: string): string {
 
 .card-footer {
   display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
   padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
 }
 
 .character-avatar {
@@ -525,20 +527,24 @@ function formatDate(dateStr: string): string {
   color: var(--text-muted);
 }
 
-.edit-btn {
+.action-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  width: 100%;
+  padding: 0.55rem 0.75rem;
   border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
-  flex-shrink: 0;
+}
+
+.edit-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .edit-btn:hover {
@@ -547,18 +553,9 @@ function formatDate(dateStr: string): string {
 }
 
 .chat-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.5rem 0.75rem;
   background: var(--button-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
   color: var(--button-text);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .chat-btn:hover {

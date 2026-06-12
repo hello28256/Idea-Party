@@ -36,6 +36,52 @@ const singleTab = ref<'select' | 'create'>('select')
 // Selected character for single mode
 const selectedCharacter = ref<Character | null>(null)
 
+// Duplicate-room confirmation dialog (replaces ugly browser confirm())
+const dupDialog = ref<{
+  characterName: string
+  existingRoomId: string
+} | null>(null)
+const dupDialogLoading = ref(false)
+
+function openDupDialog(name: string, id: string) {
+  dupDialog.value = { characterName: name, existingRoomId: id }
+}
+function closeDupDialog() {
+  if (dupDialogLoading.value) return
+  dupDialog.value = null
+}
+function confirmGoExisting() {
+  if (!dupDialog.value) return
+  dupDialogLoading.value = true
+  const id = dupDialog.value.existingRoomId
+  dupDialog.value = null
+  dupDialogLoading.value = false
+  emit('created', id)
+  emit('close')
+}
+function confirmCreateNew() {
+  if (!dupDialog.value || !selectedCharacter.value) {
+    dupDialog.value = null
+    return
+  }
+  dupDialogLoading.value = true
+  const char = selectedCharacter.value
+  dupDialog.value = null
+  // Fire-and-forget: actually create the new room
+  roomStore
+    .createRoom(char.name, undefined, [char.id], 'single')
+    .then((room) => {
+      emit('created', room.id)
+      emit('close')
+    })
+    .catch((e) => {
+      error.value = e instanceof Error ? e.message : '创建失败'
+    })
+    .finally(() => {
+      dupDialogLoading.value = false
+    })
+}
+
 // Create character form (单人对话模式下的创建角色表单)
 const createForm = ref({
   name: '',
@@ -215,25 +261,32 @@ async function handleSubmit() {
     error.value = null
 
     try {
-      // Check if this character already has a chat room
+      const charId = selectedCharacter.value.id
+      const charName = selectedCharacter.value.name
+
+      // 检查该角色是否已有 single 模式的房间
+      // 注意：只在"已经存在"时弹提示 + 复用，避免重复创建
+      // 但不偷偷跳转 —— 用户确认后才进入
       await roomStore.fetchMyRooms()
       const existingRoom = roomStore.myRooms.find(room =>
-        room.characters?.some(c => c.id === selectedCharacter.value!.id)
+        room.mode === 'single' &&
+        room.characters?.some(c => c.id === charId)
       )
 
       if (existingRoom) {
-        // Navigate to existing room
-        emit('created', existingRoom.id)
-      } else {
-        // Create new room for this character
-        const room = await roomStore.createRoom(
-          selectedCharacter.value.name,
-          undefined,
-          [selectedCharacter.value.id],
-          'single'
-        )
-        emit('created', room.id)
+        loading.value = false
+        openDupDialog(charName, existingRoom.id)
+        return
       }
+
+      // 没有已有房间 → 创建新房间
+      const room = await roomStore.createRoom(
+        selectedCharacter.value.name,
+        undefined,
+        [selectedCharacter.value.id],
+        'single'
+      )
+      emit('created', room.id)
       emit('close')
     } catch (e) {
       error.value = e instanceof Error ? e.message : '创建失败'
@@ -556,6 +609,53 @@ function handleClose() {
               </button>
             </div>
           </footer>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Duplicate-room confirmation dialog (project-styled, replaces native confirm) -->
+    <Transition name="modal">
+      <div v-if="dupDialog" class="modal-overlay" @click.self="closeDupDialog">
+        <div class="modal-container" role="alertdialog" aria-modal="true" aria-labelledby="dup-title">
+          <!-- Close Button -->
+          <button class="close-btn" @click="closeDupDialog" :disabled="dupDialogLoading">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+
+          <!-- Icon -->
+          <div class="modal-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+
+          <!-- Content -->
+          <h2 id="dup-title" class="modal-title">已存在该对话</h2>
+          <p class="modal-desc">
+            你已经和「{{ dupDialog.characterName }}」有过对话。<br />
+            要进入现有对话，还是发起一个新的？
+          </p>
+
+          <!-- Actions -->
+          <div class="modal-actions">
+            <button class="btn-cancel" @click="closeDupDialog" :disabled="dupDialogLoading">
+              取消
+            </button>
+            <button class="btn-secondary" @click="confirmCreateNew" :disabled="dupDialogLoading">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              创建新对话
+            </button>
+            <button class="btn-confirm" @click="confirmGoExisting" :disabled="dupDialogLoading">
+              <span v-if="dupDialogLoading" class="loading-spinner"></span>
+              <span v-else>进入现有对话</span>
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -1311,5 +1411,191 @@ function handleClose() {
 
 .dark .avatar-preview {
   background: #1e293b !important;
+}
+
+/*** Duplicate-room confirmation dialog ***/
+/* Mirrors ConfirmLogoutModal.vue structure & style for visual consistency. */
+.modal-overlay {
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1100; /* above the create-room modal */
+  padding: 1rem;
+}
+
+.modal-container {
+  position: relative;
+  background: #FFFFFF !important;
+  border-radius: 20px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+.dark .modal-container {
+  background: #0F172A !important;
+  border: 1px solid rgba(71, 85, 105, 0.85);
+}
+
+.close-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.close-btn:hover:not(:disabled) {
+  background: #F1F5F9;
+  color: #1E293B;
+}
+.dark .close-btn:hover:not(:disabled) {
+  background: #1E293B;
+  color: #F1F5F9;
+}
+.close-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.modal-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.25rem;
+  border-radius: 50%;
+  background: #FEF6E0; /* soft amber */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #D6A84F;     /* project gold */
+}
+.dark .modal-icon {
+  background: rgba(214, 168, 79, 0.18);
+  color: #D6A84F;
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1E293B;
+  margin: 0 0 0.5rem;
+}
+.dark .modal-title {
+  color: #F1F5F9;
+}
+
+.modal-desc {
+  font-size: 0.9rem;
+  color: #64748B;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+.dark .modal-desc {
+  color: #94A3B8;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-cancel,
+.btn-secondary,
+.btn-confirm {
+  flex: 1;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-cancel {
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  color: #64748B;
+}
+.btn-cancel:hover:not(:disabled) {
+  background: #E2E8F0;
+  color: #1E293B;
+}
+.dark .btn-cancel {
+  background: #1E293B;
+  border-color: rgba(71, 85, 105, 0.85);
+  color: #94A3B8;
+}
+.dark .btn-cancel:hover:not(:disabled) {
+  background: #334155;
+  color: #F1F5F9;
+}
+
+.btn-secondary {
+  background: #FFFFFF;
+  border: 1px solid #D6A84F;
+  color: #D6A84F;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(214, 168, 79, 0.10);
+  color: #B58F35;
+  border-color: #B58F35;
+}
+.dark .btn-secondary {
+  background: transparent;
+  border-color: #D6A84F;
+  color: #D6A84F;
+}
+.dark .btn-secondary:hover:not(:disabled) {
+  background: rgba(214, 168, 79, 0.14);
+}
+
+.btn-confirm {
+  background: #D6A84F; /* gold — primary action */
+  border: none;
+  color: #FFFFFF;
+}
+.btn-confirm:hover:not(:disabled) {
+  background: #B58F35;
+  transform: translateY(-1px);
+}
+.dark .btn-confirm {
+  background: #D6A84F;
+  color: #0F172A;
+}
+.dark .btn-confirm:hover:not(:disabled) {
+  background: #E0B863;
+}
+
+.btn-cancel:disabled,
+.btn-secondary:disabled,
+.btn-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: dup-spin 0.8s linear infinite;
+}
+.dark .loading-spinner {
+  border-top-color: #0F172A;
+}
+@keyframes dup-spin {
+  to { transform: rotate(360deg); }
 }
 </style>
