@@ -1,0 +1,122 @@
+<script setup lang="ts">
+import { useRouter } from 'vue-router'
+import type { NavItem } from '@/config/sidebar'
+
+defineProps<{
+  navItems: NavItem[]
+  activeId: string
+}>()
+
+const router = useRouter()
+
+function go(route: string) {
+  router.push(route)
+}
+</script>
+
+<template>
+  <aside class="app-sidebar">
+    <!-- Brand -->
+    <div class="sidebar-brand">
+      <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
+      <span class="logo-text">Idea Party</span>
+    </div>
+
+    <!-- Create button slot (different per view: 创建角色 / 创建对话) -->
+    <slot name="create" />
+
+    <!-- Nav -->
+    <nav class="nav-menu">
+      <a
+        v-for="item in navItems"
+        :key="item.id"
+        href="#"
+        class="nav-item"
+        :class="{ active: item.id === activeId }"
+        @click.prevent="go(item.route)"
+      >
+        <span class="nav-emoji">{{ item.emoji }}</span>
+        <span class="nav-label">{{ item.label }}</span>
+      </a>
+    </nav>
+  </aside>
+</template>
+
+<style scoped>
+.app-sidebar {
+  background: var(--sidebar-bg, #f7f8fa);
+  border-right: 1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.25rem;
+  margin-bottom: 0.875rem;
+}
+
+.sidebar-brand-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: Inter, SF Pro Display, PingFang SC, sans-serif;
+  line-height: 1;
+  color: var(--text-primary, #111827);
+  letter-spacing: -0.5px;
+}
+
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  color: var(--text-secondary, #6b7280);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition: all 0.15s ease;
+}
+
+.nav-item:hover {
+  background: var(--bg-primary, #f5f7fb);
+  color: var(--text-primary, #111827);
+}
+
+.nav-item.active {
+  background: var(--bg-primary, #f5f7fb);
+  color: var(--text-primary, #111827);
+  font-weight: 500;
+}
+
+.nav-emoji {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+}
+
+.nav-label {
+  flex: 1;
+}
+</style>

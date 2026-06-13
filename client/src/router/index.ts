@@ -27,6 +27,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/scenarios',
+      name: 'scenarios',
+      component: RoomListView,
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/characters',
       name: 'characters',
       component: RoomListView,

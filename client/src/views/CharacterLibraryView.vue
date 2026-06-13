@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoomStore } from '@/stores/room'
 import type { Character } from '@/types'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
+import AppSidebar from '@/components/ui/AppSidebar.vue'
+import { ALL_NAV_ITEMS } from '@/config/sidebar'
 
 const router = useRouter()
 const characterStore = useCharacterStore()
@@ -100,64 +102,16 @@ function formatDate(dateStr: string): string {
 <template>
   <div class="page-layout" :class="{ mounted }">
     <!-- Left Sidebar -->
-    <aside class="sidebar">
-      <!-- Logo -->
-      <div class="sidebar-brand">
-        <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
-        <span class="logo-text">Idea Party</span>
-      </div>
-
-      <!-- Create Button -->
-      <button class="create-btn" @click="openCreateModal">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        <span>创建角色</span>
-      </button>
-
-      <!-- Navigation -->
-      <nav class="nav-menu">
-        <a
-          href="#"
-          class="nav-item"
-          @click.prevent="router.push('/rooms')"
-        >
-          <span class="nav-emoji">🔍</span>
-          <span class="nav-label">发现</span>
-        </a>
-        <a
-          href="#"
-          class="nav-item active"
-        >
-          <span class="nav-emoji">📚</span>
-          <span class="nav-label">角色库</span>
-        </a>
-        <a
-          href="#"
-          class="nav-item"
-          @click.prevent="router.push('/rooms?tab=trending')"
-        >
-          <span class="nav-emoji">🔥</span>
-          <span class="nav-label">热门</span>
-        </a>
-        <a
-          href="#"
-          class="nav-item"
-          @click.prevent="router.push('/rooms?tab=categories')"
-        >
-          <span class="nav-emoji">📂</span>
-          <span class="nav-label">分类</span>
-        </a>
-        <a
-          href="#"
-          class="nav-item"
-          @click.prevent="router.push('/rooms?tab=my-rooms')"
-        >
-          <span class="nav-emoji">💬</span>
-          <span class="nav-label">我的聊天</span>
-        </a>
-      </nav>
-    </aside>
+    <AppSidebar :navItems="ALL_NAV_ITEMS" activeId="characters">
+      <template #create>
+        <button class="create-btn" @click="openCreateModal">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>创建角色</span>
+        </button>
+      </template>
+    </AppSidebar>
 
     <!-- Main Content -->
     <main class="main-content">
@@ -256,101 +210,6 @@ function formatDate(dateStr: string): string {
 
 .page-layout.mounted {
   opacity: 1;
-}
-
-.sidebar {
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  padding: 1rem;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-}
-
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0.25rem;
-  margin-bottom: 0.875rem;
-}
-
-.sidebar-brand-logo {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.logo-text {
-  font-size: 22px;
-  font-weight: 800;
-  font-family: Inter, SF Pro Display, PingFang SC, sans-serif;
-  line-height: 1;
-  color: var(--text-primary);
-  letter-spacing: -0.5px;
-}
-
-.create-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  width: 160px;
-  height: 42px;
-  background: var(--button-bg);
-  border: none;
-  border-radius: 14px;
-  color: var(--button-text);
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 1rem;
-}
-
-.create-btn:hover {
-  opacity: 0.85;
-}
-
-.nav-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.65rem;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: 400;
-  transition: all 0.15s ease;
-}
-
-.nav-item:hover {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.nav-item.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.nav-emoji {
-  font-size: 1rem;
-  width: 20px;
-  text-align: center;
 }
 
 .main-content {

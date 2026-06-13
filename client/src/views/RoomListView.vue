@@ -8,6 +8,9 @@ import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
+import AppSidebar from '@/components/ui/AppSidebar.vue'
+import { MINIMAL_NAV_ITEMS } from '@/config/sidebar'
+import { useScenarioStore, type Scenario } from '@/stores/scenario'
 import ChatRoomPanel from '@/components/chat/ChatRoomPanel.vue'
 
 const router = useRouter()
@@ -231,6 +234,7 @@ watch(
 const navItems = [
   { id: 'discover', label: '发现', emoji: '🔍' },
   { id: 'characters', label: '角色库', emoji: '📚' },
+  { id: 'scenarios', label: '场景', emoji: '💡' },
   { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
 ]
 
@@ -240,6 +244,7 @@ const activeNavId = computed(() => {
   const tab = route.query.tab as string
   if (tab === 'my-rooms') return 'my-rooms'
   if (tab === 'recent') return 'recent'
+  if (tab === 'scenarios' || path === '/scenarios') return 'scenarios'
   if (path === '/rooms' || path === '/') return 'discover'
   if (path.startsWith('/characters')) return 'characters'
   if (path.startsWith('/chat')) return 'discover'
@@ -255,6 +260,47 @@ const isCharactersView = computed(() => {
 const isMyRoomsView = computed(() => {
   return activeNavId.value === 'my-rooms' || activeNavId.value === 'recent'
 })
+
+// Whether to show the scenarios grid
+const isScenariosView = computed(() => {
+  return activeNavId.value === 'scenarios'
+})
+
+const scenarioStore = useScenarioStore()
+const activeScenario = ref<Scenario | null>(null)
+const creatingScenario = ref(false)
+const createError = ref<string | null>(null)
+
+function openScenario(s: Scenario) {
+  activeScenario.value = s
+  createError.value = null
+}
+function closeScenario() {
+  activeScenario.value = null
+  createError.value = null
+}
+async function startScenario() {
+  if (!activeScenario.value) return
+  creatingScenario.value = true
+  createError.value = null
+  try {
+    const room = await roomStore.createRoom(
+      activeScenario.value.title,
+      activeScenario.value.promptTemplate,
+      [],
+      activeScenario.value.mode
+    )
+    if (room?.id) {
+      router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
+    } else {
+      createError.value = roomStore.error || '创建失败'
+    }
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : '创建失败'
+  } finally {
+    creatingScenario.value = false
+  }
+}
 
 // Watch for tab changes to fetch my rooms
 watch(
@@ -371,6 +417,8 @@ function handleNavClick(itemId: string) {
     router.push('/rooms')
   } else if (itemId === 'characters') {
     router.push('/characters')
+  } else if (itemId === 'scenarios') {
+    router.push('/scenarios')
   } else if (itemId === 'trending') {
     router.push('/rooms?tab=trending')
   } else if (itemId === 'categories') {
@@ -771,8 +819,57 @@ async function handleInviteMember() {
 
     <!-- Main Content -->
     <main class="main-content">
+      <!-- Scenarios View -->
+      <template v-if="isScenariosView">
+        <header class="content-header">
+          <h1 class="page-title">场景</h1>
+          <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
+        </header>
+        <div class="scenarios-grid">
+          <button
+            v-for="s in scenarioStore.scenarios"
+            :key="s.id"
+            type="button"
+            class="scenario-card"
+            @click="openScenario(s)"
+          >
+            <div class="scenario-emoji">{{ s.emoji }}</div>
+            <div class="scenario-body">
+              <h3 class="scenario-title">{{ s.title }}</h3>
+              <p class="scenario-desc">{{ s.description }}</p>
+            </div>
+          </button>
+        </div>
+
+        <!-- Inline template-preview modal (Teleport to body) -->
+        <Teleport to="body">
+          <Transition name="fade">
+            <div v-if="activeScenario" class="scenario-modal-overlay" @click.self="closeScenario">
+              <div class="scenario-modal">
+                <header class="scenario-modal-header">
+                  <div class="scenario-modal-emoji">{{ activeScenario.emoji }}</div>
+                  <h2 class="scenario-modal-title">{{ activeScenario.title }}</h2>
+                  <p class="scenario-modal-desc">{{ activeScenario.description }}</p>
+                </header>
+                <div class="scenario-modal-body">
+                  <label class="scenario-modal-label">提示词模板</label>
+                  <pre class="scenario-modal-template">{{ activeScenario.promptTemplate }}</pre>
+                </div>
+                <footer class="scenario-modal-footer">
+                  <button type="button" class="btn btn-secondary" :disabled="creatingScenario" @click="closeScenario">取消</button>
+                  <button type="button" class="btn btn-primary" :disabled="creatingScenario" @click="startScenario">
+                    {{ creatingScenario ? '创建中…' : '开始对话' }}
+                  </button>
+                </footer>
+                <p v-if="createError" class="scenario-modal-error">{{ createError }}</p>
+              </div>
+            </div>
+          </Transition>
+        </Teleport>
+      </template>
+
       <!-- Characters Library View -->
-      <template v-if="isCharactersView">
+      <template v-else-if="isCharactersView">
         <header class="content-header">
           <h1 class="page-title">角色库</h1>
           <button class="create-btn-large" @click="showCreateCharacterModal = true">
@@ -2193,6 +2290,147 @@ async function handleInviteMember() {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(24, 24, 27, 0.35);
 }
+
+/* ===== Scenarios grid (when isScenariosView) ===== */
+.page-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #6b7280);
+  margin: 0;
+}
+
+.scenarios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.scenario-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 1.25rem;
+  background: var(--bg-secondary, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 16px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.scenario-card:hover {
+  border-color: #0f172a;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+.scenario-emoji {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.scenario-body { flex: 1; min-width: 0; }
+.scenario-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin: 0 0 4px;
+}
+.scenario-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Scenario template-preview modal */
+.scenario-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.scenario-modal {
+  width: min(560px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 24px;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+  animation: pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.scenario-modal-header {
+  padding: 28px 32px 20px;
+  text-align: center;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+.scenario-modal-emoji { font-size: 40px; margin-bottom: 10px; }
+.scenario-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+.scenario-modal-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+.scenario-modal-body {
+  padding: 20px 32px;
+  overflow-y: auto;
+  flex: 1;
+}
+.scenario-modal-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+.scenario-modal-template {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.scenario-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 32px 20px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+.scenario-modal-error {
+  margin: 0;
+  padding: 0 32px 20px;
+  color: #dc2626;
+  font-size: 13px;
+}
+.btn { height: 42px; padding: 0 18px; border-radius: 14px; font-size: 14px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: all 0.15s ease; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+.btn-secondary:hover:not(:disabled) { background: #e2e8f0; color: #1e293b; }
+.btn-primary { background: #0f172a; color: #fff; font-weight: 700; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18); }
+.btn-primary:hover:not(:disabled) { opacity: 0.92; }
+@keyframes pop { from { opacity: 0; transform: scale(0.96) translateY(4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 .character-grid {
   display: grid;
