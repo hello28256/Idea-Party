@@ -310,10 +310,21 @@ onMounted(load)
               </span>
             </td>
             <td class="rollup">
-              <ThumbsUp :size="13" class="thumbs-up" />
-              <span class="count">{{ item.likeCount }}</span>
-              <ThumbsDown :size="13" class="thumbs-down" />
-              <span class="count">{{ item.dislikeCount }}</span>
+              <template v-if="item.likeCount > 0 || item.dislikeCount > 0">
+                <ThumbsUp
+                  v-if="item.likeCount >= item.dislikeCount"
+                  :size="14"
+                  class="thumbs-up"
+                />
+                <ThumbsDown v-else :size="14" class="thumbs-down" />
+                <span
+                  class="count"
+                  :class="item.likeCount >= item.dislikeCount ? 'count-up' : 'count-down'"
+                >
+                  {{ Math.max(item.likeCount, item.dislikeCount) }}
+                </span>
+              </template>
+              <span v-else class="muted">—</span>
             </td>
             <td>
               <div class="ctx-cell">
@@ -467,7 +478,7 @@ th:nth-child(3) { width: 18%; }    /* 用户提问 */
 th:nth-child(4) { /* AI 回复 - 弹性 */
 }
 th:nth-child(5) { width: 80px; }   /* 输出 */
-th:nth-child(6) { width: 120px; }  /* 汇总 */
+th:nth-child(6) { width: 80px; }   /* 汇总 */
 th:nth-child(7) { width: 160px; }  /* 角色/房间 */
 th:nth-child(8) { width: 160px; }  /* 最后反馈 */
 tbody tr { border-top: 1px solid #F1F5F9; cursor: pointer; }
@@ -492,14 +503,16 @@ tbody tr:hover { background: #FAFAF7; }
 .rollup {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   white-space: nowrap;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: #475569;
 }
 .rollup .thumbs-up { color: #10B981; }
-.rollup .thumbs-down { color: #EF4444; margin-left: 4px; }
-.rollup .count { font-weight: 500; }
+.rollup .thumbs-down { color: #EF4444; }
+.rollup .count { font-weight: 600; }
+.rollup .count-up { color: #10B981; }
+.rollup .count-down { color: #EF4444; }
 
 .preview-cell, .prompt-cell {
   overflow: hidden;
