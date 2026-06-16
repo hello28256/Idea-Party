@@ -9,6 +9,7 @@ import com.ideaparty.repository.UserRepository;
 import com.ideaparty.service.AdminFeedbackService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/admin/feedbacks")
@@ -28,13 +33,34 @@ public class AdminFeedbackController {
     private final AdminFeedbackService adminFeedbackService;
     private final UserRepository userRepository;
 
+    /** Bootstrap admin whitelist from application.yml. Fallback when User.isAdmin=false. */
+    @Value("${app.admin.user-ids:}")
+    private String adminUserIdsConfig;
+
+    private Set<UUID> adminWhitelist() {
+        if (adminUserIdsConfig == null || adminUserIdsConfig.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(adminUserIdsConfig.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(UUID::fromString)
+                .collect(Collectors.toCollection(HashSet::new));
+    }
+
     private void requireAdmin(Authentication auth) {
         UUID userId = UUID.fromString(auth.getName());
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AccessDeniedException("User not found"));
-        if (!Boolean.TRUE.equals(user.getIsAdmin())) {
-            throw new AccessDeniedException("Admin permission required");
+        // Fast path: User.isAdmin
+        User user = userRepository.findById(userId).orElse(null);
+        if (user != null && Boolean.TRUE.equals(user.getIsAdmin())) {
+            return;
         }
+        // Fallback: bootstrap whitelist (does not require DB write)
+        if (adminWhitelist().contains(userId)) {
+            log.info("[DEBUG] admin access granted via app.admin.user-ids whitelist for user {}", userId);
+            return;
+        }
+        throw new AccessDeniedException("Admin permission required");
     }
 
     @GetMapping

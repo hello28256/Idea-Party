@@ -37,3 +37,11 @@ logging:
   level:
     com.ideaparty: DEBUG
     org.springframework.security: INFO
+
+app:
+  admin:
+    # Comma-separated list of user UUIDs (no quotes) granted admin access as a fallback
+    # when the user's `is_admin` column is false. Useful to bootstrap the first admin
+    # without having to UPDATE users manually.
+    # Get your UUID by hitting GET /api/user/profile after logging in.
+    user-ids: ${APP_ADMIN_USER_IDS:}
