@@ -36,5 +36,7 @@ public class AuthResponse {
         private Instant lastUsernameChangeAt;
         @Builder.Default
         private String themeMode = "system";
+        @Builder.Default
+        private Boolean isAdmin = false;
     }
 }

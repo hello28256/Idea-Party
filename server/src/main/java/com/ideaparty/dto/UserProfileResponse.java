@@ -20,4 +20,5 @@ public class UserProfileResponse {
     private String avatarUrl;
     private Instant usernameUpdatedAt;
     private String themeMode;
+    private Boolean isAdmin;
 }

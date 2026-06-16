@@ -232,6 +232,7 @@ public class AuthService {
                         .avatarUrl(user.getAvatarUrl())
                         .lastUsernameChangeAt(user.getLastUsernameChangeAt())
                         .themeMode(user.getThemeMode() != null ? user.getThemeMode() : "system")
+                        .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
                         .build())
                 .build();
     }

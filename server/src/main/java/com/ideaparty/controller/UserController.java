@@ -45,6 +45,7 @@ public class UserController {
                 .avatarUrl(user.getAvatarUrl())
                 .usernameUpdatedAt(user.getLastUsernameChangeAt())
                 .themeMode(user.getThemeMode() != null ? user.getThemeMode() : "system")
+                .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
                 .build();
 
         return ResponseEntity.ok(response);
@@ -132,6 +133,7 @@ public class UserController {
                 .avatarUrl(user.getAvatarUrl())
                 .usernameUpdatedAt(user.getLastUsernameChangeAt())
                 .themeMode(user.getThemeMode())
+                .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
                 .build());
     }
 

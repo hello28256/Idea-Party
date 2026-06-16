@@ -54,6 +54,10 @@ public class User {
     @Column(name = "theme_mode")
     private String themeMode = "system";
 
+    @Builder.Default
+    @Column(name = "is_admin", nullable = false)
+    private Boolean isAdmin = false;
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();
