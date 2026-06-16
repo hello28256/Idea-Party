@@ -275,7 +275,7 @@ async function handleCharacterAdded(character: Character) {
 </script>
 
 <template>
-  <div class="chat-panel h-full flex flex-col overflow-hidden">
+  <div class="chat-panel flex flex-col overflow-hidden">
     <!-- Room Header -->
     <header v-if="!props.embedded" class="header">
       <!-- Mobile: hamburger menu (hidden when the 我的聊天 drawer is already open) -->
@@ -549,7 +549,8 @@ async function handleCharacterAdded(character: Character) {
 
 <style scoped>
 .chat-panel {
-  height: 100%;
+  height: 100vh;
+  height: 100dvh;
   contain: layout style;
 }
 

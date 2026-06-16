@@ -13,9 +13,7 @@ import SettingsModal from '@/components/settings/SettingsModal.vue'
 <style>
 .app-container {
   position: relative;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
   background: var(--color-bg);
   transition: var(--transition-theme);
   display: flex;
@@ -30,8 +28,6 @@ router-view {
 }
 
 html, body {
-  height: 100%;
-  overflow: hidden;
   margin: 0;
   padding: 0;
 }
