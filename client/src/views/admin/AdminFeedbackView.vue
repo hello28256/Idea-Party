@@ -313,8 +313,9 @@ onMounted(load)
             </td>
             <td>
               <div class="ctx-cell">
-                <span v-if="item.characterName">{{ item.characterName }}</span>
-                <span v-if="item.roomName" class="room-name">· {{ item.roomName }}</span>
+                <span v-if="item.characterName" class="char-name">{{ item.characterName }}</span>
+                <span v-if="item.characterName && item.roomName" class="dot">·</span>
+                <span v-if="item.roomName" class="room-name">{{ item.roomName }}</span>
               </div>
             </td>
             <td class="time-cell">{{ formatTime(item.lastFeedbackAt || item.messageCreatedAt) }}</td>
@@ -438,9 +439,33 @@ onMounted(load)
   overflow: hidden;
 }
 
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 12px 14px; text-align: left; font-size: 0.85rem; color: #1E293B; }
-th { background: #F8FAFC; font-weight: 600; color: #64748B; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #1E293B;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+th {
+  background: #F8FAFC;
+  font-weight: 600;
+  color: #64748B;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+th:nth-child(1) { width: 90px; }   /* 状态 */
+th:nth-child(2) { width: 130px; }  /* 提问用户 */
+th:nth-child(3) { width: 22%; }    /* 用户提问 */
+th:nth-child(4) { /* AI 回复 - 弹性 */
+}
+th:nth-child(5) { width: 100px; }  /* 输出 */
+th:nth-child(6) { width: 110px; }  /* 汇总 */
+th:nth-child(7) { width: 180px; }  /* 角色/房间 */
+th:nth-child(8) { width: 130px; }  /* 最后反馈 */
 tbody tr { border-top: 1px solid #F1F5F9; cursor: pointer; }
 tbody tr:hover { background: #FAFAF7; }
 
@@ -474,8 +499,12 @@ tbody tr:hover { background: #FAFAF7; }
   font-size: 0.72rem;
 }
 
-.preview-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; }
-.prompt-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-cell, .prompt-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #475569;
+}
 .prompt-text {
   background: #EEF2FF;
   color: #3730A3;
@@ -490,8 +519,18 @@ tbody tr:hover { background: #FAFAF7; }
 .user-info .display-name { font-weight: 500; color: #1E293B; font-size: 0.8rem; }
 .user-info .username { font-size: 0.68rem; color: #94A3B8; font-family: monospace; }
 .muted { color: #94A3B8; font-size: 0.78rem; }
-.ctx-cell { display: flex; flex-direction: column; gap: 2px; }
-.ctx-cell .room-name { font-size: 0.72rem; color: #94A3B8; }
+.ctx-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-cell .char-name { font-weight: 500; color: #1E293B; }
+.ctx-cell .dot { color: #CBD5E1; }
+.ctx-cell .room-name { color: #64748B; }
 .time-cell { font-family: monospace; font-size: 0.75rem; color: #64748B; white-space: nowrap; }
 
 .empty { padding: 3rem 1rem; text-align: center; color: #94A3B8; font-size: 0.9rem; }
