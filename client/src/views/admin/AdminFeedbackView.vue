@@ -310,9 +310,10 @@ onMounted(load)
               </span>
             </td>
             <td class="rollup">
-              <ThumbsUp :size="12" /> {{ item.likeCount }}
-              <ThumbsDown :size="12" /> {{ item.dislikeCount }}
-              <span class="feedback-total">{{ item.feedbackCount }} 评</span>
+              <ThumbsUp :size="13" class="thumbs-up" />
+              <span class="count">{{ item.likeCount }}</span>
+              <ThumbsDown :size="13" class="thumbs-down" />
+              <span class="count">{{ item.dislikeCount }}</span>
             </td>
             <td>
               <div class="ctx-cell">
@@ -466,7 +467,7 @@ th:nth-child(3) { width: 18%; }    /* 用户提问 */
 th:nth-child(4) { /* AI 回复 - 弹性 */
 }
 th:nth-child(5) { width: 80px; }   /* 输出 */
-th:nth-child(6) { width: 90px; }   /* 汇总 */
+th:nth-child(6) { width: 120px; }  /* 汇总 */
 th:nth-child(7) { width: 160px; }  /* 角色/房间 */
 th:nth-child(8) { width: 160px; }  /* 最后反馈 */
 tbody tr { border-top: 1px solid #F1F5F9; cursor: pointer; }
@@ -489,18 +490,16 @@ tbody tr:hover { background: #FAFAF7; }
 .status-pill.failed { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
 
 .rollup {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: #475569;
 }
-.feedback-total {
-  margin-left: 4px;
-  color: #94A3B8;
-  font-size: 0.72rem;
-}
+.rollup .thumbs-up { color: #10B981; }
+.rollup .thumbs-down { color: #EF4444; margin-left: 4px; }
+.rollup .count { font-weight: 500; }
 
 .preview-cell, .prompt-cell {
   overflow: hidden;
