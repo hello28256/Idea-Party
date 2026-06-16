@@ -14,6 +14,14 @@ const settingsStore = useSettingsStore()
 
 const activeTab = ref<TabKey>('account')
 
+// If the store requested a specific tab when opening (e.g. "ai" from the
+// missing-API-key modal), honor it on mount.
+const validTabs: TabKey[] = ['account', 'preferences', 'ai', 'advanced']
+const requested = settingsStore.consumePendingTab()
+if (requested && (validTabs as string[]).includes(requested)) {
+  activeTab.value = requested as TabKey
+}
+
 // Account form state
 const accountForm = ref({
   username: '',

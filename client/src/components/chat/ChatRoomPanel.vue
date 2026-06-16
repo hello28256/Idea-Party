@@ -126,7 +126,7 @@ function dismissConnectionError() {
 
 function goToSettings() {
   connectionError.value = null
-  settingsStore.openSettings()
+  settingsStore.openSettings('ai')
 }
 
 function closeSidebar() {

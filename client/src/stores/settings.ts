@@ -9,12 +9,21 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // Settings modal open/close (replaces the /settings route)
   const settingsModalOpen = ref(false)
+  /** Tab to focus when the modal opens. Consumed (read + reset) by SettingsModal on mount. */
+  const pendingTab = ref<string | null>(null)
 
-  function openSettings() {
+  function openSettings(tab?: string) {
+    pendingTab.value = tab ?? null
     settingsModalOpen.value = true
   }
   function closeSettings() {
     settingsModalOpen.value = false
+    pendingTab.value = null
+  }
+  function consumePendingTab(): string | null {
+    const t = pendingTab.value
+    pendingTab.value = null
+    return t
   }
 
   const hasApiKey = computed(() => !!deepseekApiKey.value && deepseekApiKey.value.length > 0)
@@ -75,7 +84,9 @@ export const useSettingsStore = defineStore('settings', () => {
     clearApiKey,
     toggleShowKey,
     settingsModalOpen,
+    pendingTab,
     openSettings,
-    closeSettings
+    closeSettings,
+    consumePendingTab
   }
 })
