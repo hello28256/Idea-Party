@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -20,4 +21,17 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findByRoomIdOrderByCreatedAtAsc(UUID roomId);
 
     Page<Message> findByRoomIdOrderByCreatedAtDesc(UUID roomId, Pageable pageable);
+
+    /**
+     * Message.id is a String (declared via @GeneratedValue UUID but field type is String).
+     * JpaRepository's built-in findById accepts only the generic ID type, so we add a
+     * String overload that delegates via a JPQL query. Existing callers can keep using
+     * findById(UUID) when they already have a UUID; this method accepts the raw id.
+     */
+    @Query("SELECT m FROM Message m WHERE m.id = :id")
+    Optional<Message> findByIdString(@Param("id") String id);
+
+    default Optional<Message> findById(String id) {
+        return findByIdString(id);
+    }
 }
