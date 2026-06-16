@@ -9,6 +9,16 @@ vi.mock('@/api/messages', () => ({
   }
 }))
 
+vi.mock('@/api/messageFeedback', () => ({
+  messageFeedbackApi: {
+    submit: vi.fn(),
+    remove: vi.fn(),
+    get: vi.fn(),
+    adminList: vi.fn(),
+    adminGet: vi.fn()
+  }
+}))
+
 // Mock useSocket types
 interface ChatMessage {
   id: string
@@ -166,5 +176,73 @@ describe('useMessageStore', () => {
 
     expect(store.streamingMessages.get('char-1')).toBe('Response 1')
     expect(store.streamingMessages.get('char-2')).toBe('Response 2')
+  })
+
+  describe('setFeedback', () => {
+    it('updates state optimistically and writes to localStorage on success', async () => {
+      const { messageFeedbackApi } = await import('@/api/messageFeedback')
+      vi.mocked(messageFeedbackApi.submit).mockResolvedValue({} as any)
+
+      const store = useMessageStore()
+      store.setCurrentRoom('room-123')
+      store.addMessage(mockMessage)
+
+      const payload = { type: 'LIKE' as const, category: null, comment: null, createdAt: '2026-01-01T00:00:00Z' }
+      await store.setFeedback('msg-123', payload)
+
+      expect(store.messages[0].feedback).toEqual(payload)
+      expect(messageFeedbackApi.submit).toHaveBeenCalledWith('msg-123', { type: 'LIKE', category: null, comment: null })
+      expect(localStorage.getItem('idea-party-messages-room-123')).toBeTruthy()
+    })
+
+    it('rolls back to previous value on failure', async () => {
+      const { messageFeedbackApi } = await import('@/api/messageFeedback')
+      vi.mocked(messageFeedbackApi.submit).mockRejectedValue(new Error('network error'))
+
+      const store = useMessageStore()
+      store.setCurrentRoom('room-123')
+      const initial = { ...mockMessage, feedback: { type: 'LIKE' as const, category: null, comment: null, createdAt: 't0' } }
+      store.addMessage(initial)
+
+      const newPayload = { type: 'DISLIKE' as const, category: 'IRRELEVANT', comment: 'wrong', createdAt: 't1' }
+      await expect(store.setFeedback('msg-123', newPayload)).rejects.toThrow('network error')
+
+      expect(store.messages[0].feedback).toEqual(initial.feedback)
+    })
+
+    it('calls remove API when payload is null (cancel feedback)', async () => {
+      const { messageFeedbackApi } = await import('@/api/messageFeedback')
+      vi.mocked(messageFeedbackApi.remove).mockResolvedValue(undefined)
+
+      const store = useMessageStore()
+      const withFb = { ...mockMessage, feedback: { type: 'LIKE' as const, category: null, comment: null, createdAt: 't0' } }
+      store.addMessage(withFb)
+
+      await store.setFeedback('msg-123', null)
+
+      expect(messageFeedbackApi.remove).toHaveBeenCalledWith('msg-123')
+      expect(store.messages[0].feedback).toBeNull()
+    })
+
+    it('silently returns when messageId does not exist', async () => {
+      const { messageFeedbackApi } = await import('@/api/messageFeedback')
+
+      const store = useMessageStore()
+
+      await store.setFeedback('nonexistent', { type: 'LIKE', category: null, comment: null, createdAt: 't' })
+
+      expect(messageFeedbackApi.submit).not.toHaveBeenCalled()
+      expect(messageFeedbackApi.remove).not.toHaveBeenCalled()
+    })
+
+    it('preserves messages without feedback field (legacy localStorage data)', () => {
+      const store = useMessageStore()
+      // Add a message shaped like legacy data (no feedback field)
+      const legacy = { ...mockMessage } as any
+      delete legacy.feedback
+      store.addMessage(legacy)
+
+      expect(store.messages[0].feedback).toBeUndefined()
+    })
   })
 })

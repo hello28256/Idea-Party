@@ -22,6 +22,11 @@ const menuItems = [
   { id: 'my-rooms', label: '我的聊天', emoji: '💬', disabled: true },
 ]
 
+function goAdmin() {
+  router.push('/admin/feedbacks')
+  closeMenu()
+}
+
 function toggleMenu() {
   isOpen.value = !isOpen.value
 }
@@ -98,6 +103,16 @@ onUnmounted(() => {
 
         <!-- Divider -->
         <div class="menu-divider"></div>
+
+        <!-- Admin (only for admins) -->
+        <button
+          v-if="authStore.user?.isAdmin"
+          class="menu-item"
+          @click="goAdmin"
+        >
+          <span class="item-emoji">🛡️</span>
+          <span class="item-label">管理后台</span>
+        </button>
 
         <!-- Logout -->
         <button class="logout-item" @click="handleLogoutClick">

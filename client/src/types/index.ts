@@ -8,6 +8,7 @@ export interface User {
   lastUsernameChangeAt?: string // ISO date string
   createdAt?: string // ISO date string
   themeMode?: 'system' | 'light' | 'dark'
+  isAdmin?: boolean
 }
 
 // Authentication response from backend

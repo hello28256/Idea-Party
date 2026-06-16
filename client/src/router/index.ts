@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 // Placeholder views - will be implemented in future plans
 const RoomListView = () => import('@/views/RoomListView.vue')
@@ -63,6 +64,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/admin/feedbacks',
+      name: 'admin-feedbacks',
+      component: () => import('@/views/admin/AdminFeedbackView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
       path: '/terms',
       name: 'terms',
       component: () => import('@/views/TermsView.vue'),
@@ -95,11 +102,24 @@ router.beforeEach((to, _from, next) => {
 
   if (!publicPaths.includes(to.path) && !isAuthenticated) {
     next({ name: 'login' })
-  } else if ((to.name === 'login' || to.name === 'register') && isAuthenticated) {
-    next({ name: 'rooms' })
-  } else {
-    next()
+    return
   }
+
+  if ((to.name === 'login' || to.name === 'register') && isAuthenticated) {
+    next({ name: 'rooms' })
+    return
+  }
+
+  // Admin guard: must be authenticated AND have isAdmin=true on user store
+  if (to.meta.requiresAdmin) {
+    const authStore = useAuthStore()
+    if (!authStore.user?.isAdmin) {
+      next({ name: 'rooms' })
+      return
+    }
+  }
+
+  next()
 })
 
 export default router

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { ChatMessage } from '@/composables/useSocket'
+import type { ChatMessage, MessageFeedbackPayload } from '@/composables/useSocket'
 import { messagesApi } from '@/api/messages'
+import { messageFeedbackApi } from '@/api/messageFeedback'
 
 const LOCAL_STORAGE_KEY_PREFIX = 'idea-party-messages-'
 
@@ -195,6 +196,48 @@ export const useMessageStore = defineStore('message', () => {
     moderatorMessage.value = null
   }
 
+  /**
+   * 设置或取消某条消息的反馈。
+   * 乐观更新 + 失败回滚 + localStorage 同步。
+   * payload = null 表示取消反馈（删除）。
+   */
+  async function setFeedback(messageId: string, payload: MessageFeedbackPayload | null) {
+    const idx = messages.value.findIndex(m => m.id === messageId)
+    if (idx === -1) return
+    const prev = messages.value[idx].feedback ?? null
+
+    // 乐观写
+    messages.value[idx] = {
+      ...messages.value[idx],
+      feedback: payload
+    }
+    if (currentRoomId.value) {
+      saveToLocal(currentRoomId.value, messages.value)
+    }
+
+    try {
+      if (payload === null) {
+        await messageFeedbackApi.remove(messageId)
+      } else {
+        await messageFeedbackApi.submit(messageId, {
+          type: payload.type,
+          category: payload.category,
+          comment: payload.comment
+        })
+      }
+    } catch (e) {
+      // 回滚
+      messages.value[idx] = {
+        ...messages.value[idx],
+        feedback: prev
+      }
+      if (currentRoomId.value) {
+        saveToLocal(currentRoomId.value, messages.value)
+      }
+      throw e
+    }
+  }
+
   return {
     // State
     messages,
@@ -219,6 +262,7 @@ export const useMessageStore = defineStore('message', () => {
     clearMessages,
     setCurrentRoom,
     setDiscussionPhase,
-    clearModeratorMessage
+    clearModeratorMessage,
+    setFeedback
   }
 })

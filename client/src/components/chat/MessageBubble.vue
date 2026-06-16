@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Avatar from '@/components/ui/Avatar.vue'
+import MessageFeedbackButtons from '@/components/feedback/MessageFeedbackButtons.vue'
+import MessageFeedbackModal from '@/components/feedback/MessageFeedbackModal.vue'
 import { useAuthStore } from '@/stores/auth'
-import type { ChatMessage } from '@/composables/useSocket'
+import { useMessageStore } from '@/stores/message'
+import type { ChatMessage, MessageFeedbackPayload } from '@/composables/useSocket'
 
 const authStore = useAuthStore()
+const messageStore = useMessageStore()
 
 interface Props {
   message: ChatMessage
@@ -23,6 +27,13 @@ const props = withDefaults(defineProps<Props>(), {
   showName: true,
   isFirstOfGroup: true,
   isLastOfGroup: true,
+})
+
+const showFeedbackModal = ref(false)
+const modalPayload = ref<MessageFeedbackPayload | null>(null)
+
+const showFeedbackButtons = computed(() => {
+  return !props.isOwn && !props.isStreaming && props.message.senderType === 'CHARACTER'
 })
 
 const formattedTime = computed(() => {
@@ -56,6 +67,43 @@ const avatarGradient = computed(() => {
   const hash = props.message.characterName?.charCodeAt(0) || 0
   return gradients[hash % gradients.length]
 })
+
+async function handleFeedbackChange(payload: MessageFeedbackPayload | null) {
+  try {
+    await messageStore.setFeedback(props.message.id, payload)
+  } catch (e) {
+    console.error('[Feedback] change failed:', e)
+  }
+}
+
+function handleOpenFeedbackModal(current: MessageFeedbackPayload | null) {
+  modalPayload.value = current
+  showFeedbackModal.value = true
+}
+
+async function handleModalSubmit(data: { category: string; comment: string | null }) {
+  const payload: MessageFeedbackPayload = {
+    type: 'DISLIKE',
+    category: data.category,
+    comment: data.comment,
+    createdAt: new Date().toISOString()
+  }
+  try {
+    await messageStore.setFeedback(props.message.id, payload)
+    showFeedbackModal.value = false
+  } catch (e) {
+    console.error('[Feedback] submit failed:', e)
+  }
+}
+
+async function handleModalRemove() {
+  try {
+    await messageStore.setFeedback(props.message.id, null)
+    showFeedbackModal.value = false
+  } catch (e) {
+    console.error('[Feedback] remove failed:', e)
+  }
+}
 </script>
 
 <template>
@@ -118,12 +166,26 @@ const avatarGradient = computed(() => {
         </div>
       </div>
 
-      <!-- 时间戳（仅最后一条显示） -->
-      <div v-if="showName && isLastOfGroup" class="time-stamp">
-        {{ formattedTime }}
+      <!-- 时间戳 + 反馈按钮（仅最后一条显示） -->
+      <div v-if="showName && isLastOfGroup" class="meta-row">
+        <span class="time-stamp">{{ formattedTime }}</span>
+        <MessageFeedbackButtons
+          v-if="showFeedbackButtons"
+          :feedback="message.feedback ?? null"
+          @change="handleFeedbackChange"
+          @open-modal="handleOpenFeedbackModal"
+        />
       </div>
     </div>
   </div>
+
+  <MessageFeedbackModal
+    :show="showFeedbackModal"
+    :current="modalPayload"
+    @close="showFeedbackModal = false"
+    @submit="handleModalSubmit"
+    @cancel-feedback="handleModalRemove"
+  />
 </template>
 
 <style scoped>
@@ -364,19 +426,26 @@ const avatarGradient = computed(() => {
 }
 
 /* ================================
-   时间戳
+   时间戳 + 反馈按钮
    ================================ */
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-left: 4px;
+  min-height: 18px;
+}
+
+.message-row.own .meta-row {
+  padding-left: 0;
+  padding-right: 4px;
+  justify-content: flex-end;
+}
+
 .time-stamp {
   font-size: 0.65rem;
   color: var(--color-text-muted);
-  margin-top: 4px;
-  padding-left: 4px;
-}
-
-.message-row.own .time-stamp {
-  padding-left: 0;
-  padding-right: 4px;
-  text-align: right;
 }
 
 /* ================================

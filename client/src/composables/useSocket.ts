@@ -1,5 +1,12 @@
 import { ref, onUnmounted } from 'vue'
 
+export interface MessageFeedbackPayload {
+  type: 'LIKE' | 'DISLIKE'
+  category: string | null
+  comment: string | null
+  createdAt: string
+}
+
 export interface ChatMessage {
   id: string
   roomId: string
@@ -10,6 +17,8 @@ export interface ChatMessage {
   content: string
   avatarUrl: string | null
   createdAt: string
+  /** 当前登录用户对该消息的反馈。未反馈 = undefined，老 localStorage 数据兼容。 */
+  feedback?: MessageFeedbackPayload | null
 }
 
 export interface UseSocketOptions {
