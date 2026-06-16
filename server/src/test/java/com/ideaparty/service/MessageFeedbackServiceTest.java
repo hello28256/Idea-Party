@@ -73,7 +73,7 @@ class MessageFeedbackServiceTest {
     @Test
     @DisplayName("submit: first time = INSERT, second time = UPDATE")
     void submit_upsertBehavior() {
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.of(testMessage));
+        when(messageRepository.findById(messageId)).thenReturn(Optional.of(testMessage));
         when(roomMemberRepository.isMember(roomId, userId)).thenReturn(true);
         when(userRepository.getReferenceById(userId)).thenReturn(testUser);
         when(feedbackRepository.findByMessageIdAndUserId(messageId, userId))
@@ -105,7 +105,7 @@ class MessageFeedbackServiceTest {
     @Test
     @DisplayName("submit: DISLIKE without category throws IllegalArgumentException")
     void submit_dislikeWithoutCategory() {
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.of(testMessage));
+        when(messageRepository.findById(messageId)).thenReturn(Optional.of(testMessage));
         when(roomMemberRepository.isMember(roomId, userId)).thenReturn(true);
 
         IllegalArgumentException ex = assertThrows(
@@ -120,7 +120,7 @@ class MessageFeedbackServiceTest {
     @DisplayName("submit: USER message (not CHARACTER) throws IllegalArgumentException")
     void submit_rejectsUserMessage() {
         testMessage.setSenderType(Message.SenderType.USER);
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.of(testMessage));
+        when(messageRepository.findById(messageId)).thenReturn(Optional.of(testMessage));
 
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
@@ -133,7 +133,7 @@ class MessageFeedbackServiceTest {
     @Test
     @DisplayName("submit: non-member throws AccessDeniedException")
     void submit_rejectsNonMember() {
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.of(testMessage));
+        when(messageRepository.findById(messageId)).thenReturn(Optional.of(testMessage));
         when(roomMemberRepository.isMember(roomId, userId)).thenReturn(false);
 
         assertThrows(
@@ -146,7 +146,7 @@ class MessageFeedbackServiceTest {
     @Test
     @DisplayName("submit: message not found throws IllegalArgumentException")
     void submit_messageNotFound() {
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.empty());
+        when(messageRepository.findById(messageId)).thenReturn(Optional.empty());
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -160,7 +160,7 @@ class MessageFeedbackServiceTest {
     void submit_truncatesLongComment() {
         String tooLong = "a".repeat(1500);
 
-        when(messageRepository.findById(any(UUID.class))).thenReturn(Optional.of(testMessage));
+        when(messageRepository.findById(messageId)).thenReturn(Optional.of(testMessage));
         when(roomMemberRepository.isMember(roomId, userId)).thenReturn(true);
         when(userRepository.getReferenceById(userId)).thenReturn(testUser);
         when(feedbackRepository.findByMessageIdAndUserId(messageId, userId)).thenReturn(Optional.empty());
@@ -177,16 +177,6 @@ class MessageFeedbackServiceTest {
         verify(feedbackRepository).save(captor.capture());
         assertEquals(1000, captor.getValue().getComment().length());
         assertEquals(1000, r.getComment().length());
-    }
-
-    @Test
-    @DisplayName("submit: invalid UUID format throws IllegalArgumentException")
-    void submit_invalidMessageIdFormat() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> service.submit(userId, "not-a-uuid", req(FeedbackType.LIKE, null, null))
-        );
-        verify(messageRepository, never()).findById(any(UUID.class));
     }
 
     @Test

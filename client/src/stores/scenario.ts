@@ -8,6 +8,10 @@ export interface Scenario {
   description: string
   promptTemplate: string
   suggestedCharacterIds: string[]
+  // 是否在弹窗里让用户补充输入（如岗位描述 / 产品 idea / 写作题材）
+  requiresUserInput?: boolean
+  userInputLabel?: string
+  userInputPlaceholder?: string
   // single-房间使用单个 characterId；group-房间使用多 characterIds
   mode: 'single' | 'group'
 }
@@ -33,13 +37,16 @@ const SEED_SCENARIOS: Scenario[] = [
 - 每次只问一个问题，等我回答完再继续
 - 涉及技术细节时，验证我是否真的理解原理`,
     suggestedCharacterIds: [],
-    mode: 'group'
+    requiresUserInput: true,
+    userInputLabel: '你想面试什么岗位 / 行业？',
+    userInputPlaceholder: '例如：高级前端工程师 / SaaS 产品经理 / 数据分析师',
+    mode: 'single'
   },
   {
     id: 'product-brainstorm',
     emoji: '💡',
     title: '产品头脑风暴',
-    description: '和马斯克、马云、乔布斯一起，深度讨论一个产品 idea。',
+    description: '和一位资深产品顾问，深度打磨你的产品 idea。',
     promptTemplate: `你是我邀请的产品顾问团。请用你最擅长的产品思维，帮我打磨一个产品 idea。
 
 【讨论流程】
@@ -54,6 +61,9 @@ const SEED_SCENARIOS: Scenario[] = [
 - 多用具体案例佐证你的观点
 - 如果 idea 太烂，直说，不要绕弯`,
     suggestedCharacterIds: [],
+    requiresUserInput: true,
+    userInputLabel: '你想打磨什么样的产品 idea？',
+    userInputPlaceholder: '例如：面向 Z 世代的 AI 头像生成器，帮用户在 30 秒内生成风格化头像',
     mode: 'group'
   },
   {
@@ -75,6 +85,9 @@ const SEED_SCENARIOS: Scenario[] = [
 - Speak at B1-B2 level so I can follow
 - Be patient but push me to use full sentences`,
     suggestedCharacterIds: [],
+    requiresUserInput: true,
+    userInputLabel: '想练什么场景？',
+    userInputPlaceholder: '例如：coffee shop 点单 / hotel check-in / 求职面试 / 与陌生人闲聊',
     mode: 'single'
   },
   {
@@ -101,6 +114,9 @@ const SEED_SCENARIOS: Scenario[] = [
 - 给修改示例，不只给批评
 - 不要帮我重写，只指出方向`,
     suggestedCharacterIds: [],
+    requiresUserInput: true,
+    userInputLabel: '这次要审什么稿子？',
+    userInputPlaceholder: '例如：一篇关于远程办公的技术博客 / 一份 SaaS 产品上线公告',
     mode: 'single'
   }
 ]
