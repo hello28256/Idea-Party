@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { X, ThumbsUp, ThumbsDown } from 'lucide-vue-next'
+import { ref, watch } from 'vue'
+import { X, ThumbsUp, ThumbsDown, Copy, Eye, RefreshCw, Pencil } from 'lucide-vue-next'
 import type { AdminFeedbackDetail } from '@/api/messageFeedback'
+import { messageEventsApi, type MessageSignals } from '@/api/messageEvents'
 
 interface Props {
   show: boolean
   detail: AdminFeedbackDetail | null
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 defineEmits<{ (e: 'close'): void }>()
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -18,10 +20,45 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: '其他'
 }
 
+const signals = ref<MessageSignals | null>(null)
+const signalsLoading = ref(false)
+const signalsError = ref<string | null>(null)
+
 function formatTime(iso: string): string {
   if (!iso) return ''
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
+
+function formatDwell(ms: number | null): string {
+  if (ms == null) return '—'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${(ms / 1000).toFixed(1)} s`
+}
+
+async function loadSignals(messageId: string) {
+  signalsLoading.value = true
+  signalsError.value = null
+  try {
+    signals.value = await messageEventsApi.adminSignals(messageId)
+  } catch (e) {
+    // 404 or other errors: show empty rather than blocking the detail view
+    signals.value = null
+    signalsError.value = e instanceof Error ? e.message : '加载隐式信号失败'
+  } finally {
+    signalsLoading.value = false
+  }
+}
+
+watch(
+  () => [props.show, props.detail?.messageId],
+  ([show, mid]) => {
+    if (show && typeof mid === 'string') {
+      loadSignals(mid)
+    } else {
+      signals.value = null
+    }
+  }
+)
 </script>
 
 <template>
@@ -66,6 +103,45 @@ function formatTime(iso: string): string {
               </div>
               <p class="message-content">{{ detail.messageContent }}</p>
             </div>
+          </section>
+
+          <section class="block">
+            <h3>隐式信号</h3>
+            <div v-if="signalsLoading" class="signals-empty">加载中...</div>
+            <div v-else-if="!signals || (signals.rewriteCount + signals.copyCount + signals.readCompleteCount + signals.editCount === 0)" class="signals-empty">
+              暂无隐式信号数据
+            </div>
+            <div v-else class="signals-grid">
+              <div class="signal">
+                <RefreshCw :size="14" />
+                <span class="num">{{ signals.rewriteCount }}</span>
+                <span class="label">重写</span>
+              </div>
+              <div class="signal">
+                <Copy :size="14" />
+                <span class="num">{{ signals.copyCount }}</span>
+                <span class="label">复制</span>
+              </div>
+              <div class="signal">
+                <Eye :size="14" />
+                <span class="num">{{ signals.readCompleteCount }}</span>
+                <span class="label">读完整</span>
+              </div>
+              <div class="signal">
+                <Pencil :size="14" />
+                <span class="num">{{ signals.editCount }}</span>
+                <span class="label">编辑</span>
+              </div>
+              <div class="signal signal-dwell">
+                <span class="num">{{ formatDwell(signals.averageDwellMs) }}</span>
+                <span class="label">平均停留</span>
+              </div>
+              <div class="signal signal-users">
+                <span class="num">{{ signals.uniqueUsers }}</span>
+                <span class="label">独立用户</span>
+              </div>
+            </div>
+            <p v-if="signalsError" class="signals-hint">（{{ signalsError }}）</p>
           </section>
 
           <footer class="footer">
@@ -173,6 +249,43 @@ function formatTime(iso: string): string {
   color: #0f172a;
 }
 
+/* Implicit signals grid */
+.signals-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.signal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 10px 6px;
+  color: #475569;
+}
+.signal .num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.signal .label {
+  font-size: 0.7rem;
+  color: #64748B;
+}
+.signals-empty {
+  font-size: 0.85rem;
+  color: #94A3B8;
+  padding: 6px 0;
+}
+.signals-hint {
+  font-size: 0.7rem;
+  color: #94A3B8;
+  margin: 0.5rem 0 0;
+}
+
 .footer {
   border-top: 1px solid #E2E8F0;
   padding-top: 0.75rem;
@@ -182,4 +295,16 @@ function formatTime(iso: string): string {
 
 .modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
+
+@media (prefers-color-scheme: dark) {
+  .modal-container { background: #1f1f28; }
+  .block h3 { color: #94a0b0; }
+  .block p { color: #e8e8f0; }
+  .title { color: #e8e8f0; }
+  .message-card, .signal { background: #25252f; border-color: #2a2a35; }
+  .message-content, .signal .num { color: #e8e8f0; }
+  .comment { background: #25252f; color: #e8e8f0; }
+  .footer { border-color: #2a2a35; }
+  .close-btn:hover { background: #2a2a35; color: #e8e8f0; }
+}
 </style>

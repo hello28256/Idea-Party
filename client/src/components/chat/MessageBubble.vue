@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import Avatar from '@/components/ui/Avatar.vue'
 import MessageFeedbackButtons from '@/components/feedback/MessageFeedbackButtons.vue'
 import MessageFeedbackModal from '@/components/feedback/MessageFeedbackModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
+import { useMessageEvents } from '@/composables/useMessageEvents'
 import type { ChatMessage, MessageFeedbackPayload } from '@/composables/useSocket'
 
 const authStore = useAuthStore()
@@ -27,6 +28,25 @@ const props = withDefaults(defineProps<Props>(), {
   showName: true,
   isFirstOfGroup: true,
   isLastOfGroup: true,
+})
+
+// Implicit event tracking (only for AI messages, only when not streaming).
+const events = useMessageEvents({ messageId: props.message.id })
+const bubbleEl = ref<HTMLElement | null>(null)
+const trackable = computed(() => !props.isOwn && !props.isStreaming && props.message.senderType === 'CHARACTER')
+
+onMounted(() => {
+  if (!trackable.value) return
+  nextTick(() => {
+    if (bubbleEl.value) events.setupObserver(bubbleEl.value)
+  })
+})
+
+// Re-attach observer if streaming flips off (e.g. message finalized).
+watch(() => props.isStreaming, (streaming) => {
+  if (!streaming && trackable.value && bubbleEl.value) {
+    events.setupObserver(bubbleEl.value)
+  }
 })
 
 const showFeedbackModal = ref(false)
@@ -113,6 +133,7 @@ async function handleModalRemove() {
     - 用户消息：名字在上右，气泡在下右，头像在右
   -->
   <div
+    ref="bubbleEl"
     class="message-row"
     :class="{
       'own': isOwn,
@@ -120,6 +141,7 @@ async function handleModalRemove() {
       'first-of-group': isFirstOfGroup,
       'last-of-group': isLastOfGroup,
     }"
+    :data-message-id="message.id"
   >
     <!-- 头像区域 -->
     <div class="avatar-area" :class="{ 'own': isOwn }">
