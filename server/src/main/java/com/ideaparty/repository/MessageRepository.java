@@ -34,4 +34,21 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     default Optional<Message> findById(String id) {
         return findByIdString(id);
     }
+
+    /**
+     * The most recent USER message in the same room strictly before the given
+     * (CHARACTER) message. Used to show admins "what the user asked" alongside
+     * a feedback detail. Returns empty when the AI message is the first in
+     * the room or no prior USER message exists.
+     */
+    @Query("""
+        SELECT m FROM Message m
+        WHERE m.room.id = :roomId
+          AND m.senderType = com.ideaparty.entity.Message.SenderType.USER
+          AND m.createdAt < :before
+        ORDER BY m.createdAt DESC
+        """)
+    List<Message> findPriorUserMessages(@Param("roomId") UUID roomId,
+                                        @Param("before") java.time.LocalDateTime before,
+                                        org.springframework.data.domain.Pageable pageable);
 }

@@ -90,6 +90,14 @@ watch(
             <p class="comment">{{ detail.comment }}</p>
           </section>
 
+          <section v-if="detail.userPrompt" class="block">
+            <h3>用户提问</h3>
+            <div class="prompt-card">
+              <p class="prompt-content">{{ detail.userPrompt }}</p>
+              <p class="prompt-meta">{{ formatTime(detail.userPromptAt!) }}</p>
+            </div>
+          </section>
+
           <section class="block">
             <h3>原消息</h3>
             <div class="message-card">
@@ -234,6 +242,26 @@ watch(
   border: 1px solid #E2E8F0;
   border-radius: 12px;
   padding: 12px 14px;
+}
+
+.prompt-card {
+  background: #EEF2FF;
+  border: 1px solid #C7D2FE;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.prompt-content {
+  font-size: 0.9rem;
+  color: #1E293B;
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.prompt-meta {
+  font-size: 0.7rem;
+  color: #6366F1;
+  margin: 0;
+  font-family: monospace;
 }
 .message-meta {
   display: flex;

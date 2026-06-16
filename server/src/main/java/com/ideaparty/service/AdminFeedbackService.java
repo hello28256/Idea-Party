@@ -4,8 +4,10 @@ import com.ideaparty.dto.AdminFeedbackDetail;
 import com.ideaparty.dto.AdminFeedbackListItem;
 import com.ideaparty.entity.FeedbackCategory;
 import com.ideaparty.entity.FeedbackType;
+import com.ideaparty.entity.Message;
 import com.ideaparty.entity.MessageFeedback;
 import com.ideaparty.repository.MessageFeedbackRepository;
+import com.ideaparty.repository.MessageRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class AdminFeedbackService {
 
     private final MessageFeedbackRepository feedbackRepository;
+    private final MessageRepository messageRepository;
 
     public Page<AdminFeedbackListItem> list(
             int page, int size,
@@ -59,6 +62,24 @@ public class AdminFeedbackService {
     public AdminFeedbackDetail detail(UUID id) {
         MessageFeedback fb = feedbackRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Feedback not found: " + id));
-        return AdminFeedbackDetail.fromEntity(fb);
+        AdminFeedbackDetail dto = AdminFeedbackDetail.fromEntity(fb);
+
+        // Look up the USER message that prompted this AI reply so admins see full context.
+        Message aiMessage = fb.getMessage();
+        try {
+            messageRepository
+                    .findPriorUserMessages(
+                            aiMessage.getRoom().getId(),
+                            aiMessage.getCreatedAt(),
+                            org.springframework.data.domain.PageRequest.of(0, 1))
+                    .stream().findFirst()
+                    .ifPresent(prior -> {
+                        dto.setUserPrompt(prior.getContent());
+                        dto.setUserPromptAt(prior.getCreatedAt());
+                    });
+        } catch (Exception e) {
+            log.warn("[AdminFeedback] failed to load prior user message: {}", e.getMessage());
+        }
+        return dto;
     }
 }

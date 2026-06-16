@@ -37,6 +37,9 @@ export interface AdminFeedbackDetail extends AdminFeedbackListItem {
   roomName: string
   characterId: string | null
   characterName: string | null
+  /** Most recent USER message that prompted the AI reply. May be null. */
+  userPrompt?: string | null
+  userPromptAt?: string | null
 }
 
 export interface AdminListParams {

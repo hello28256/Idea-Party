@@ -12,6 +12,9 @@ public class AdminFeedbackDetail extends AdminFeedbackListItem {
     private String roomName;
     private String characterId;
     private String characterName;
+    /** Most recent USER message that prompted the AI reply. May be null. */
+    private String userPrompt;
+    private LocalDateTime userPromptAt;
 
     public AdminFeedbackDetail() {}
 
@@ -48,6 +51,10 @@ public class AdminFeedbackDetail extends AdminFeedbackListItem {
     public void setMessageContent(String messageContent) { this.messageContent = messageContent; }
     public LocalDateTime getMessageCreatedAt() { return messageCreatedAt; }
     public void setMessageCreatedAt(LocalDateTime messageCreatedAt) { this.messageCreatedAt = messageCreatedAt; }
+    public String getUserPrompt() { return userPrompt; }
+    public void setUserPrompt(String userPrompt) { this.userPrompt = userPrompt; }
+    public LocalDateTime getUserPromptAt() { return userPromptAt; }
+    public void setUserPromptAt(LocalDateTime userPromptAt) { this.userPromptAt = userPromptAt; }
     public String getRoomId() { return roomId; }
     public void setRoomId(String roomId) { this.roomId = roomId; }
     public String getRoomName() { return roomName; }
