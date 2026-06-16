@@ -26,13 +26,16 @@ public class MessageService {
     private final RoomRepository roomRepository;
     private final CharacterRepository characterRepository;
     private final UserRepository userRepository;
+    private final MessageObservationService observationService;
 
     public MessageService(MessageRepository messageRepository, RoomRepository roomRepository,
-                         CharacterRepository characterRepository, UserRepository userRepository) {
+                         CharacterRepository characterRepository, UserRepository userRepository,
+                         MessageObservationService observationService) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
+        this.observationService = observationService;
     }
 
     public Message saveMessage(UUID roomId, UUID characterId, Message.SenderType senderType, String content, UUID userId) {
@@ -55,7 +58,17 @@ public class MessageService {
             message.setUser(user);
         }
 
-        return messageRepository.save(message);
+        Message saved = messageRepository.save(message);
+        if (senderType == Message.SenderType.CHARACTER) {
+            try {
+                observationService.onAiMessagePersisted(saved);
+            } catch (Exception e) {
+                // Observation is best-effort; never fail the message write because of it.
+                org.slf4j.LoggerFactory.getLogger(MessageService.class)
+                    .warn("[MessageService] observation seed failed: {}", e.getMessage());
+            }
+        }
+        return saved;
     }
 
     public List<Message> getMessagesByRoomId(UUID roomId) {

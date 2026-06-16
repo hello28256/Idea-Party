@@ -1,5 +1,6 @@
 package com.ideaparty.repository;
 
+import com.ideaparty.entity.FeedbackType;
 import com.ideaparty.entity.MessageFeedback;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -17,4 +18,8 @@ public interface MessageFeedbackRepository
         extends JpaRepository<MessageFeedback, UUID>, JpaSpecificationExecutor<MessageFeedback> {
 
     Optional<MessageFeedback> findByMessageIdAndUserId(String messageId, UUID userId);
+
+    long countByMessageIdAndType(String messageId, FeedbackType type);
+
+    Optional<MessageFeedback> findTopByMessageIdOrderByUpdatedAtDesc(String messageId);
 }

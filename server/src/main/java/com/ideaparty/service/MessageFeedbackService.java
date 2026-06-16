@@ -32,6 +32,7 @@ public class MessageFeedbackService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final RoomMemberRepository roomMemberRepository;
+    private final MessageObservationService observationService;
 
     /**
      * 提交或更新反馈。
@@ -40,8 +41,8 @@ public class MessageFeedbackService {
     public FeedbackResponse submit(UUID userId, String messageId, SubmitFeedbackRequest req) {
         log.info("[DEBUG] submit feedback user={} message={} type={}", userId, messageId, req.getType());
 
-        UUID messageUuid = parseMessageId(messageId);
-        Message message = messageRepository.findById(messageUuid)
+        // Message.id is String (project quirk), not UUID — pass through directly.
+        Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
 
         if (message.getSenderType() != Message.SenderType.CHARACTER) {
@@ -73,14 +74,20 @@ public class MessageFeedbackService {
 
         MessageFeedback saved = feedbackRepository.save(fb);
         log.info("[DEBUG] feedback saved id={}", saved.getId());
+        recomputeObservation(message);
         return FeedbackResponse.fromEntity(saved);
     }
 
-    private UUID parseMessageId(String messageId) {
+    private void recomputeObservation(Message message) {
         try {
-            return UUID.fromString(messageId);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid message id: " + messageId);
+            long likes = feedbackRepository.countByMessageIdAndType(message.getId(), FeedbackType.LIKE);
+            long dislikes = feedbackRepository.countByMessageIdAndType(message.getId(), FeedbackType.DISLIKE);
+            java.time.Instant last = feedbackRepository.findTopByMessageIdOrderByUpdatedAtDesc(message.getId())
+                    .map(MessageFeedback::getUpdatedAt)
+                    .orElse(null);
+            observationService.recompute(message.getId(), likes, dislikes, last);
+        } catch (Exception e) {
+            log.warn("[Feedback] observation recompute failed: {}", e.getMessage());
         }
     }
 
@@ -95,6 +102,7 @@ public class MessageFeedbackService {
         MessageFeedback fb = feedbackRepository.findByMessageIdAndUserId(messageId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("No feedback to delete"));
         feedbackRepository.delete(fb);
+        messageRepository.findById(messageId).ifPresent(this::recomputeObservation);
     }
 
     private String normalizeComment(String raw) {

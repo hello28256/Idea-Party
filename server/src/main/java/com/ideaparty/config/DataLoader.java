@@ -1,12 +1,15 @@
 package com.ideaparty.config;
 
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.Message;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
+import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,13 +25,22 @@ public class DataLoader implements CommandLineRunner {
 
     private final CharacterRepository characterRepository;
     private final UserRepository userRepository;
+    private final MessageRepository messageRepository;
+    private final com.ideaparty.service.MessageObservationService observationService;
+    private final ApplicationContext appCtx;
 
     @Value("${app.admin.user-ids:}")
     private String adminUserIdsConfig;
 
-    public DataLoader(CharacterRepository characterRepository, UserRepository userRepository) {
+    public DataLoader(CharacterRepository characterRepository, UserRepository userRepository,
+                     MessageRepository messageRepository,
+                     com.ideaparty.service.MessageObservationService observationService,
+                     ApplicationContext appCtx) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
+        this.messageRepository = messageRepository;
+        this.observationService = observationService;
+        this.appCtx = appCtx;
     }
 
     @Override
@@ -38,6 +50,38 @@ public class DataLoader implements CommandLineRunner {
             seedCharacters();
         }
         syncAdminWhitelist();
+        backfillObservations();
+    }
+
+    /**
+     * One-shot backfill: ensure every existing CHARACTER message has an
+     * observation row. Idempotent (onAiMessagePersisted skips if present).
+     * Also recomputes counts from existing message_feedbacks so legacy
+     * feedback rows show up in the admin overview.
+     */
+    private void backfillObservations() {
+        int created = 0;
+        for (Message m : messageRepository.findAll()) {
+            if (m.getSenderType() != Message.SenderType.CHARACTER) continue;
+            try {
+                observationService.onAiMessagePersisted(m);
+                recomputeForExisting(m);
+                created++;
+            } catch (Exception e) {
+                log.warn("[Backfill] observation failed for {}: {}", m.getId(), e.getMessage());
+            }
+        }
+        if (created > 0) log.info("[Backfill] touched {} AI messages for observation", created);
+    }
+
+    private void recomputeForExisting(Message m) {
+        var feedbackRepo = appCtx.getBean(com.ideaparty.repository.MessageFeedbackRepository.class);
+        long likes = feedbackRepo.countByMessageIdAndType(m.getId(), com.ideaparty.entity.FeedbackType.LIKE);
+        long dislikes = feedbackRepo.countByMessageIdAndType(m.getId(), com.ideaparty.entity.FeedbackType.DISLIKE);
+        if (likes == 0 && dislikes == 0) return;
+        var last = feedbackRepo.findTopByMessageIdOrderByUpdatedAtDesc(m.getId()).orElse(null);
+        java.time.Instant lastAt = last != null ? last.getUpdatedAt() : null;
+        observationService.recompute(m.getId(), likes, dislikes, lastAt);
     }
 
     /**
