@@ -205,7 +205,10 @@ async function fetchAnyFeedbackForMessage(messageId: string): Promise<AdminFeedb
 
 function formatTime(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+  // Compact: MM-DD HH:mm:ss — fits in a narrow column
+  const d = new Date(iso)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function streamStatusClass(s: string | null | undefined): string {
@@ -457,15 +460,15 @@ th {
   letter-spacing: 0.05em;
   white-space: nowrap;
 }
-th:nth-child(1) { width: 90px; }   /* 状态 */
-th:nth-child(2) { width: 130px; }  /* 提问用户 */
-th:nth-child(3) { width: 22%; }    /* 用户提问 */
+th:nth-child(1) { width: 80px; }   /* 状态 */
+th:nth-child(2) { width: 120px; }  /* 提问用户 */
+th:nth-child(3) { width: 18%; }    /* 用户提问 */
 th:nth-child(4) { /* AI 回复 - 弹性 */
 }
-th:nth-child(5) { width: 100px; }  /* 输出 */
-th:nth-child(6) { width: 110px; }  /* 汇总 */
-th:nth-child(7) { width: 180px; }  /* 角色/房间 */
-th:nth-child(8) { width: 130px; }  /* 最后反馈 */
+th:nth-child(5) { width: 80px; }   /* 输出 */
+th:nth-child(6) { width: 90px; }   /* 汇总 */
+th:nth-child(7) { width: 160px; }  /* 角色/房间 */
+th:nth-child(8) { width: 160px; }  /* 最后反馈 */
 tbody tr { border-top: 1px solid #F1F5F9; cursor: pointer; }
 tbody tr:hover { background: #FAFAF7; }
 
