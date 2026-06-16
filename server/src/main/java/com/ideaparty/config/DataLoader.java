@@ -1,26 +1,77 @@
 package com.ideaparty.config;
 
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
+import com.ideaparty.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 public class DataLoader implements CommandLineRunner {
 
-    private final CharacterRepository characterRepository;
+    private static final Logger log = LoggerFactory.getLogger(DataLoader.class);
 
-    public DataLoader(CharacterRepository characterRepository) {
+    private final CharacterRepository characterRepository;
+    private final UserRepository userRepository;
+
+    @Value("${app.admin.user-ids:}")
+    private String adminUserIdsConfig;
+
+    public DataLoader(CharacterRepository characterRepository, UserRepository userRepository) {
         this.characterRepository = characterRepository;
+        this.userRepository = userRepository;
     }
 
     @Override
+    @Transactional
     public void run(String... args) {
         if (characterRepository.count() == 0) {
             seedCharacters();
+        }
+        syncAdminWhitelist();
+    }
+
+    /**
+     * Promote users listed in app.admin.user-ids to is_admin=true so that
+     * the frontend (which only checks the DB-backed isAdmin field) can
+     * surface the Admin menu. The AdminFeedbackController also still
+     * accepts this whitelist as a runtime fallback, but syncing to the
+     * column makes the rest of the app (UI, future middleware) work too.
+     */
+    private void syncAdminWhitelist() {
+        if (adminUserIdsConfig == null || adminUserIdsConfig.isBlank()) {
+            return;
+        }
+        List<UUID> ids = Arrays.stream(adminUserIdsConfig.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(UUID::fromString)
+                .toList();
+        int promoted = 0;
+        for (UUID id : ids) {
+            User u = userRepository.findById(id).orElse(null);
+            if (u == null) {
+                log.warn("[AdminSync] user id {} not found, skipping", id);
+                continue;
+            }
+            if (!Boolean.TRUE.equals(u.getIsAdmin())) {
+                u.setIsAdmin(true);
+                userRepository.save(u);
+                promoted++;
+                log.info("[AdminSync] promoted user {} ({}) to admin", u.getUsername(), id);
+            }
+        }
+        if (promoted > 0) {
+            log.info("[AdminSync] promoted {} user(s) to admin", promoted);
         }
     }
 
