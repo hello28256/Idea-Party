@@ -19,6 +19,9 @@ interface AdminMessageObservation {
   streamStatus?: 'COMPLETE' | 'EMPTY' | 'FAILED' | null
   userPrompt?: string | null
   userPromptAt?: string | null
+  promptUserId?: string | null
+  promptUsername?: string | null
+  promptDisplayName?: string | null
   feedbackCount: number
   likeCount: number
   dislikeCount: number
@@ -255,6 +258,7 @@ onMounted(load)
         <thead>
           <tr>
             <th>状态</th>
+            <th>提问用户</th>
             <th>用户提问</th>
             <th>AI 回复</th>
             <th>输出</th>
@@ -277,6 +281,13 @@ onMounted(load)
                   : '当前用户已评'
                 }}
               </span>
+            </td>
+            <td class="user-cell">
+              <div v-if="item.promptUsername" class="user-info">
+                <span class="display-name">{{ item.promptDisplayName || item.promptUsername }}</span>
+                <span class="username">@{{ item.promptUsername }}</span>
+              </div>
+              <span v-else class="muted">—</span>
             </td>
             <td class="prompt-cell">
               <span v-if="item.userPrompt" class="prompt-text">{{ item.userPrompt }}</span>
@@ -472,6 +483,12 @@ tbody tr:hover { background: #FAFAF7; }
   border-radius: 6px;
   font-size: 0.78rem;
 }
+.muted { color: #94A3B8; font-size: 0.78rem; }
+
+.user-cell { min-width: 130px; }
+.user-info { display: flex; flex-direction: column; gap: 1px; }
+.user-info .display-name { font-weight: 500; color: #1E293B; font-size: 0.8rem; }
+.user-info .username { font-size: 0.68rem; color: #94A3B8; font-family: monospace; }
 .muted { color: #94A3B8; font-size: 0.78rem; }
 .ctx-cell { display: flex; flex-direction: column; gap: 2px; }
 .ctx-cell .room-name { font-size: 0.72rem; color: #94A3B8; }

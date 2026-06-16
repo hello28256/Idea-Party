@@ -38,6 +38,10 @@ public class AdminMessageObservationItem {
     /** Most recent USER message that prompted the AI reply. May be null. */
     private String userPrompt;
     private LocalDateTime userPromptAt;
+    /** The user who asked the question. */
+    private String promptUserId;
+    private String promptUsername;
+    private String promptDisplayName;
 
     // Rollup across ALL users
     private int feedbackCount;

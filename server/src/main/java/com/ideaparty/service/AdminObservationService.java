@@ -142,6 +142,11 @@ public class AdminObservationService {
         if (priorUser != null) {
             b.userPrompt(truncate(priorUser.getContent(), 80));
             b.userPromptAt(priorUser.getCreatedAt());
+            if (priorUser.getUser() != null) {
+                b.promptUserId(priorUser.getUser().getId().toString());
+                b.promptUsername(priorUser.getUser().getUsername());
+                b.promptDisplayName(priorUser.getUser().getDisplayName());
+            }
         }
 
         if (viewerFb != null) {
