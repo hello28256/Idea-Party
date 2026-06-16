@@ -45,8 +45,13 @@ const STATUS_OPTIONS = [
 const items = ref<AdminMessageObservation[]>([])
 const total = ref(0)
 const page = ref(0)
-const size = 20
+const size = 15
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size)))
+
+// Server-side stat counts (driven by totalElements of each filtered query).
+const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
+  UNRATED: 0, RATED: 0, AGGREGATED: 0, FEEDBACK_EXISTS: 0
+})
 
 const filterStatus = ref<string>('')
 const filterUserId = ref<string>('')
@@ -78,6 +83,8 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // Refresh the global counters (cheap: size=1)
+  refreshStatTotals()
 }
 
 function applyFilters() {
@@ -98,6 +105,35 @@ function goPage(p: number) {
   if (p < 0 || p >= totalPages.value) return
   page.value = p
   load()
+}
+
+async function refreshStatTotals() {
+  // Issue one count-only query per status so the summary cards reflect
+  // the full database, not just the current page slice.
+  const statuses = ['UNRATED', 'FEEDBACK_EXISTS'] as const
+  try {
+    const results = await Promise.all(
+      statuses.map(s =>
+        api.get<PageResponse<AdminMessageObservation>>('/admin/messages', {
+          params: { page: 0, size: 1, status: s }
+        }).then(r => r.data.totalElements)
+      )
+    )
+    statTotals.value.UNRATED = results[0]
+    statTotals.value.FEEDBACK_EXISTS = results[1]
+  } catch (e) {
+    // Best-effort; cards will just show 0
+    console.debug('[Stats] refresh failed', e)
+  }
+}
+
+function statCountFor(value: string): number {
+  switch (value) {
+    case 'UNRATED': return statTotals.value.UNRATED
+    case 'RATED': return statTotals.value.FEEDBACK_EXISTS // same server count
+    case 'AGGREGATED': return statTotals.value.FEEDBACK_EXISTS
+    default: return 0
+  }
 }
 
 async function openDetail(item: AdminMessageObservation) {
@@ -168,9 +204,7 @@ onMounted(load)
         <span class="stat-label">总消息数</span>
       </div>
       <div class="stat" v-for="opt in STATUS_OPTIONS.filter(o => o.value)" :key="opt.value">
-        <span class="stat-num">
-          {{ items.filter(i => i.status === opt.value).length }}
-        </span>
+        <span class="stat-num">{{ statCountFor(opt.value) }}</span>
         <span class="stat-label">{{ opt.label }}</span>
       </div>
     </section>
