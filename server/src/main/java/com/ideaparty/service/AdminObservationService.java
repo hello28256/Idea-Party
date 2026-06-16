@@ -55,8 +55,6 @@ public class AdminObservationService {
             }
             return switch (statusFilter.toUpperCase()) {
                 case "UNRATED" -> cb.equal(root.get("feedbackCount"), 0);
-                // RATED and AGGREGATED both mean "someone has feedback" — the
-                // exact distinction is per-viewer and computed in toItem().
                 case "RATED", "AGGREGATED", "FEEDBACK_EXISTS" ->
                     cb.greaterThan(root.get("feedbackCount"), 0);
                 default -> cb.conjunction();
@@ -75,7 +73,18 @@ public class AdminObservationService {
         }
 
         List<AdminMessageObservationItem> items = observations.getContent().stream()
-                .map(obs -> toItem(obs, messages.get(obs.getMessageId()), null))
+                .map(obs -> {
+                    Message ai = messages.get(obs.getMessageId());
+                    if (ai == null) return toItem(obs, null, null);
+                    // Look up the most recent USER message before this AI one.
+                    Message priorUser = messageRepository
+                            .findPriorUserMessages(
+                                    ai.getRoom().getId(),
+                                    ai.getCreatedAt(),
+                                    org.springframework.data.domain.PageRequest.of(0, 1))
+                            .stream().findFirst().orElse(null);
+                    return toItem(obs, ai, priorUser);
+                })
                 .toList();
 
         return new PageImpl<>(items, pageable, observations.getTotalElements());
@@ -93,10 +102,20 @@ public class AdminObservationService {
                     .findByMessageIdAndUserId(messageId, viewerUserId)
                     .orElse(null);
         }
-        return toItem(obs, message, viewerFb);
+        Message priorUser = messageRepository
+                .findPriorUserMessages(
+                        message.getRoom().getId(),
+                        message.getCreatedAt(),
+                        org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream().findFirst().orElse(null);
+        return toItem(obs, message, priorUser, viewerFb);
     }
 
-    private AdminMessageObservationItem toItem(MessageObservation obs, Message m, MessageFeedback viewerFb) {
+    private AdminMessageObservationItem toItem(MessageObservation obs, Message m, Message priorUser) {
+        return toItem(obs, m, priorUser, null);
+    }
+
+    private AdminMessageObservationItem toItem(MessageObservation obs, Message m, Message priorUser, MessageFeedback viewerFb) {
         AdminMessageObservationItem.AdminMessageObservationItemBuilder b = AdminMessageObservationItem.builder()
                 .messageId(obs.getMessageId())
                 .roomId(obs.getRoomId())
@@ -117,6 +136,11 @@ public class AdminObservationService {
                 b.characterId(m.getCharacter().getId().toString());
                 b.characterName(m.getCharacter().getName());
             }
+        }
+
+        if (priorUser != null) {
+            b.userPrompt(truncate(priorUser.getContent(), 80));
+            b.userPromptAt(priorUser.getCreatedAt());
         }
 
         if (viewerFb != null) {

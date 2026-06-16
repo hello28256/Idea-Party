@@ -33,6 +33,10 @@ public class AdminMessageObservationItem {
     private String messagePreview;
     private LocalDateTime messageCreatedAt;
 
+    /** Most recent USER message that prompted the AI reply. May be null. */
+    private String userPrompt;
+    private LocalDateTime userPromptAt;
+
     // Rollup across ALL users
     private int feedbackCount;
     private int likeCount;

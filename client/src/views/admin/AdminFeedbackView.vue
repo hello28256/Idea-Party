@@ -16,6 +16,8 @@ interface AdminMessageObservation {
   displayName: string | null
   messagePreview: string | null
   messageCreatedAt: string | null
+  userPrompt?: string | null
+  userPromptAt?: string | null
   feedbackCount: number
   likeCount: number
   dislikeCount: number
@@ -246,8 +248,9 @@ onMounted(load)
         <thead>
           <tr>
             <th>状态</th>
+            <th>用户提问</th>
+            <th>AI 回复</th>
             <th>汇总</th>
-            <th>消息预览</th>
             <th>角色 / 房间</th>
             <th>最后反馈</th>
           </tr>
@@ -267,12 +270,16 @@ onMounted(load)
                 }}
               </span>
             </td>
+            <td class="prompt-cell">
+              <span v-if="item.userPrompt" class="prompt-text">{{ item.userPrompt }}</span>
+              <span v-else class="muted">（无上下文）</span>
+            </td>
+            <td class="preview-cell">{{ item.messagePreview || '—' }}</td>
             <td class="rollup">
               <ThumbsUp :size="12" /> {{ item.likeCount }}
               <ThumbsDown :size="12" /> {{ item.dislikeCount }}
               <span class="feedback-total">{{ item.feedbackCount }} 评</span>
             </td>
-            <td class="preview-cell">{{ item.messagePreview || '—' }}</td>
             <td>
               <div class="ctx-cell">
                 <span v-if="item.characterName">{{ item.characterName }}</span>
@@ -434,6 +441,15 @@ tbody tr:hover { background: #FAFAF7; }
 }
 
 .preview-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; }
+.prompt-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-text {
+  background: #EEF2FF;
+  color: #3730A3;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+}
+.muted { color: #94A3B8; font-size: 0.78rem; }
 .ctx-cell { display: flex; flex-direction: column; gap: 2px; }
 .ctx-cell .room-name { font-size: 0.72rem; color: #94A3B8; }
 .time-cell { font-family: monospace; font-size: 0.75rem; color: #64748B; white-space: nowrap; }
