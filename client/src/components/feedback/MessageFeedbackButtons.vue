@@ -3,6 +3,15 @@ import { computed } from 'vue'
 import { ThumbsUp, ThumbsDown } from 'lucide-vue-next'
 import type { MessageFeedbackPayload } from '@/composables/useSocket'
 
+// 与 MessageFeedbackModal.vue / 后端 FeedbackCategory 枚举保持一致
+const CATEGORY_LABELS: Record<string, string> = {
+  IRRELEVANT: '答非所问',
+  INACCURATE: '事实不准',
+  UNSAFE: '不安全/不当',
+  STYLE_BAD: '风格差',
+  OTHER: '其他'
+}
+
 interface Props {
   feedback: MessageFeedbackPayload | null | undefined
 }
@@ -16,6 +25,17 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const currentType = computed(() => props.feedback?.type ?? null)
+
+// 已点 👎 时，鼠标悬停提示：差评原因 + 备注摘要
+const dislikeTitle = computed(() => {
+  if (currentType.value !== 'DISLIKE') return '这条回复有问题'
+  const category = props.feedback?.category
+  const categoryLabel = category ? CATEGORY_LABELS[category] ?? category : null
+  const comment = props.feedback?.comment?.trim()
+  if (categoryLabel && comment) return `差评原因：${categoryLabel}\n备注：${comment}`
+  if (categoryLabel) return `差评原因：${categoryLabel}`
+  return '查看/修改反馈'
+})
 
 function handleLike() {
   if (currentType.value === 'LIKE') {
@@ -65,7 +85,7 @@ function handleDislike() {
       :class="{ active: currentType === 'DISLIKE' }"
       data-type="DISLIKE"
       :aria-pressed="currentType === 'DISLIKE'"
-      :title="currentType === 'DISLIKE' ? '修改反馈' : '这条回复有问题'"
+      :title="dislikeTitle"
       @click="handleDislike"
     >
       <ThumbsDown :size="14" />
