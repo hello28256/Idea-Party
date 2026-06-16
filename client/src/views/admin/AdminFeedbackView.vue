@@ -45,8 +45,9 @@ const STATUS_OPTIONS = [
 const items = ref<AdminMessageObservation[]>([])
 const total = ref(0)
 const page = ref(0)
-const size = 15
+const size = 10
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size)))
+const jumpToInput = ref('')
 
 // Server-side stat counts (driven by totalElements of each filtered query).
 const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
@@ -105,6 +106,19 @@ function goPage(p: number) {
   if (p < 0 || p >= totalPages.value) return
   page.value = p
   load()
+}
+
+function jumpToPage() {
+  const target = parseInt(jumpToInput.value, 10)
+  if (Number.isNaN(target)) return
+  if (target < 1 || target > totalPages.value) {
+    // Snap to valid range instead of silently failing
+    goPage(Math.min(Math.max(1, target), totalPages.value) - 1)
+    jumpToInput.value = ''
+    return
+  }
+  goPage(target - 1)
+  jumpToInput.value = ''
 }
 
 async function refreshStatTotals() {
@@ -276,6 +290,18 @@ onMounted(load)
     <footer v-if="totalPages > 1" class="pagination">
       <button :disabled="page === 0" @click="goPage(page - 1)">上一页</button>
       <span>第 {{ page + 1 }} / {{ totalPages }} 页 · 共 {{ total }} 条</span>
+      <div class="jump-to">
+        <span>跳到</span>
+        <input
+          v-model="jumpToInput"
+          type="number"
+          min="1"
+          :max="totalPages"
+          placeholder="页码"
+          @keyup.enter="jumpToPage"
+        />
+        <button class="jump-btn" @click="jumpToPage">Go</button>
+      </div>
       <button :disabled="page >= totalPages - 1" @click="goPage(page + 1)">下一页</button>
     </footer>
 
@@ -433,6 +459,33 @@ tbody tr:hover { background: #FAFAF7; }
 }
 .pagination button:hover:not(:disabled) { background: #F8FAFC; }
 .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.jump-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748B;
+  font-size: 0.85rem;
+}
+.jump-to input {
+  width: 60px;
+  padding: 5px 8px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #ffffff;
+  color: #0f172a;
+  text-align: center;
+  font-family: monospace;
+}
+.jump-to input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+.jump-btn {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
 
 @media (prefers-color-scheme: dark) {
   .page-header h1 { color: #e8e8f0; }
