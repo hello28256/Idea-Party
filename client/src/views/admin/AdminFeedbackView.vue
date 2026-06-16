@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
-import { ThumbsUp, ThumbsDown, MessageSquare, Copy } from 'lucide-vue-next'
+import { ThumbsUp, ThumbsDown, MessageSquare, Copy, CheckCircle2, AlertCircle, XCircle } from 'lucide-vue-next'
 import { api } from '@/api/auth'
 import type { AdminFeedbackDetail, AdminListParams } from '@/api/messageFeedback'
 import AdminFeedbackDetailModal from '@/components/admin/AdminFeedbackDetailModal.vue'
@@ -16,6 +16,7 @@ interface AdminMessageObservation {
   displayName: string | null
   messagePreview: string | null
   messageCreatedAt: string | null
+  streamStatus?: 'COMPLETE' | 'EMPTY' | 'FAILED' | null
   userPrompt?: string | null
   userPromptAt?: string | null
   feedbackCount: number
@@ -204,6 +205,12 @@ function formatTime(iso: string | null): string {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
 
+function streamStatusClass(s: string | null | undefined): string {
+  if (!s || s === 'COMPLETE') return 'ok'
+  if (s === 'EMPTY') return 'empty'
+  return 'failed'
+}
+
 onMounted(load)
 </script>
 
@@ -250,6 +257,7 @@ onMounted(load)
             <th>状态</th>
             <th>用户提问</th>
             <th>AI 回复</th>
+            <th>输出</th>
             <th>汇总</th>
             <th>角色 / 房间</th>
             <th>最后反馈</th>
@@ -275,6 +283,18 @@ onMounted(load)
               <span v-else class="muted">（无上下文）</span>
             </td>
             <td class="preview-cell">{{ item.messagePreview || '—' }}</td>
+            <td>
+              <span class="status-pill" :class="streamStatusClass(item.streamStatus)">
+                <CheckCircle2 v-if="item.streamStatus === 'COMPLETE' || !item.streamStatus" :size="12" />
+                <AlertCircle v-else-if="item.streamStatus === 'EMPTY'" :size="12" />
+                <XCircle v-else :size="12" />
+                {{
+                  !item.streamStatus || item.streamStatus === 'COMPLETE' ? '成功'
+                  : item.streamStatus === 'EMPTY' ? '空'
+                  : '失败'
+                }}
+              </span>
+            </td>
             <td class="rollup">
               <ThumbsUp :size="12" /> {{ item.likeCount }}
               <ThumbsDown :size="12" /> {{ item.dislikeCount }}
@@ -425,6 +445,9 @@ tbody tr:hover { background: #FAFAF7; }
 .status-pill.unrated { background: #F1F5F9; color: #64748B; }
 .status-pill.aggregated { background: #EEF2FF; color: #4F46E5; }
 .status-pill.rated { background: #FEF3C7; color: #B45309; }
+.status-pill.ok { background: rgba(16, 185, 129, 0.1); color: #10B981; }
+.status-pill.empty { background: rgba(245, 158, 11, 0.1); color: #D97706; }
+.status-pill.failed { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
 
 .rollup {
   display: flex;

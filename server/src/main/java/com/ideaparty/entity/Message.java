@@ -12,6 +12,15 @@ public class Message {
         CHARACTER
     }
 
+    public enum StreamStatus {
+        /** Default — message was fully generated and saved via the normal onResponse path. */
+        COMPLETE,
+        /** LLM stream finished but produced empty / placeholder content. */
+        EMPTY,
+        /** Generation failed mid-stream (LLM error, timeout, etc.) — message kept for visibility. */
+        FAILED
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
@@ -38,9 +47,14 @@ public class Message {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stream_status", length = 16)
+    private StreamStatus streamStatus;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (streamStatus == null) streamStatus = StreamStatus.COMPLETE;
     }
 
     public Message() {}
@@ -65,4 +79,6 @@ public class Message {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public StreamStatus getStreamStatus() { return streamStatus; }
+    public void setStreamStatus(StreamStatus streamStatus) { this.streamStatus = streamStatus; }
 }

@@ -32,6 +32,8 @@ public class AdminMessageObservationItem {
 
     private String messagePreview;
     private LocalDateTime messageCreatedAt;
+    /** COMPLETE / EMPTY / FAILED — null for legacy rows. */
+    private String streamStatus;
 
     /** Most recent USER message that prompted the AI reply. May be null. */
     private String userPrompt;

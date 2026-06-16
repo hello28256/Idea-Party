@@ -128,6 +128,7 @@ public class AdminObservationService {
         if (m != null) {
             b.messagePreview(truncate(m.getContent(), 80))
                     .messageCreatedAt(m.getCreatedAt());
+            b.streamStatus(m.getStreamStatus() != null ? m.getStreamStatus().name() : "COMPLETE");
             if (m.getRoom() != null) {
                 b.roomId(m.getRoom().getId().toString());
                 b.roomName(m.getRoom().getName());
