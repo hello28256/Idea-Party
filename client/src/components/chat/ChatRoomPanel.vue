@@ -37,6 +37,10 @@ const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
 const connectionError = ref<{ message: string; code?: string } | null>(null)
+const showApiKeyPrompt = ref(false)
+const apiKeyInput = ref('')
+const apiKeySaving = ref(false)
+const apiKeyError = ref<string | null>(null)
 
 // 消息列表 ref
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
@@ -126,6 +130,29 @@ function dismissConnectionError() {
 
 function goToSettings() {
   connectionError.value = null
+  showApiKeyPrompt.value = true
+}
+
+async function saveApiKey() {
+  if (!apiKeyInput.value.trim()) {
+    apiKeyError.value = '请输入 API Key'
+    return
+  }
+  apiKeySaving.value = true
+  apiKeyError.value = null
+  try {
+    await settingsStore.setApiKey(apiKeyInput.value.trim())
+    showApiKeyPrompt.value = false
+    apiKeyInput.value = ''
+  } catch (e) {
+    apiKeyError.value = e instanceof Error ? e.message : '保存失败'
+  } finally {
+    apiKeySaving.value = false
+  }
+}
+
+function openFullSettings() {
+  showApiKeyPrompt.value = false
   settingsStore.openSettings('ai')
 }
 
@@ -475,6 +502,47 @@ async function handleCharacterAdded(character: Character) {
           </div>
         </Transition>
       </Teleport>
+
+      <!-- Inline API key prompt — bypass full Settings, focus on what's needed -->
+      <Teleport to="body">
+        <Transition name="modal">
+          <div v-if="showApiKeyPrompt" class="modal-overlay" @click.self="showApiKeyPrompt = false">
+            <div class="modal-container api-key-prompt">
+              <button class="close-btn" @click="showApiKeyPrompt = false" :disabled="apiKeySaving">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <div class="modal-icon warn">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+              <h2 class="modal-title">配置 LLM API Key</h2>
+              <p class="modal-desc">
+                AI 回复依赖你的 LLM API Key。填入后会保存到账号设置中，之后所有房间都能用。
+              </p>
+              <input
+                v-model="apiKeyInput"
+                type="password"
+                class="api-key-input"
+                placeholder="sk-..."
+                :disabled="apiKeySaving"
+                @keyup.enter="saveApiKey"
+              />
+              <p v-if="apiKeyError" class="api-key-error">{{ apiKeyError }}</p>
+              <div class="modal-actions">
+                <button class="btn-cancel" @click="showApiKeyPrompt = false" :disabled="apiKeySaving">取消</button>
+                <button class="btn-confirm" @click="saveApiKey" :disabled="apiKeySaving || !apiKeyInput.trim()">
+                  {{ apiKeySaving ? '保存中...' : '保存' }}
+                </button>
+              </div>
+              <button class="link-btn" @click="openFullSettings">在完整设置中查看其他选项</button>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -701,4 +769,42 @@ async function handleCharacterAdded(character: Character) {
 
 .modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
+
+/* Inline API key prompt */
+.api-key-prompt { text-align: center; }
+.api-key-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #E2E8F0;
+  background: #F8FAFC;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.85rem;
+  color: #0f172a;
+  box-sizing: border-box;
+  margin: 0 0 0.5rem;
+}
+.api-key-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  background: #ffffff;
+}
+.api-key-input:disabled { opacity: 0.6; }
+.api-key-error {
+  font-size: 0.8rem;
+  color: #EF4444;
+  margin: 0 0 1rem;
+  text-align: left;
+}
+.link-btn {
+  margin-top: 0.75rem;
+  background: none;
+  border: none;
+  color: #64748B;
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+.link-btn:hover { color: #0f172a; }
 </style>
