@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
-import { ThumbsUp, ThumbsDown, MessageSquare, Copy, CheckCircle2, AlertCircle, XCircle } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { ArrowLeft } from 'lucide-vue-next'
+import { ThumbsUp, ThumbsDown, CheckCircle2, AlertCircle, XCircle } from 'lucide-vue-next'
 import { api } from '@/api/auth'
 import type { AdminFeedbackDetail, AdminListParams } from '@/api/messageFeedback'
 import AdminFeedbackDetailModal from '@/components/admin/AdminFeedbackDetailModal.vue'
@@ -47,6 +49,8 @@ const STATUS_OPTIONS = [
   { value: 'AGGREGATED', label: '已反馈（汇总）' },
   { value: 'RATED', label: '当前用户已评' }
 ]
+
+const router = useRouter()
 
 const items = ref<AdminMessageObservation[]>([])
 const total = ref(0)
@@ -217,13 +221,39 @@ function streamStatusClass(s: string | null | undefined): string {
   return 'failed'
 }
 
+/**
+ * Response latency = AI reply timestamp - prior user prompt timestamp.
+ * Returns null when there's no prior user message (legacy or root prompts).
+ */
+function responseLatencyMs(item: AdminMessageObservation): number | null {
+  if (!item.userPromptAt || !item.messageCreatedAt) return null
+  const prompt = new Date(item.userPromptAt).getTime()
+  const reply = new Date(item.messageCreatedAt).getTime()
+  const diff = reply - prompt
+  return diff >= 0 ? diff : null
+}
+
+/** Bucket for color: green <2s, amber 2-5s, orange 5-10s, red >10s. */
+function latencyClass(ms: number): string {
+  if (ms < 2000) return 'latency-fast'
+  if (ms < 5000) return 'latency-ok'
+  if (ms < 10000) return 'latency-slow'
+  return 'latency-bad'
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div class="admin-feedback-view">
     <header class="page-header">
-      <h1>消息总览</h1>
+      <div class="title-row">
+        <button class="back-btn" @click="router.push('/')" aria-label="返回主页">
+          <ArrowLeft :size="16" />
+          <span>返回主页</span>
+        </button>
+        <h1>消息总览</h1>
+      </div>
       <p class="subtitle">所有 AI 回复的反馈情况：已反馈的看用户评价，未反馈的主动跟进</p>
     </header>
 
@@ -260,43 +290,31 @@ onMounted(load)
       <table v-if="!loading && items.length > 0">
         <thead>
           <tr>
-            <th>状态</th>
-            <th>提问用户</th>
+            <th>提问用户 ID</th>
             <th>用户提问</th>
             <th>AI 回复</th>
             <th>输出</th>
             <th>汇总</th>
             <th>角色 / 房间</th>
             <th>最后反馈</th>
+            <th>响应延迟</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in items" :key="item.messageId" @click="openDetail(item)">
-            <td>
-              <span class="status-pill" :class="item.status.toLowerCase()">
-                <MessageSquare v-if="item.status === 'UNRATED'" :size="12" />
-                <ThumbsUp v-else-if="item.feedbackType === 'LIKE'" :size="12" />
-                <ThumbsDown v-else-if="item.feedbackType === 'DISLIKE'" :size="12" />
-                <Copy v-else :size="12" />
-                {{
-                  item.status === 'UNRATED' ? '未反馈'
-                  : item.status === 'AGGREGATED' ? '已反馈'
-                  : '当前用户已评'
-                }}
-              </span>
-            </td>
             <td class="user-cell">
-              <div v-if="item.promptUsername" class="user-info">
-                <span class="display-name">{{ item.promptDisplayName || item.promptUsername }}</span>
-                <span class="username">@{{ item.promptUsername }}</span>
-              </div>
+              <span v-if="item.promptUserId" class="user-id" :title="item.promptUserId">
+                {{ item.promptUserId.slice(0, 8) }}
+              </span>
               <span v-else class="muted">—</span>
             </td>
             <td class="prompt-cell">
               <span v-if="item.userPrompt" class="prompt-text">{{ item.userPrompt }}</span>
               <span v-else class="muted">（无上下文）</span>
             </td>
-            <td class="preview-cell">{{ item.messagePreview || '—' }}</td>
+            <td class="preview-cell">
+              <div class="preview-text">{{ item.messagePreview || '—' }}</div>
+            </td>
             <td>
               <span class="status-pill" :class="streamStatusClass(item.streamStatus)">
                 <CheckCircle2 v-if="item.streamStatus === 'COMPLETE' || !item.streamStatus" :size="12" />
@@ -334,6 +352,14 @@ onMounted(load)
               </div>
             </td>
             <td class="time-cell">{{ formatTime(item.lastFeedbackAt || item.messageCreatedAt) }}</td>
+            <td class="latency-cell">
+              <span v-if="responseLatencyMs(item) !== null"
+                    class="latency"
+                    :class="latencyClass(responseLatencyMs(item)!)">
+                {{ responseLatencyMs(item) }} ms
+              </span>
+              <span v-else class="muted">—</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -375,7 +401,24 @@ onMounted(load)
 }
 
 .page-header { margin-bottom: 1.5rem; }
+.page-header .title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 0.4rem; }
+.page-header .title-row h1 { margin: 0; }
 .page-header h1 { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 0.4rem; }
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #475569;
+  cursor: pointer;
+  font-family: inherit;
+}
+.back-btn:hover { background: #F8FAFC; border-color: #CBD5E1; }
 .subtitle { color: #64748B; font-size: 0.9rem; margin: 0; }
 
 .summary {
@@ -456,7 +499,7 @@ onMounted(load)
 
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 th, td {
-  padding: 10px 12px;
+  padding: 14px 12px;
   text-align: left;
   font-size: 0.85rem;
   color: #1E293B;
@@ -472,15 +515,15 @@ th {
   letter-spacing: 0.05em;
   white-space: nowrap;
 }
-th:nth-child(1) { width: 80px; }   /* 状态 */
-th:nth-child(2) { width: 120px; }  /* 提问用户 */
-th:nth-child(3) { width: 18%; }    /* 用户提问 */
-th:nth-child(4) { /* AI 回复 - 弹性 */
+th:nth-child(1) { width: 100px; }  /* 提问用户 ID */
+th:nth-child(2) { width: 18%; }    /* 用户提问 */
+th:nth-child(3) { /* AI 回复 - 弹性 */
 }
-th:nth-child(5) { width: 80px; }   /* 输出 */
-th:nth-child(6) { width: 80px; }   /* 汇总 */
-th:nth-child(7) { width: 160px; }  /* 角色/房间 */
-th:nth-child(8) { width: 160px; }  /* 最后反馈 */
+th:nth-child(4) { width: 80px; }   /* 输出 */
+th:nth-child(5) { width: 80px; }   /* 汇总 */
+th:nth-child(6) { width: 160px; }  /* 角色/房间 */
+th:nth-child(7) { width: 160px; }  /* 最后反馈 */
+th:nth-child(8) { width: 100px; }  /* 响应延迟 */
 tbody tr { border-top: 1px solid #F1F5F9; cursor: pointer; }
 tbody tr:hover { background: #FAFAF7; }
 
@@ -500,6 +543,20 @@ tbody tr:hover { background: #FAFAF7; }
 .status-pill.empty { background: rgba(245, 158, 11, 0.1); color: #D97706; }
 .status-pill.failed { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
 
+.latency-cell { white-space: nowrap; }
+.latency {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.latency-fast { background: rgba(16, 185, 129, 0.12); color: #059669; }
+.latency-ok   { background: rgba(245, 158, 11, 0.12); color: #B45309; }
+.latency-slow { background: rgba(234, 88, 12, 0.14);  color: #C2410C; }
+.latency-bad  { background: rgba(239, 68, 68, 0.12);  color: #B91C1C; }
+
 .rollup {
   display: inline-flex;
   align-items: center;
@@ -514,7 +571,18 @@ tbody tr:hover { background: #FAFAF7; }
 .rollup .count-up { color: #10B981; }
 .rollup .count-down { color: #EF4444; }
 
-.preview-cell, .prompt-cell {
+.preview-cell { color: #475569; }
+.preview-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.prompt-cell {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -529,10 +597,13 @@ tbody tr:hover { background: #FAFAF7; }
 }
 .muted { color: #94A3B8; font-size: 0.78rem; }
 
-.user-cell { min-width: 130px; }
-.user-info { display: flex; flex-direction: column; gap: 1px; }
-.user-info .display-name { font-weight: 500; color: #1E293B; font-size: 0.8rem; }
-.user-info .username { font-size: 0.68rem; color: #94A3B8; font-family: monospace; }
+.user-cell { min-width: 90px; }
+.user-id {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #1E293B;
+  white-space: nowrap;
+}
 .muted { color: #94A3B8; font-size: 0.78rem; }
 .ctx-cell {
   display: flex;
@@ -606,5 +677,12 @@ tbody tr:hover { background: #FAFAF7; }
   .filter input, .filter select { background: #25252f; border-color: #2a2a35; color: #e8e8f0; }
   tbody tr { border-color: #2a2a35; }
   tbody tr:hover { background: #25252f; }
+  .user-id { color: #e8e8f0; }
+  .latency-fast { color: #34D399; }
+  .latency-ok   { color: #FBBF24; }
+  .latency-slow { color: #FB923C; }
+  .latency-bad  { color: #F87171; }
+  .back-btn { background: #25252f; border-color: #2a2a35; color: #e8e8f0; }
+  .back-btn:hover { background: #2f2f3a; border-color: #3a3a48; }
 }
 </style>

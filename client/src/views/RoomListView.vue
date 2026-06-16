@@ -268,34 +268,85 @@ const isScenariosView = computed(() => {
 
 const scenarioStore = useScenarioStore()
 const activeScenario = ref<Scenario | null>(null)
+const userInput = ref('')
 const creatingScenario = ref(false)
 const createError = ref<string | null>(null)
 
 function openScenario(s: Scenario) {
   activeScenario.value = s
+  userInput.value = ''
   createError.value = null
 }
 function closeScenario() {
   activeScenario.value = null
+  userInput.value = ''
   createError.value = null
 }
+
+// 根据场景生成合适的角色名（用作 Character.name）
+function buildCharacterName(scenario: Scenario, input: string): string {
+  switch (scenario.id) {
+    case 'interview-coach': {
+      const trimmed = input.trim().slice(0, 20)
+      return `${trimmed} 面试官`
+    }
+    case 'product-brainstorm':
+      return '产品顾问'
+    case 'english-tutor':
+      return 'Emma · English Tutor'
+    case 'writing-coach':
+      return '资深写作编辑'
+    default:
+      return scenario.title + ' 助手'
+  }
+}
+
 async function startScenario() {
   if (!activeScenario.value) return
+  const scenario = activeScenario.value
+  const input = userInput.value.trim()
+
+  // 若场景需要用户输入但用户没填，弹错
+  if (scenario.requiresUserInput && !input) {
+    createError.value = scenario.userInputLabel
+      ? `请先填写：${scenario.userInputLabel}`
+      : '请先填写必要信息'
+    return
+  }
+
   creatingScenario.value = true
   createError.value = null
   try {
+    // 1. 拼装角色描述并调用 LLM 生成 prompt
+    const description = scenario.requiresUserInput ? input : scenario.description
+    const characterName = buildCharacterName(scenario, input)
+    const { prompt } = await charactersApi.generatePrompt({
+      name: characterName,
+      description
+    })
+
+    // 2. 创建角色（保存到当前用户的角色库）
+    const newCharacter = await charactersApi.create({
+      name: characterName,
+      description,
+      prompt
+    })
+
+    // 3. 创建聊天室（直接绑定角色，single 房间必须在创建时绑定）
     const room = await roomStore.createRoom(
-      activeScenario.value.title,
-      activeScenario.value.promptTemplate,
-      [],
-      activeScenario.value.mode
+      scenario.title,
+      scenario.promptTemplate,
+      [newCharacter.id],
+      scenario.mode
     )
-    if (room?.id) {
-      router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
-    } else {
+    if (!room?.id) {
       createError.value = roomStore.error || '创建失败'
+      return
     }
+
+    router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
   } catch (e) {
+    console.error('[DEBUG] startScenario failed:', e)
     createError.value = e instanceof Error ? e.message : '创建失败'
   } finally {
     creatingScenario.value = false
@@ -852,12 +903,27 @@ async function handleInviteMember() {
                   <p class="scenario-modal-desc">{{ activeScenario.description }}</p>
                 </header>
                 <div class="scenario-modal-body">
+                  <div v-if="activeScenario.requiresUserInput">
+                    <label class="scenario-modal-label">{{ activeScenario.userInputLabel }}</label>
+                    <textarea
+                      v-model="userInput"
+                      class="scenario-modal-input"
+                      :placeholder="activeScenario.userInputPlaceholder"
+                      rows="3"
+                      :disabled="creatingScenario"
+                    ></textarea>
+                  </div>
                   <label class="scenario-modal-label">提示词模板</label>
                   <pre class="scenario-modal-template">{{ activeScenario.promptTemplate }}</pre>
                 </div>
                 <footer class="scenario-modal-footer">
                   <button type="button" class="btn btn-secondary" :disabled="creatingScenario" @click="closeScenario">取消</button>
-                  <button type="button" class="btn btn-primary" :disabled="creatingScenario" @click="startScenario">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="creatingScenario || (activeScenario.requiresUserInput && !userInput.trim())"
+                    @click="startScenario"
+                  >
                     {{ creatingScenario ? '创建中…' : '开始对话' }}
                   </button>
                 </footer>
@@ -1261,7 +1327,7 @@ async function handleInviteMember() {
           </div>
           <div v-else class="featured-scroll">
             <div
-              v-for="char in featuredCharacters"
+              v-for="char in featuredCharacters.slice(0, 6)"
               :key="char.id"
               class="character-card"
             >
@@ -1894,16 +1960,16 @@ async function handleInviteMember() {
 
 /* Featured Scroll */
 .featured-scroll {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
   gap: 1rem;
-  overflow-x: auto;
   padding: 0.5rem 0;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
-
-.featured-scroll::-webkit-scrollbar {
-  display: none;
+@media (max-width: 1100px) {
+  .featured-scroll { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 700px) {
+  .featured-scroll { grid-template-columns: repeat(3, 1fr); }
 }
 
 .featured-loading {
@@ -1921,31 +1987,31 @@ async function handleInviteMember() {
 
 .character-card {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  padding: 1rem;
+  gap: 0.75rem;
+  padding: 0.75rem;
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
-  min-width: 100px;
   cursor: pointer;
   transition: all 0.25s ease;
+  min-width: 0;
 }
 
 .character-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
   border-color: #27272a;
 }
 
 .character-avatar-wrap {
   position: relative;
+  flex-shrink: 0;
 }
 
 .character-avatar {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--border-color);
@@ -1954,10 +2020,10 @@ async function handleInviteMember() {
 
 .online-indicator {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 12px;
-  height: 12px;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #10B981;
   border: 2px solid white;
@@ -1966,9 +2032,9 @@ async function handleInviteMember() {
 .character-info {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  text-align: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 .character-name {
@@ -1976,12 +2042,21 @@ async function handleInviteMember() {
   font-weight: 600;
   color: var(--text-primary);
   transition: color 0.25s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .character-role {
   font-size: 0.7rem;
   color: var(--text-muted);
   transition: color 0.25s ease;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+  word-break: break-word;
 }
 
 /* Category Tabs */
@@ -2408,6 +2483,31 @@ async function handleInviteMember() {
   margin: 0;
   max-height: 320px;
   overflow-y: auto;
+}
+
+.scenario-modal-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0 0 16px;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.scenario-modal-input:focus {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+.scenario-modal-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .scenario-modal-footer {
   display: flex;
