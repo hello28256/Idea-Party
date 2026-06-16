@@ -372,6 +372,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                             chunkData.put("senderType", "CHARACTER");
                             chunkData.put("characterId", fragment.getCharacterId());
                             chunkData.put("characterName", fragment.getCharacterName());
+                            // (truncated for display)
                             chunkData.put("roomId", roomId);
                             chunkData.put("streaming", true);
                             String chunkEvent = "42[\"message stream\","
@@ -419,6 +420,22 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         broadcastToRoom(roomId, responseEvent);
                     } catch (Exception e) {
                         log.error("[WS] Failed to send response event: {}", e.getMessage(), e);
+                    }
+                },
+                // onError: structured error (e.g. missing API key) — broadcast to room
+                err -> {
+                    try {
+                        String errorEvent = "42[\"error\","
+                            + objectMapper.writeValueAsString(Map.of(
+                                "message", err.getMessage(),
+                                "code", err.getCode().name()
+                            ))
+                            + "]";
+                        log.info("[WS] Broadcasting moderator error to room {}: code={}, message={}",
+                            roomId, err.getCode(), err.getMessage());
+                        broadcastToRoom(roomId, errorEvent);
+                    } catch (Exception ex) {
+                        log.warn("[WS] Failed to send moderator error event: {}", ex.getMessage());
                     }
                 }
             );
@@ -530,6 +547,22 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     broadcastToRoom(roomId, responseEvent);
                 } catch (Exception e) {
                     // Log error
+                }
+            },
+            // onError: structured error (e.g. missing API key) — broadcast to room
+            err -> {
+                try {
+                    String errorEvent = "42[\"error\","
+                        + objectMapper.writeValueAsString(Map.of(
+                            "message", err.getMessage(),
+                            "code", err.getCode().name()
+                        ))
+                        + "]";
+                    log.info("[WS] Broadcasting moderator error to room {}: code={}, message={}",
+                        roomId, err.getCode(), err.getMessage());
+                    broadcastToRoom(roomId, errorEvent);
+                } catch (Exception ex) {
+                    log.warn("[WS] Failed to send moderator error event: {}", ex.getMessage());
                 }
             }
         );

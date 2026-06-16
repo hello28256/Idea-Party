@@ -5,6 +5,7 @@ import { useMessageStore } from '@/stores/message'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 import type { Character } from '@/types'
 import MessageList from '@/components/chat/MessageList.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
@@ -23,6 +24,7 @@ const props = defineProps<{
 }>()
 
 const messageStore = useMessageStore()
+const settingsStore = useSettingsStore()
 const roomStore = useRoomStore()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
@@ -34,7 +36,7 @@ const showRoomSettings = ref(false)
 const detailCharacter = ref<Character | null>(null)
 const activeCharacterId = ref<string | null>(null)
 const characterError = ref<string | null>(null)
-const connectionError = ref<string | null>(null)
+const connectionError = ref<{ message: string; code?: string } | null>(null)
 
 // 消息列表 ref
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
@@ -65,7 +67,7 @@ const { isConnected, sendMessage, leaveRoom, pauseDiscussion, resumeDiscussion }
   onStream: (data: { characterId: string; chunk: string }) => {
     messageStore.updateStreamingMessage(data.characterId, data.chunk)
   },
-  onError: (error: string) => {
+  onError: (error: { message: string; code?: string }) => {
     connectionError.value = error
     console.error('[DEBUG] Socket error:', error)
   },
@@ -116,6 +118,15 @@ const sidebarOpen = ref(false)
 
 function openSidebar() {
   sidebarOpen.value = true
+}
+
+function dismissConnectionError() {
+  connectionError.value = null
+}
+
+function goToSettings() {
+  connectionError.value = null
+  settingsStore.openSettings()
 }
 
 function closeSidebar() {
@@ -426,6 +437,44 @@ async function handleCharacterAdded(character: Character) {
         :room-id="props.roomId"
         @close="showRoomSettings = false"
       />
+
+      <!-- Connection error / missing API key modal -->
+      <Teleport to="body">
+        <Transition name="modal">
+          <div v-if="connectionError" class="modal-overlay" @click.self="dismissConnectionError">
+            <div class="modal-container">
+              <button class="close-btn" @click="dismissConnectionError">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <div class="modal-icon" :class="connectionError.code === 'MISSING_API_KEY' ? 'warn' : 'err'">
+                <svg v-if="connectionError.code === 'MISSING_API_KEY'" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <svg v-else width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              </div>
+              <h2 class="modal-title">
+                {{ connectionError.code === 'MISSING_API_KEY' ? '需要配置 API Key' : 'AI 服务出错' }}
+              </h2>
+              <p class="modal-desc">{{ connectionError.message }}</p>
+              <div class="modal-actions">
+                <button class="btn-cancel" @click="dismissConnectionError">知道了</button>
+                <button
+                  v-if="connectionError.code === 'MISSING_API_KEY'"
+                  class="btn-confirm"
+                  @click="goToSettings"
+                >
+                  去设置
+                </button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -544,4 +593,112 @@ async function handleCharacterAdded(character: Character) {
 :deep(.dark) .chat-header-icon-button:hover {
   background: #334155;
 }
+
+/* Connection error modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-container {
+  position: relative;
+  background: #FFFFFF;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 20px;
+  padding: 1.75rem 2rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
+  text-align: center;
+}
+
+.close-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.close-btn:hover { background: #F1F5F9; color: #1E293B; }
+
+.modal-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-icon.warn { background: #FEF3C7; color: #D97706; }
+.modal-icon.err { background: #FEF2F2; color: #EF4444; }
+
+.modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.5rem;
+}
+
+.modal-desc {
+  font-size: 0.85rem;
+  color: #475569;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+  word-break: break-word;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.btn-cancel,
+.btn-confirm {
+  flex: 1;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+}
+
+.btn-cancel {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #475569;
+}
+.btn-cancel:hover { background: #E2E8F0; color: #1E293B; }
+
+.btn-confirm {
+  background: #0f172a;
+  color: #ffffff;
+}
+.btn-confirm:hover { background: #1E293B; }
+
+.modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
 </style>

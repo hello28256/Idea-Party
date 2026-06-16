@@ -25,7 +25,7 @@ export interface UseSocketOptions {
   onMessage?: (message: ChatMessage) => void
   onThinking?: (characterId: string | null) => void
   onStream?: (data: { characterId: string; chunk: string }) => void
-  onError?: (error: string) => void
+  onError?: (error: { message: string; code?: string }) => void
   onPaused?: () => void
   onResumed?: () => void
   onDiscussionState?: (data: { phase: string; selectedCharacters?: string[]; message?: string }) => void
@@ -76,7 +76,7 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
 
   ws.onerror = (error) => {
     console.error('[DEBUG] WebSocket error:', error)
-    onError?.('Connection error')
+    onError?.({ message: 'Connection error' })
   }
 
   ws.onmessage = (event) => {
@@ -104,7 +104,10 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
             })
             break
           case 'error':
-            onError?.(eventData.message)
+            onError?.({
+              message: eventData.message ?? 'Unknown error',
+              code: eventData.code
+            })
             break
           case 'discussion-paused':
             onPaused?.()

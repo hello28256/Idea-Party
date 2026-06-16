@@ -469,8 +469,24 @@ public class ModeratorAgent implements DisposableBean {
     public void processMessage(String roomId, String userId, String userMessage, List<Character> characters,
                                boolean isContinuous, int maxRounds,
                                Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
-                               Consumer<ResponseFragment> onResponse) {
+                               Consumer<ResponseFragment> onResponse,
+                               Consumer<ModeratorError> onError) {
         if (characters == null || characters.isEmpty()) {
+            return;
+        }
+
+        // Pre-check API key so we can notify the user instead of silently doing nothing.
+        // Both dialogue and discussion modes ultimately call runJointSingleRound which
+        // would otherwise return without telling the frontend why nothing happened.
+        String userApiKey = settingsService.getApiKeyById(userId);
+        if (userApiKey == null || userApiKey.isBlank()) {
+            log.warn("[Moderator] processMessage - no API key for userId: {}", userId);
+            if (onError != null) {
+                onError.accept(new ModeratorError(
+                    ModeratorError.Code.MISSING_API_KEY,
+                    "请先在「设置」中配置 LLM API Key 后再发送消息"
+                ));
+            }
             return;
         }
 
@@ -498,7 +514,29 @@ public class ModeratorAgent implements DisposableBean {
             }
         } catch (Exception e) {
             log.error("[Moderator] processMessage caught exception: {}", e.getMessage(), e);
+            if (onError != null) {
+                onError.accept(new ModeratorError(
+                    ModeratorError.Code.LLM_ERROR,
+                    "AI 服务调用失败: " + e.getMessage()
+                ));
+            }
         }
+    }
+
+    /** Structured error passed to the WebSocket layer so the frontend can react. */
+    public static class ModeratorError {
+        public enum Code { MISSING_API_KEY, LLM_ERROR }
+
+        private final Code code;
+        private final String message;
+
+        public ModeratorError(Code code, String message) {
+            this.code = code;
+            this.message = message;
+        }
+
+        public Code getCode() { return code; }
+        public String getMessage() { return message; }
     }
 
     // ================== JOINT (single-LLM-call) FLOW ==================
