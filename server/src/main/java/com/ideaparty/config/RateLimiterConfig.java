@@ -12,8 +12,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class RateLimiterConfig {
 
-    private static final int REQUESTS_PER_SECOND = 10;
-    private static final int REQUESTS_PER_MINUTE = 50;
+    private static final int REQUESTS_PER_SECOND = 30;
+    private static final int REQUESTS_PER_MINUTE = 200;
 
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
