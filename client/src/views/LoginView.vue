@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
+import { useRememberCredentials } from '@/composables/useRememberCredentials'
 import { Sun, Moon } from 'lucide-vue-next'
 import { register } from '@/api/auth'
 
@@ -10,6 +11,7 @@ const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
+const remember = useRememberCredentials()
 
 // === ALL REF DECLARATIONS FIRST (before any usage) ===
 
@@ -18,9 +20,6 @@ const isRegisterMode = ref(false)
 
 // Animation state
 const isVisible = ref(false)
-
-// Password input readonly state to prevent browser autofill
-const isPasswordReadonly = ref(true)
 
 // Form fields - login
 const identifier = ref('')
@@ -37,6 +36,12 @@ const error = ref('')
 const usernameError = ref('')
 const usernameAvailable = ref<boolean | null>(null)
 
+// Unlock dialog (用于「记住我」已勾选但凭据已加密的场景)
+const unlockDialogOpen = ref(false)
+const unlockPassword = ref('')
+const unlockError = ref('')
+const unlocking = ref(false)
+
 // === FUNCTIONS AFTER ALL REFS ARE DECLARED ===
 
 // Reset form function - clears all sensitive fields
@@ -51,16 +56,13 @@ function resetForm() {
   usernameAvailable.value = null
 }
 
-// Handle password field focus - remove readonly to allow user input
-function onPasswordFocus() {
-  isPasswordReadonly.value = false
-}
-
-// Handle password field blur - if empty, restore readonly to prevent autofill
-function onPasswordBlur() {
-  if (!password.value) {
-    isPasswordReadonly.value = true
-  }
+// Try to unlock previously stored credentials. Resolves true on success.
+async function tryUnlockStoredCreds(passphrase: string): Promise<boolean> {
+  const creds = await remember.unlock(passphrase)
+  if (!creds) return false
+  identifier.value = creds.identifier
+  password.value = creds.password
+  return true
 }
 
 // Toggle between login and register
@@ -124,6 +126,10 @@ async function handleSubmit() {
       })
     } else {
       await authStore.login(identifier.value, password.value)
+      // 「记住我」勾选时，用登录密码作为主密码加密保存凭据
+      if (remember.enabled.value) {
+        await remember.setCredentials(identifier.value, password.value)
+      }
       router.push('/rooms')
     }
   } catch (err: any) {
@@ -142,20 +148,17 @@ const submitButtonText = computed(() => {
 
 // === WATCHES AND ONMOUNTED LAST ===
 // Watch route changes to clear password and pre-fill username on navigation
-watch(() => route.fullPath, (newPath) => {
+watch(() => route.fullPath, () => {
   if (route.path === '/login') {
     // Only clear password, preserve identifier if already set
     password.value = ''
     confirmPassword.value = ''
-    isPasswordReadonly.value = true
     // Pre-fill identifier from query params if present
     if (route.query.username) {
       identifier.value = route.query.username as string
+    } else if (remember.enabled.value && remember.identifier.value && !identifier.value) {
+      identifier.value = remember.identifier.value
     }
-    // Allow user input after navigation settles
-    setTimeout(() => {
-      isPasswordReadonly.value = false
-    }, 300)
   }
 }, { immediate: true })
 
@@ -166,7 +169,7 @@ watch(() => route.query.mode, (newMode) => {
 })
 
 // Check URL params on mount to set initial mode
-onMounted(() => {
+onMounted(async () => {
   // Save username if present before reset
   const savedUsername = route.query.username as string || ''
   // Reset form but preserve identifier if it matches the query username
@@ -175,19 +178,40 @@ onMounted(() => {
     isRegisterMode.value = true
   }
   // Pre-fill identifier from query params (e.g., after successful registration)
+  // query param 优先级高于"记住我"
   if (savedUsername) {
     identifier.value = savedUsername
+  } else if (remember.enabled.value && remember.hasStoredCreds()) {
+    // 存在加密凭据 → 提示解锁（identifier 需解锁后才能拿到）
+    unlockDialogOpen.value = true
+  } else if (remember.enabled.value && remember.identifier.value) {
+    // 兼容旧明文 identifier（迁移场景）
+    identifier.value = remember.identifier.value
   }
-  // Keep password readonly initially to prevent browser autofill
-  isPasswordReadonly.value = true
-  // Allow user input after a short delay
-  setTimeout(() => {
-    isPasswordReadonly.value = false
-  }, 300)
   setTimeout(() => {
     isVisible.value = true
   }, 50)
 })
+
+async function handleUnlock() {
+  if (!unlockPassword.value) {
+    unlockError.value = '请输入密码'
+    return
+  }
+  unlocking.value = true
+  unlockError.value = ''
+  try {
+    const ok = await tryUnlockStoredCreds(unlockPassword.value)
+    if (ok) {
+      unlockDialogOpen.value = false
+      unlockPassword.value = ''
+    } else {
+      unlockError.value = '密码错误，无法解锁已保存的凭据'
+    }
+  } finally {
+    unlocking.value = false
+  }
+}
 </script>
 
 <template>
@@ -263,7 +287,7 @@ onMounted(() => {
             </div>
 
             <!-- Auth Form -->
-            <form @submit.prevent="handleSubmit" class="auth-form" autocomplete="off">
+            <form @submit.prevent="handleSubmit" class="auth-form">
               <!-- Login: Identifier -->
               <div v-if="!isRegisterMode">
                 <input
@@ -271,6 +295,8 @@ onMounted(() => {
                   type="text"
                   placeholder="用户名或邮箱"
                   class="form-input"
+                  name="username"
+                  id="login_username"
                   autocomplete="username"
                 />
               </div>
@@ -307,14 +333,11 @@ onMounted(() => {
                   type="password"
                   placeholder="密码"
                   class="form-input"
-                  name="login_passcode"
-                  id="login_passcode"
-                  autocomplete="off"
+                  name="password"
+                  id="login_password"
+                  autocomplete="current-password"
                   autocapitalize="off"
                   spellcheck="false"
-                  :readonly="isPasswordReadonly"
-                  @focus="onPasswordFocus"
-                  @blur="onPasswordBlur"
                 />
               </div>
 
@@ -346,6 +369,21 @@ onMounted(() => {
                   {{ error }}
                 </div>
               </Transition>
+
+              <!-- Remember me (login only) -->
+              <label
+                v-if="!isRegisterMode"
+                class="remember-me"
+              >
+                <input
+                  type="checkbox"
+                  class="remember-checkbox"
+                  :checked="remember.enabled.value"
+                  @change="(e: Event) => { remember.enabled.value = (e.target as HTMLInputElement).checked }"
+                />
+                <span class="remember-label">记住我</span>
+                <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
+              </label>
 
               <!-- Submit Button -->
               <button
@@ -415,7 +453,7 @@ onMounted(() => {
             </div>
 
             <!-- Auth Form -->
-            <form @submit.prevent="handleSubmit" class="mobile-auth-form" autocomplete="off">
+            <form @submit.prevent="handleSubmit" class="mobile-auth-form">
               <!-- Login: Identifier -->
               <div v-if="!isRegisterMode">
                 <input
@@ -423,6 +461,8 @@ onMounted(() => {
                   type="text"
                   placeholder="用户名或邮箱"
                   class="mobile-form-input"
+                  name="username"
+                  id="login_username_mobile"
                   autocomplete="username"
                 />
               </div>
@@ -456,14 +496,11 @@ onMounted(() => {
                   type="password"
                   placeholder="密码"
                   class="mobile-form-input"
-                  name="login_passcode"
-                  id="login_passcode_mobile"
-                  autocomplete="off"
+                  name="password"
+                  id="login_password_mobile"
+                  autocomplete="current-password"
                   autocapitalize="off"
                   spellcheck="false"
-                  :readonly="isPasswordReadonly"
-                  @focus="onPasswordFocus"
-                  @blur="onPasswordBlur"
                 />
               </div>
 
@@ -495,6 +532,21 @@ onMounted(() => {
                   {{ error }}
                 </div>
               </Transition>
+
+              <!-- Remember me (login only) -->
+              <label
+                v-if="!isRegisterMode"
+                class="mobile-remember-me"
+              >
+                <input
+                  type="checkbox"
+                  class="remember-checkbox"
+                  :checked="remember.enabled.value"
+                  @change="(e: Event) => { remember.enabled.value = (e.target as HTMLInputElement).checked }"
+                />
+                <span class="remember-label">记住我</span>
+                <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
+              </label>
 
               <!-- Submit Button -->
               <button
@@ -531,6 +583,46 @@ onMounted(() => {
         </div>
       </section>
     </main>
+
+    <!-- Unlock Dialog: 解锁「记住我」保存的加密凭据 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="unlockDialogOpen" class="unlock-overlay" @click.self="unlockDialogOpen = false">
+          <div class="unlock-dialog">
+            <h3 class="unlock-title">解锁已保存的账号</h3>
+            <p class="unlock-subtitle">输入你的登录密码以自动填充表单</p>
+            <input
+              v-model="unlockPassword"
+              type="password"
+              class="form-input"
+              placeholder="登录密码"
+              autocomplete="current-password"
+              autocapitalize="off"
+              spellcheck="false"
+              @keyup.enter="handleUnlock"
+            />
+            <p v-if="unlockError" class="unlock-error">{{ unlockError }}</p>
+            <div class="unlock-actions">
+              <button
+                type="button"
+                class="unlock-btn-secondary"
+                @click="unlockDialogOpen = false"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="unlock-btn-primary"
+                :disabled="unlocking"
+                @click="handleUnlock"
+              >
+                {{ unlocking ? '解锁中...' : '解锁' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -1108,5 +1200,181 @@ onMounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Remember me checkbox */
+.remember-me {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #52525B;
+}
+
+.dark .remember-me {
+  color: #A1A1AA;
+}
+
+.remember-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  accent-color: var(--color-gold, #A78BFA);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.remember-label {
+  font-weight: 500;
+}
+
+.remember-hint {
+  font-size: 12px;
+  color: #A1A1AA;
+  margin-left: auto;
+}
+
+.dark .remember-hint {
+  color: #71717A;
+}
+
+.mobile-remember-me {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #52525B;
+}
+
+.dark .mobile-remember-me {
+  color: #A1A1AA;
+}
+
+.mobile-remember-me .remember-hint {
+  font-size: 11px;
+}
+
+/* Unlock Dialog */
+.unlock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding: 24px;
+}
+
+.unlock-dialog {
+  width: 100%;
+  max-width: 400px;
+  background: #FFFFFF;
+  border-radius: 20px;
+  padding: 28px 24px 24px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dark .unlock-dialog {
+  background: #18181B;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.unlock-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #18181b;
+  margin: 0;
+}
+
+.dark .unlock-title {
+  color: #FFFFFF;
+}
+
+.unlock-subtitle {
+  font-size: 13px;
+  color: #71717a;
+  margin: 0 0 4px;
+}
+
+.dark .unlock-subtitle {
+  color: #A1A1AA;
+}
+
+.unlock-error {
+  font-size: 13px;
+  color: #DC2626;
+  margin: 0;
+}
+
+.unlock-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.unlock-btn-primary,
+.unlock-btn-secondary {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.unlock-btn-primary {
+  background: #18181b;
+  color: white;
+}
+
+.unlock-btn-primary:hover:not(:disabled) {
+  background: #27272a;
+}
+
+.unlock-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dark .unlock-btn-primary {
+  background: #FAFAFA;
+  color: #18181B;
+}
+
+.dark .unlock-btn-primary:hover:not(:disabled) {
+  background: #E4E4E7;
+}
+
+.unlock-btn-secondary {
+  background: transparent;
+  color: #52525B;
+  border: 1px solid #E5E7EB;
+}
+
+.unlock-btn-secondary:hover {
+  background: #F4F4F5;
+}
+
+.dark .unlock-btn-secondary {
+  color: #A1A1AA;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark .unlock-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 </style>
