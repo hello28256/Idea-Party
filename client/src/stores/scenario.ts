@@ -12,6 +12,8 @@ export interface Scenario {
   requiresUserInput?: boolean
   userInputLabel?: string
   userInputPlaceholder?: string
+  // 是否走"动态生成"流程：true = 不再使用 promptTemplate，而是后端根据用户输入生成
+  dynamicPrompt?: boolean
   // single-房间使用单个 characterId；group-房间使用多 characterIds
   mode: 'single' | 'group'
 }
@@ -23,23 +25,13 @@ const SEED_SCENARIOS: Scenario[] = [
     emoji: '🎤',
     title: '面试模拟',
     description: '挑选你心仪的面试官，模拟一场真实的技术/产品面试。',
-    promptTemplate: `你是一位资深的{role}面试官。请基于我提供的职位描述，模拟一场真实的面试。
-
-【面试流程】
-1. 开场：先做自我介绍，然后请我做自我介绍（控制在 2 分钟内）
-2. 行为面：询问 1-2 个过去项目经历（STAR 法则）
-3. 技术面：针对我简历中的技术栈出 3-5 个递进式问题
-4. 反问：留 1-2 个让我反问的环节
-5. 总结：给出明确的"通过/待定/不通过"判断 + 详细反馈
-
-【风格要求】
-- 像真正的面试官一样严格，不要客套
-- 每次只问一个问题，等我回答完再继续
-- 涉及技术细节时，验证我是否真的理解原理`,
+    promptTemplate: '',
     suggestedCharacterIds: [],
     requiresUserInput: true,
-    userInputLabel: '你想面试什么岗位 / 行业？',
-    userInputPlaceholder: '例如：高级前端工程师 / SaaS 产品经理 / 数据分析师',
+    userInputLabel: '',
+    userInputPlaceholder: '',
+    // 走动态生成流程：不再使用固定 promptTemplate，由后端根据用户填写的岗位/JD 生成
+    dynamicPrompt: true,
     mode: 'single'
   },
   {
