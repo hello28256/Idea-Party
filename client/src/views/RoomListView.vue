@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
+import { scenariosApi } from '@/api/scenarios'
 import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
@@ -269,81 +270,314 @@ const isScenariosView = computed(() => {
 const scenarioStore = useScenarioStore()
 const activeScenario = ref<Scenario | null>(null)
 const userInput = ref('')
+// 面试场景专用：岗位描述（JD）
+const jobDescription = ref('')
+// 弹窗步骤：'input' = 第一步填描述, 'preview' = 第二步预览动态生成的 prompt
+const scenarioStep = ref<'input' | 'preview'>('input')
 const creatingScenario = ref(false)
 const createError = ref<string | null>(null)
+// 动态生成的 prompt + 角色名（面试场景第二步展示用）
+const generatedPrompt = ref('')
+const generatedCharacterName = ref('')
+// 简历上传状态
+const resumeFile = ref<File | null>(null)
+const resumeFilename = ref('')
+const resumeText = ref('')
+const resumeTruncated = ref(false)
+const resumeUploading = ref(false)
+const resumeError = ref<string | null>(null)
+const isDragging = ref(false)
+// JD 截图 OCR 状态
+const jdImageUploading = ref(false)
+const jdImageError = ref<string | null>(null)
 
 function openScenario(s: Scenario) {
   activeScenario.value = s
   userInput.value = ''
+  jobDescription.value = ''
+  scenarioStep.value = 'input'
+  generatedPrompt.value = ''
+  generatedCharacterName.value = ''
+  resumeFile.value = null
+  resumeFilename.value = ''
+  resumeText.value = ''
+  resumeTruncated.value = false
+  resumeError.value = null
+  jdImageUploading.value = false
+  jdImageError.value = null
   createError.value = null
 }
 function closeScenario() {
   activeScenario.value = null
   userInput.value = ''
+  jobDescription.value = ''
+  scenarioStep.value = 'input'
+  generatedPrompt.value = ''
+  generatedCharacterName.value = ''
+  resumeFile.value = null
+  resumeFilename.value = ''
+  resumeText.value = ''
+  resumeTruncated.value = false
+  resumeError.value = null
+  jdImageUploading.value = false
+  jdImageError.value = null
   createError.value = null
 }
 
-// 根据场景生成合适的角色名（用作 Character.name）
-function buildCharacterName(scenario: Scenario, input: string): string {
-  switch (scenario.id) {
-    case 'interview-coach': {
-      const trimmed = input.trim().slice(0, 20)
-      return `${trimmed} 面试官`
-    }
-    case 'product-brainstorm':
-      return '产品顾问'
-    case 'english-tutor':
-      return 'Emma · English Tutor'
-    case 'writing-coach':
-      return '资深写作编辑'
-    default:
-      return scenario.title + ' 助手'
+// 简历上传：选择文件或拖拽
+async function handleResumeFile(file: File) {
+  if (!file) return
+  // 前端预校验：大小 + 扩展名
+  if (file.size > 5 * 1024 * 1024) {
+    resumeError.value = '文件超过 5MB 上限'
+    return
+  }
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (!['pdf', 'docx', 'doc', 'txt'].includes(ext)) {
+    resumeError.value = '仅支持 PDF / Word / TXT 格式'
+    return
+  }
+  resumeUploading.value = true
+  resumeError.value = null
+  try {
+    const resp = await scenariosApi.parseResume(file)
+    resumeFile.value = file
+    resumeFilename.value = resp.data?.filename || file.name
+    resumeText.value = resp.data?.text || ''
+    resumeTruncated.value = !!resp.data?.truncated
+  } catch (e) {
+    console.error('[DEBUG] parseResume failed:', e)
+    resumeError.value = e instanceof Error ? e.message : '简历解析失败'
+    resumeFile.value = null
+    resumeFilename.value = ''
+    resumeText.value = ''
+  } finally {
+    resumeUploading.value = false
   }
 }
 
-async function startScenario() {
+function onResumeFileChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) handleResumeFile(file)
+}
+
+function onResumeDrop(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) handleResumeFile(file)
+}
+
+function onResumeDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = true
+}
+
+function onResumeDragLeave() {
+  isDragging.value = false
+}
+
+function clearResume() {
+  resumeFile.value = null
+  resumeFilename.value = ''
+  resumeText.value = ''
+  resumeTruncated.value = false
+  resumeError.value = null
+}
+
+// JD 截图 OCR：支持点击、拖拽、Ctrl+V 粘贴
+async function handleJdImageFile(file: File) {
+  if (!file) return
+  // 前端预校验
+  if (file.size > 5 * 1024 * 1024) {
+    jdImageError.value = '图片超过 5MB 上限'
+    return
+  }
+  if (!file.type.startsWith('image/')) {
+    jdImageError.value = '请提供图片文件'
+    return
+  }
+  jdImageUploading.value = true
+  jdImageError.value = null
+  try {
+    const resp = await scenariosApi.extractTextFromImage(file)
+    const text = (resp.data?.text || '').trim()
+    if (!text) {
+      jdImageError.value = '图片中未识别到文字内容'
+      return
+    }
+    // 把识别结果追加到现有 JD 文本（如果 textarea 已有内容就换行拼接）
+    const existing = jobDescription.value.trim()
+    jobDescription.value = existing ? `${existing}\n\n${text}` : text
+  } catch (e) {
+    console.error('[DEBUG] extractTextFromImage failed:', e)
+    jdImageError.value = e instanceof Error ? e.message : 'OCR 识别失败'
+  } finally {
+    jdImageUploading.value = false
+  }
+}
+
+function onJdImageFileChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) handleJdImageFile(file)
+  target.value = '' // 重置，允许选同一文件
+}
+
+function onJdImageDrop(e: DragEvent) {
+  e.preventDefault()
+  const file = e.dataTransfer?.files?.[0]
+  if (file) handleJdImageFile(file)
+}
+
+function onJdImageDragOver(e: DragEvent) {
+  e.preventDefault()
+}
+
+function onJdImagePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) {
+        e.preventDefault()
+        handleJdImageFile(file)
+        return
+      }
+    }
+  }
+}
+
+// 简单解析岗位字符串，提取行业和经验年限（"前端 / SaaS / 5年" -> 行业=SaaS, 年限=5）
+function parsePositionMeta(input: string): { industry: string; experienceYears: number | null } {
+  const parts = input.split(/[／/、,，]/).map(s => s.trim()).filter(Boolean)
+  let industry = ''
+  let experienceYears: number | null = null
+  for (const p of parts) {
+    if (/^\d+\s*年(以上)?$/.test(p)) {
+      experienceYears = parseInt(p, 10)
+    } else if (!industry && p.length <= 10) {
+      // 简单启发式：短词可能是行业
+      industry = p
+    }
+  }
+  return { industry, experienceYears }
+}
+
+async function nextStep() {
   if (!activeScenario.value) return
   const scenario = activeScenario.value
   const input = userInput.value.trim()
 
-  // 若场景需要用户输入但用户没填，弹错
   if (scenario.requiresUserInput && !input) {
-    createError.value = scenario.userInputLabel
-      ? `请先填写：${scenario.userInputLabel}`
-      : '请先填写必要信息'
+    createError.value = '请先填写岗位信息'
     return
   }
+
+  // 走动态生成流程：面试场景
+  if (scenario.dynamicPrompt) {
+    creatingScenario.value = true
+    createError.value = null
+    try {
+      const meta = parsePositionMeta(input)
+      const resp = await scenariosApi.generateInterviewPrompt({
+        position: input,
+        industry: meta.industry || undefined,
+        experienceYears: meta.experienceYears ?? undefined,
+        jobDescription: jobDescription.value.trim() || undefined,
+        resumeContent: resumeText.value.trim() || undefined
+      })
+      generatedCharacterName.value = resp.data?.characterName || ''
+      generatedPrompt.value = resp.data?.prompt || ''
+      if (!generatedCharacterName.value || !generatedPrompt.value) {
+        throw new Error('生成结果为空，请重试')
+      }
+      scenarioStep.value = 'preview'
+    } catch (e) {
+      console.error('[DEBUG] generateInterviewPrompt failed:', e)
+      createError.value = e instanceof Error ? e.message : '生成面试官 prompt 失败，请重试'
+    } finally {
+      creatingScenario.value = false
+    }
+    return
+  }
+
+  // 非动态生成的场景：直接进入创建流程
+  await finalizeScenario()
+}
+
+async function finalizeScenario() {
+  if (!activeScenario.value) return
+  const scenario = activeScenario.value
+  const input = userInput.value.trim()
 
   creatingScenario.value = true
   createError.value = null
   try {
-    // 1. 拼装角色描述并调用 LLM 生成 prompt
+    // 动态生成场景：使用 preview 步骤里生成的 prompt
+    if (scenario.dynamicPrompt) {
+      const newCharacter = await charactersApi.create({
+        name: generatedCharacterName.value,
+        description: input,
+        prompt: generatedPrompt.value
+      })
+      const charId = newCharacter.data?.id
+      if (!charId) {
+        createError.value = '创建角色失败：未拿到 ID'
+        return
+      }
+      // topic 受 500 字符限制，完整 prompt 存 character.prompt 里
+      const room = await roomStore.createRoom(
+        scenario.title,
+        scenario.title,
+        [charId],
+        scenario.mode
+      )
+      if (!room?.id) {
+        createError.value = roomStore.error || '创建失败'
+        return
+      }
+      router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
+      return
+    }
+
+    // 兼容旧场景：走通用生成路径
     const description = scenario.requiresUserInput ? input : scenario.description
-    const characterName = buildCharacterName(scenario, input)
-    const { prompt } = await charactersApi.generatePrompt({
+    const characterName = scenario.id === 'product-brainstorm'
+      ? '产品顾问'
+      : scenario.id === 'english-tutor'
+        ? 'Emma · English Tutor'
+        : scenario.id === 'writing-coach'
+          ? '资深写作编辑'
+          : scenario.title + ' 助手'
+    const promptResp = await charactersApi.generatePrompt({
       name: characterName,
       description
     })
-
-    // 2. 创建角色（保存到当前用户的角色库）
     const newCharacter = await charactersApi.create({
       name: characterName,
       description,
-      prompt
+      prompt: promptResp.data?.prompt || ''
     })
-
-    // 3. 创建聊天室（直接绑定角色，single 房间必须在创建时绑定）
+    const charId = newCharacter.data?.id
+    if (!charId) {
+      createError.value = '创建角色失败：未拿到 ID'
+      return
+    }
+    // topic 受 500 字符限制，完整 prompt 存 character.prompt
     const room = await roomStore.createRoom(
       scenario.title,
-      scenario.promptTemplate,
-      [newCharacter.id],
+      scenario.title,
+      [charId],
       scenario.mode
     )
     if (!room?.id) {
       createError.value = roomStore.error || '创建失败'
       return
     }
-
     router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
   } catch (e) {
     console.error('[DEBUG] startScenario failed:', e)
@@ -903,26 +1137,174 @@ async function handleInviteMember() {
                   <p class="scenario-modal-desc">{{ activeScenario.description }}</p>
                 </header>
                 <div class="scenario-modal-body">
-                  <div v-if="activeScenario.requiresUserInput">
-                    <label class="scenario-modal-label">{{ activeScenario.userInputLabel }}</label>
+                  <!-- 第一步：填岗位 / JD -->
+                  <template v-if="scenarioStep === 'input'">
+                    <div v-if="activeScenario.requiresUserInput">
+                      <label class="scenario-modal-label">岗位 / 行业 *</label>
+                      <textarea
+                        v-model="userInput"
+                        class="scenario-modal-input"
+                        :placeholder="activeScenario.id === 'interview-coach'
+                          ? '例如：高级前端工程师 / SaaS / 5年'
+                          : activeScenario.userInputPlaceholder"
+                        rows="2"
+                        :disabled="creatingScenario"
+                      ></textarea>
+
+                      <!-- 面试场景专用：JD 描述 -->
+                      <template v-if="activeScenario.id === 'interview-coach'">
+                        <label class="scenario-modal-label" style="margin-top: 14px;">
+                          岗位描述（可选）
+                        </label>
+                        <textarea
+                          v-model="jobDescription"
+                          class="scenario-modal-input scenario-modal-input-tall"
+                          placeholder="把招聘网站的 JD 粘过来，或把截图拖到下方 / Ctrl+V 粘贴"
+                          rows="6"
+                          :disabled="creatingScenario"
+                          @paste="onJdImagePaste"
+                        ></textarea>
+
+                        <!-- JD 截图识别：拖拽 / 点击 / 粘贴 -->
+                        <div
+                          class="jd-image-dropzone"
+                          :class="{ 'is-loading': jdImageUploading }"
+                          @drop="onJdImageDrop"
+                          @dragover="onJdImageDragOver"
+                        >
+                          <span v-if="jdImageUploading">🔍 正在识别图片中的文字...</span>
+                          <template v-else>
+                            <span>📷 拖拽 JD 截图到此处，或</span>
+                            <label class="jd-image-btn">
+                              点击上传
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                                @change="onJdImageFileChange"
+                                style="display:none"
+                              />
+                            </label>
+                            <span class="jd-image-hint">支持 Ctrl+V 粘贴 · PNG/JPG/WEBP · 最大 5MB</span>
+                          </template>
+                        </div>
+                        <p v-if="jdImageError" class="scenario-modal-error-inline">{{ jdImageError }}</p>
+
+                        <!-- 简历上传 -->
+                        <label class="scenario-modal-label" style="margin-top: 14px;">
+                          简历（可选）
+                        </label>
+                        <div
+                          v-if="!resumeFilename"
+                          class="resume-dropzone"
+                          :class="{ 'is-dragging': isDragging, 'is-loading': resumeUploading }"
+                          @drop="onResumeDrop"
+                          @dragover="onResumeDragOver"
+                          @dragleave="onResumeDragLeave"
+                        >
+                          <div v-if="resumeUploading" class="resume-dropzone-loading">
+                            正在解析简历...
+                          </div>
+                          <template v-else>
+                            <div class="resume-dropzone-icon">📄</div>
+                            <div class="resume-dropzone-text">
+                              拖拽 docx / pdf / txt 到这里
+                            </div>
+                            <div class="resume-dropzone-text">或</div>
+                            <label class="resume-dropzone-btn">
+                              点击选择文件
+                              <input
+                                type="file"
+                                accept=".pdf,.docx,.doc,.txt"
+                                @change="onResumeFileChange"
+                                style="display:none"
+                              />
+                            </label>
+                            <div class="resume-dropzone-meta">最大 5MB · 不会保存原文件</div>
+                          </template>
+                        </div>
+                        <div v-else class="resume-uploaded">
+                          <span class="resume-uploaded-icon">✅</span>
+                          <span class="resume-uploaded-name">{{ resumeFilename }}</span>
+                          <span class="resume-uploaded-meta">
+                            {{ resumeText.length }} 字
+                            <span v-if="resumeTruncated">（已截断）</span>
+                          </span>
+                          <button
+                            type="button"
+                            class="resume-clear-btn"
+                            :disabled="resumeUploading"
+                            @click="clearResume"
+                          >移除</button>
+                        </div>
+                        <p v-if="resumeError" class="scenario-modal-error-inline">{{ resumeError }}</p>
+                        <p class="scenario-modal-hint">
+                          💡 上传简历后，AI 会根据你的真实项目经历出题，比泛问更专业
+                        </p>
+                      </template>
+
+                      <label
+                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
+                        class="scenario-modal-label"
+                        style="margin-top: 14px;"
+                      >提示词模板</label>
+                      <pre
+                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
+                        class="scenario-modal-template"
+                      >{{ activeScenario.promptTemplate }}</pre>
+                    </div>
+                  </template>
+
+                  <!-- 第二步（动态生成场景）：预览/编辑 prompt -->
+                  <template v-else-if="scenarioStep === 'preview' && activeScenario.dynamicPrompt">
+                    <label class="scenario-modal-label">
+                      AI 生成的面试官 · 角色名
+                    </label>
+                    <div class="scenario-modal-char-name">{{ generatedCharacterName }}</div>
+
+                    <label class="scenario-modal-label" style="margin-top: 14px;">
+                      面试官系统提示词（可自由编辑）
+                    </label>
                     <textarea
-                      v-model="userInput"
-                      class="scenario-modal-input"
-                      :placeholder="activeScenario.userInputPlaceholder"
-                      rows="3"
+                      v-model="generatedPrompt"
+                      class="scenario-modal-input scenario-modal-input-tall"
+                      rows="14"
                       :disabled="creatingScenario"
                     ></textarea>
-                  </div>
-                  <label class="scenario-modal-label">提示词模板</label>
-                  <pre class="scenario-modal-template">{{ activeScenario.promptTemplate }}</pre>
+                    <p class="scenario-modal-hint">
+                      ✏️ 你可以微调这份 prompt，让面试官更贴近你想要的风格
+                    </p>
+                  </template>
                 </div>
                 <footer class="scenario-modal-footer">
-                  <button type="button" class="btn btn-secondary" :disabled="creatingScenario" @click="closeScenario">取消</button>
                   <button
+                    v-if="scenarioStep === 'preview'"
+                    type="button"
+                    class="btn btn-secondary"
+                    :disabled="creatingScenario"
+                    @click="scenarioStep = 'input'"
+                  >← 上一步</button>
+                  <button
+                    v-else
+                    type="button"
+                    class="btn btn-secondary"
+                    :disabled="creatingScenario"
+                    @click="closeScenario"
+                  >取消</button>
+                  <button
+                    v-if="scenarioStep === 'input'"
                     type="button"
                     class="btn btn-primary"
                     :disabled="creatingScenario || (activeScenario.requiresUserInput && !userInput.trim())"
-                    @click="startScenario"
+                    @click="nextStep"
+                  >
+                    {{ creatingScenario ? '生成中…' : (activeScenario.dynamicPrompt ? '生成面试官 →' : '开始对话') }}
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="creatingScenario"
+                    @click="finalizeScenario"
                   >
                     {{ creatingScenario ? '创建中…' : '开始对话' }}
                   </button>
@@ -2509,6 +2891,115 @@ async function handleInviteMember() {
   opacity: 0.6;
   cursor: not-allowed;
 }
+.scenario-modal-input-tall {
+  resize: vertical;
+  min-height: 100px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.scenario-modal-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.scenario-modal-char-name {
+  padding: 10px 14px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* 简历上传区 */
+.resume-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 22px 16px;
+  text-align: center;
+  background: #f8fafc;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.resume-dropzone:hover { border-color: #64748b; background: #f1f5f9; }
+.resume-dropzone.is-dragging { border-color: #0f172a; background: #e2e8f0; }
+.resume-dropzone.is-loading { opacity: 0.6; pointer-events: none; }
+.resume-dropzone-icon { font-size: 28px; margin-bottom: 6px; }
+.resume-dropzone-text { font-size: 13px; color: #475569; margin: 2px 0; }
+.resume-dropzone-btn {
+  display: inline-block;
+  margin: 8px 0 6px;
+  padding: 6px 14px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.resume-dropzone-btn:hover { background: #1e293b; }
+.resume-dropzone-meta { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+.resume-dropzone-loading { font-size: 13px; color: #475569; padding: 12px; }
+
+.resume-uploaded {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.resume-uploaded-icon { font-size: 16px; }
+.resume-uploaded-name { font-weight: 600; color: #0f172a; flex: 1; word-break: break-all; }
+.resume-uploaded-meta { color: #64748b; font-size: 12px; }
+.resume-clear-btn {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.resume-clear-btn:hover:not(:disabled) { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.scenario-modal-error-inline { color: #dc2626; font-size: 12px; margin: 6px 0 0; }
+
+/* JD 截图识别区 */
+.jd-image-dropzone {
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #475569;
+  background: #f8fafc;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.jd-image-dropzone:hover { border-color: #64748b; background: #f1f5f9; }
+.jd-image-dropzone.is-loading { opacity: 0.6; pointer-events: none; }
+.jd-image-btn {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.jd-image-btn:hover { background: #1e293b; }
+.jd-image-hint { color: #94a3b8; font-size: 11px; flex-basis: 100%; }
 .scenario-modal-footer {
   display: flex;
   justify-content: flex-end;
