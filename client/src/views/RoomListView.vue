@@ -1158,8 +1158,10 @@ async function handleInviteMember() {
             <div v-if="activeScenario" class="scenario-modal-overlay" @click.self="closeScenario">
               <div class="scenario-modal">
                 <header class="scenario-modal-header">
-                  <div class="scenario-modal-emoji">{{ activeScenario.emoji }}</div>
-                  <h2 class="scenario-modal-title">{{ activeScenario.title }}</h2>
+                  <div class="scenario-modal-headline">
+                    <div class="scenario-modal-emoji">{{ activeScenario.emoji }}</div>
+                    <h2 class="scenario-modal-title">{{ activeScenario.title }}</h2>
+                  </div>
                   <p class="scenario-modal-desc">{{ activeScenario.description }}</p>
                 </header>
                 <div class="scenario-modal-body">
@@ -2854,23 +2856,29 @@ async function handleInviteMember() {
   padding: 24px;
 }
 .scenario-modal {
-  width: min(560px, 100%);
-  max-height: 80vh;
+  width: min(720px, 100%);
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   background: #fff;
   border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
   overflow: hidden;
   animation: pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .scenario-modal-header {
-  padding: 28px 32px 20px;
+  padding: 20px 28px 16px;
   text-align: center;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
 }
-.scenario-modal-emoji { font-size: 40px; margin-bottom: 10px; }
+.scenario-modal-headline {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.scenario-modal-emoji { font-size: 32px; line-height: 1; }
 .scenario-modal-title {
   font-size: 20px;
   font-weight: 700;
