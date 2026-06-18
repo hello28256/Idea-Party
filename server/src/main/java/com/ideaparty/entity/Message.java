@@ -2,6 +2,8 @@ package com.ideaparty.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "messages")
@@ -50,6 +52,21 @@ public class Message {
     @Enumerated(EnumType.STRING)
     @Column(name = "stream_status", length = 16)
     private StreamStatus streamStatus;
+
+    /**
+     * 反向级联：message_events.message_id 是外键指向 messages.id。
+     * Room 删除时级联到 messages，再级联到 events，否则会撞外键约束。
+     * MessageEvent 实体本身没有声明反向，本字段让 Hibernate 知道要先删 events。
+     */
+    @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<MessageEvent> events = new ArrayList<>();
+
+    /**
+     * 反向级联：message_feedbacks.message_id 也是外键指向 messages.id。
+     * 同 message_events 一样需要反向声明，否则 Room 删除时会撞外键约束。
+     */
+    @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<MessageFeedback> feedbacks = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {

@@ -52,7 +52,9 @@ async function confirmDangerous() {
     } else if (action === 'delete') {
       await roomStore.deleteRoom(props.roomId)
       emit('close')
-      router.push('/rooms')
+      // 保持在当前 tab（默认 my-rooms），不跳到发现页
+      const currentTab = (router.currentRoute.value.query.tab as string) || 'my-rooms'
+      router.replace({ path: '/rooms', query: { tab: currentTab } })
       return
     }
     confirmAction.value = null

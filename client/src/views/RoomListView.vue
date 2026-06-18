@@ -250,6 +250,8 @@ watch(
   ([tab, roomId]) => {
     if ((tab === 'my-rooms' || tab === 'recent') && !roomId) {
       isRoomListCollapsed.value = false
+      // roomId 变为空：通常是删除/离开房间后回到列表，重新拉取以反映最新状态
+      roomStore.fetchMyRooms()
     }
   },
   { immediate: true }
