@@ -549,8 +549,8 @@ async function handleCharacterAdded(character: Character) {
 
 <style scoped>
 .chat-panel {
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
+  min-height: 0;
   contain: layout style;
 }
 
@@ -612,6 +612,7 @@ async function handleCharacterAdded(character: Character) {
 /* Embedded header with toggle buttons */
 .chat-main-header {
   height: 64px;
+  flex-shrink: 0;          /* 关键：flex 容器空间不足时不要压缩 header */
   padding: 0 1rem;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.86);

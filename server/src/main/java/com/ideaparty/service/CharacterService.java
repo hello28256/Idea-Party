@@ -5,6 +5,8 @@ import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
+import com.ideaparty.repository.MessageRepository;
+import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,16 +29,22 @@ public class CharacterService {
 
     private final CharacterRepository characterRepository;
     private final UserRepository userRepository;
+    private final RoomRepository roomRepository;
+    private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
     private final String deepseekBaseUrl;
 
     public CharacterService(
             CharacterRepository characterRepository,
             UserRepository userRepository,
+            RoomRepository roomRepository,
+            MessageRepository messageRepository,
             FirecrawlService firecrawlService,
             @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
+        this.roomRepository = roomRepository;
+        this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
         this.deepseekBaseUrl = deepseekBaseUrl;
     }
@@ -720,8 +728,31 @@ public class CharacterService {
         if (!characterRepository.existsByIdAndOwnerId(characterId, userId)) {
             return false;
         }
+        // 检查是否被外键引用（房间/消息），有引用就拒绝删除
+        // 让用户先去手动清理（删除房间等），避免误删历史数据
+        String blockedBy = checkForeignKeyReferences(characterId);
+        if (blockedBy != null) {
+            throw new IllegalArgumentException(blockedBy);
+        }
         characterRepository.deleteById(characterId);
         return true;
+    }
+
+    /**
+     * 检查该角色是否被其他表引用，返回具体原因；无引用返回 null。
+     */
+    private String checkForeignKeyReferences(UUID characterId) {
+        // 1) 房间引用
+        long roomCount = roomRepository.countByCharactersId(characterId);
+        if (roomCount > 0) {
+            return String.format("该角色被 %d 个聊天室引用，请先删除相关聊天室后再删除角色", roomCount);
+        }
+        // 2) 消息引用
+        long messageCount = messageRepository.countByCharacterId(characterId);
+        if (messageCount > 0) {
+            return String.format("该角色有 %d 条历史消息，请先删除相关聊天室后再删除角色", messageCount);
+        }
+        return null;
     }
 
     public boolean isOwner(UUID characterId, UUID userId) {

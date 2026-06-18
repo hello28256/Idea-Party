@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // App root component - renders router view
 import SettingsModal from '@/components/settings/SettingsModal.vue'
+import Toast from '@/components/ui/Toast.vue'
 </script>
 
 <template>
   <div class="app-container">
     <router-view />
     <SettingsModal />
+    <Toast />
   </div>
 </template>
 

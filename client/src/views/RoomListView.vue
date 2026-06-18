@@ -9,6 +9,8 @@ import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
 import AppSidebar from '@/components/ui/AppSidebar.vue'
 import { MINIMAL_NAV_ITEMS } from '@/config/sidebar'
 import { useScenarioStore, type Scenario } from '@/stores/scenario'
@@ -17,6 +19,7 @@ import ChatRoomPanel from '@/components/chat/ChatRoomPanel.vue'
 const router = useRouter()
 const route = useRoute()
 const roomStore = useRoomStore()
+const toast = useToast()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
@@ -53,6 +56,11 @@ const inviteError = ref<string | null>(null)
 // Per-row more menu state for the My-Rooms list
 const openMenuRoomId = ref<string | null>(null)
 const moreBtnRefs = ref<Record<string, HTMLElement | null>>({})
+// 删除房间确认弹窗
+const showDeleteRoomConfirm = ref(false)
+const deletingRoomId = ref<string | null>(null)
+const deletingRoomName = ref('')
+const deletingRoomLoading = ref(false)
 const menuRefs = ref<Record<string, HTMLElement | null>>({})
 
 function toggleRoomMenu(roomId: string, event: MouseEvent) {
@@ -64,14 +72,25 @@ function closeRoomMenu() {
   openMenuRoomId.value = null
 }
 
-async function handleDeleteRoom(roomId: string, event: MouseEvent) {
+function handleDeleteRoom(roomId: string, event: MouseEvent) {
   event.stopPropagation()
   closeRoomMenu()
   const room = roomStore.myRooms.find((r: any) => r.id === roomId)
-  const name = room?.name || '该聊天室'
-  if (!confirm(`确定删除「${name}」吗？此操作不可恢复。`)) return
+  deletingRoomId.value = roomId
+  deletingRoomName.value = room?.name || '该聊天室'
+  showDeleteRoomConfirm.value = true
+}
+
+async function confirmDeleteRoom() {
+  const roomId = deletingRoomId.value
+  const name = deletingRoomName.value
+  if (!roomId) return
   try {
+    deletingRoomLoading.value = true
+    // roomStore.deleteRoom 失败时 throw，成功时无返回值
     await roomStore.deleteRoom(roomId)
+    toast.success(`已删除聊天室「${name}」`)
+    showDeleteRoomConfirm.value = false
     if (selectedRoomId.value === roomId) {
       selectedRoomId.value = null
       router.replace({
@@ -79,9 +98,14 @@ async function handleDeleteRoom(roomId: string, event: MouseEvent) {
         query: { ...route.query, tab: 'my-rooms', roomId: undefined }
       })
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error('[DEBUG] Failed to delete room:', e)
-    alert('删除聊天室失败，请重试')
+    const msg = e?.response?.data?.message || e?.message || '删除聊天室失败，请重试'
+    toast.error(msg)
+    showDeleteRoomConfirm.value = false
+  } finally {
+    deletingRoomLoading.value = false
+    deletingRoomId.value = null
   }
 }
 
@@ -1456,25 +1480,27 @@ async function handleInviteMember() {
                 <div class="room-list-content">
                   <div class="room-list-title-row">
                     <strong>{{ room.name }}</strong>
-                    <span class="room-list-time">{{ formatDate(room.updatedAt) }}</span>
                   </div>
                   <p>{{ room.topic || (room.characters?.[0]?.description) || '暂无主题' }}</p>
                   <small>{{ room.characterCount }} 个角色</small>
                 </div>
-                <button
-                  :ref="(el) => (moreBtnRefs[room.id] = el as HTMLElement)"
-                  class="room-list-more-btn"
-                  aria-label="更多操作"
-                  :aria-expanded="openMenuRoomId === room.id"
-                  aria-haspopup="menu"
-                  @click.stop="toggleRoomMenu(room.id, $event)"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="5"  cy="12" r="1.8" fill="currentColor" />
-                    <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-                    <circle cx="19" cy="12" r="1.8" fill="currentColor" />
+                <div class="room-list-actions">
+                  <span class="room-list-time">{{ formatDate(room.updatedAt) }}</span>
+                  <button
+                    :ref="(el) => (moreBtnRefs[room.id] = el as HTMLElement)"
+                    class="room-list-more-btn"
+                    aria-label="更多操作"
+                    :aria-expanded="openMenuRoomId === room.id"
+                    aria-haspopup="menu"
+                    @click.stop="toggleRoomMenu(room.id, $event)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="5"  cy="12" r="1.8" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+                      <circle cx="19" cy="12" r="1.8" fill="currentColor" />
                   </svg>
                 </button>
+                </div>
                 <ul
                   v-if="openMenuRoomId === room.id"
                   :ref="(el) => (menuRefs[room.id] = el as HTMLElement)"
@@ -1874,6 +1900,18 @@ async function handleInviteMember() {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- 删除聊天室确认 -->
+    <ConfirmDialog
+      :show="showDeleteRoomConfirm"
+      title="删除聊天室"
+      :message="`确定要删除聊天室「${deletingRoomName}」吗？此操作不可恢复，房间内所有消息也会被一起删除。`"
+      confirm-text="删除"
+      cancel-text="取消"
+      :loading="deletingRoomLoading"
+      @confirm="confirmDeleteRoom"
+      @cancel="showDeleteRoomConfirm = false"
+    />
   </div>
 </template>
 
@@ -1882,10 +1920,10 @@ async function handleInviteMember() {
 .page-layout {
   display: grid;
   grid-template-columns: var(--global-sidebar-width) 1fr;
-  min-height: 100vh;
+  height: 100vh;             /* 关键：固定高度，让子元素 flex 布局能算出来 */
   background: var(--app-bg);
   opacity: 0;
-  overflow: visible;
+  overflow: hidden;
   transition: opacity 0.4s ease, background-color 0.25s ease, grid-template-columns 0.22s ease;
 }
 
@@ -2249,11 +2287,15 @@ async function handleInviteMember() {
 /* ===== Main Content ===== */
 .main-content {
   padding: 1.5rem 2rem;
-  overflow-y: auto;
+  /* 不在这里滚动，让 rooms-list-scroll 自己滚（避免左右两栏跟着滚） */
 }
 
 .main-content:has(.rooms-chat-shell) {
-  padding-bottom: 0;
+  padding: 0;
+  overflow: hidden;          /* 关键：禁止外层滚动 */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* Header */
@@ -3308,11 +3350,12 @@ async function handleInviteMember() {
 
 /* ===== My Rooms Three-Column Layout ===== */
 .rooms-chat-shell {
-  height: calc(100% + 1.5rem);
+  height: 100%;
+  flex: 1;                    /* 占满 main-content 高度 */
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--room-list-width) minmax(0, 1fr) var(--role-panel-width);
   background: #f6f7fb;
-  margin: -1.5rem -2rem 0;
   overflow: hidden;
   transition: grid-template-columns 0.22s ease;
 }
@@ -3456,6 +3499,7 @@ async function handleInviteMember() {
 
 .rooms-search {
   padding: 0 14px 12px;
+  flex-shrink: 0;          /* 保持搜索框完整高度，不被压缩 */
 }
 
 .rooms-search input {
@@ -3604,8 +3648,16 @@ async function handleInviteMember() {
 .room-list-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+
+/* 右侧操作区：时间在上，三个点按钮在下，垂直对齐 */
+.room-list-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .room-list-title-row strong {
@@ -4242,6 +4294,7 @@ async function handleInviteMember() {
 
 .characters-panel-header {
   height: 76px;
+  flex-shrink: 0;          /* 关键：flex 容器空间不足时不要压缩 header */
   padding: 18px;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
   display: flex;

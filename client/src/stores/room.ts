@@ -24,12 +24,26 @@ export const useRoomStore = defineStore('room', () => {
     })
   })
 
+  /**
+   * LRU 排序（带冷却）：
+   *  - 15 分钟内刚点过的房间：时间视为"未确定"，按原顺序排（避免频繁点导致列表乱跳）
+   *  - 15 分钟没动过的：按 lastEnterTime 倒序（最新用过的在最上）
+   *  - 从未进入过的：按 updatedAt 排（最近编辑/创建在最上）
+   */
+  const LRU_COOLDOWN_MS = 15 * 60 * 1000
   const sortedMyRooms = computed(() => {
-    return [...myRooms.value].sort((a, b) => {
-      const timeA = new Date(a.lastEnterTime || a.updatedAt || a.createdAt || 0).getTime()
-      const timeB = new Date(b.lastEnterTime || b.updatedAt || b.createdAt || 0).getTime()
-      return timeB - timeA
-    })
+    const now = Date.now()
+    const rank = (r: Room): number => {
+      const lastEnter = r.lastEnterTime ? new Date(r.lastEnterTime).getTime() : 0
+      if (lastEnter && now - lastEnter < LRU_COOLDOWN_MS) {
+        // 15 分钟内刚点过：时间视为 NULL，按 createdAt 兜底
+        // 相同 createdAt 时保持原顺序（用 -createdAt 让创建晚的靠前）
+        return new Date(r.createdAt).getTime() || 0
+      }
+      // 过了冷却期：按 lastEnterTime 排
+      return lastEnter || new Date(r.updatedAt || r.createdAt).getTime() || 0
+    }
+    return [...myRooms.value].sort((a, b) => rank(b) - rank(a))
   })
 
   // Actions

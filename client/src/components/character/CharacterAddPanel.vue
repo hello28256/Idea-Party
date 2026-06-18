@@ -7,6 +7,8 @@ import { charactersApi } from '@/api/characters'
 import CharacterCard from './CharacterCard.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
 
 interface Props {
   show: boolean
@@ -24,6 +26,7 @@ const emit = defineEmits<{
 
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
+const toast = useToast()
 
 // Form state
 interface CharacterForm {
@@ -42,6 +45,7 @@ const form = ref<CharacterForm>({
 })
 const loading = ref(false)
 const generatingPrompt = ref(false)
+const showDeleteConfirm = ref(false)
 const error = ref<string | null>(null)
 const uploadingAvatar = ref(false)
 const avatarPreview = ref<string | null>(null)
@@ -145,18 +149,27 @@ function handleClose() {
 
 async function handleDelete() {
   if (!props.editingCharacter) return
+  showDeleteConfirm.value = true
+}
 
-  if (!confirm('确定要删除这个角色吗？')) return
-
+async function confirmDelete() {
+  if (!props.editingCharacter) return
+  const name = props.editingCharacter?.name || ''
   loading.value = true
   error.value = null
 
   try {
     const success = await characterStore.deleteCharacter(props.editingCharacter.id)
     if (success) {
+      showDeleteConfirm.value = false
+      toast.success(`已删除角色「${name}」`)
       emit('close')
     } else {
-      error.value = characterStore.error || '删除失败'
+      // store 内部已捕获错误：从 characterStore.error 取
+      const msg = characterStore.error || '删除失败'
+      error.value = msg
+      toast.error(msg)
+      showDeleteConfirm.value = false
     }
   } finally {
     loading.value = false
@@ -403,6 +416,17 @@ async function handleAvatarFileChange(event: Event) {
       ></div>
     </Transition>
   </Teleport>
+
+  <ConfirmDialog
+    :show="showDeleteConfirm"
+    title="删除角色"
+    :message="`确定要删除角色「${props.editingCharacter?.name || ''}」吗？此操作不可恢复。`"
+    confirm-text="删除"
+    cancel-text="取消"
+    :loading="loading"
+    @confirm="confirmDelete"
+    @cancel="showDeleteConfirm = false"
+  />
 </template>
 
 <style scoped>

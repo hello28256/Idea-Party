@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useSettingsStore } from '@/stores/settings'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
 
 type TabKey = 'account' | 'preferences' | 'ai' | 'advanced'
 
@@ -11,6 +13,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const settingsStore = useSettingsStore()
+const toast = useToast()
 
 const activeTab = ref<TabKey>('account')
 
@@ -34,6 +37,7 @@ const avatarPreview = ref<string | null>(null)
 const saving = ref(false)
 const saveError = ref<string | null>(null)
 const saveSuccess = ref(false)
+const showClearApiKeyConfirm = ref(false)
 
 // API Key state
 const apiKey = ref('')
@@ -187,9 +191,17 @@ async function handleSaveApiKey() {
 }
 
 async function handleClearApiKey() {
-  if (confirm('确定要清除 API Key 吗？')) {
+  showClearApiKeyConfirm.value = true
+}
+
+async function confirmClearApiKey() {
+  try {
     await settingsStore.clearApiKey()
     apiKey.value = ''
+    toast.success('已清除 API Key')
+    showClearApiKeyConfirm.value = false
+  } catch (e: any) {
+    toast.error(e?.message || '清除失败')
   }
 }
 
@@ -502,6 +514,16 @@ function handleClose() {
       </div>
     </div>
   </Teleport>
+
+  <ConfirmDialog
+    :show="showClearApiKeyConfirm"
+    title="清除 API Key"
+    message="确定要清除 API Key 吗？清除后使用 AI 角色对话将需要重新设置。"
+    confirm-text="清除"
+    cancel-text="取消"
+    @confirm="confirmClearApiKey"
+    @cancel="showClearApiKeyConfirm = false"
+  />
 </template>
 
 <style scoped>

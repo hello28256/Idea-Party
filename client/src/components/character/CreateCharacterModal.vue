@@ -4,6 +4,8 @@ import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
 import { charactersApi } from '@/api/characters'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
 
 interface Props {
   show: boolean
@@ -30,6 +32,7 @@ const emit = defineEmits<{
 
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
+const toast = useToast()
 
 const isEditMode = computed(() => props.mode === 'edit')
 
@@ -52,6 +55,7 @@ const generatingPrompt = ref(false)
 const deleting = ref(false)
 const error = ref<string | null>(null)
 const uploadingAvatar = ref(false)
+const showDeleteConfirm = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
@@ -179,19 +183,34 @@ function handleClose() {
 
 async function handleDeleteCharacter() {
   if (!isEditMode.value || !props.character?.id) return
+  showDeleteConfirm.value = true
+}
 
-  const confirmed = window.confirm(`确定要删除角色「${props.character.name || ''}」吗？此操作不可恢复。`)
-  if (!confirmed) return
-
+async function confirmDelete() {
+  if (!props.character?.id) return
+  const name = props.character?.name || ''
   try {
     deleting.value = true
     error.value = null
-    await characterStore.deleteCharacter(props.character.id)
-    emit('deleted', props.character.id)
-    emit('close')
+    // 必须接 store 返回值：false 表示后端返回了错误（不 throw 但被 store 捕获）
+    const success = await characterStore.deleteCharacter(props.character.id)
+    if (success) {
+      showDeleteConfirm.value = false
+      toast.success(`已删除角色「${name}」`)
+      emit('deleted', props.character.id)
+      emit('close')
+    } else {
+      // store 内部已捕获，错误信息在 characterStore.error
+      const msg = characterStore.error || '删除失败'
+      error.value = msg
+      toast.error(msg)
+      showDeleteConfirm.value = false
+    }
   } catch (e: any) {
     console.error('[DEBUG] handleDeleteCharacter failed:', e)
-    error.value = e.response?.data?.message || e.message || '删除角色失败'
+    const msg = e.response?.data?.message || e.message || '删除角色失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     deleting.value = false
   }
@@ -453,6 +472,17 @@ async function handleAvatarFileChange(event: Event) {
       </div>
     </Transition>
   </Teleport>
+
+  <ConfirmDialog
+    :show="showDeleteConfirm"
+    title="删除角色"
+    :message="`确定要删除角色「${props.character?.name || ''}」吗？此操作不可恢复。`"
+    confirm-text="删除"
+    cancel-text="取消"
+    :loading="deleting"
+    @confirm="confirmDelete"
+    @cancel="showDeleteConfirm = false"
+  />
 </template>
 
 <style scoped>

@@ -51,4 +51,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findPriorUserMessages(@Param("roomId") UUID roomId,
                                         @Param("before") java.time.LocalDateTime before,
                                         org.springframework.data.domain.Pageable pageable);
+
+    /** 统计指定角色的消息数（用于删除角色前的引用检查） */
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.character.id = :characterId")
+    long countByCharacterId(@Param("characterId") UUID characterId);
 }
