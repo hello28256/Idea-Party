@@ -5,19 +5,27 @@ import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import ConfirmLogoutModal from './ConfirmLogoutModal.vue'
 
+// UserDropdown 是侧边栏底部的用户卡片+弹出菜单组合。
+// 用户卡 click 触发弹窗；弹窗承担「设置入口 / 管理后台入口 / 退出登录」三类用户级操作。
+// 与 authStore（取当前用户与 isAdmin）、settingsStore（打开设置抽屉）、router（跳转）协作。
+
 const authStore = useAuthStore()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 
 const isOpen = ref(false)
+// 二段式退出：先关菜单再弹确认弹窗，避免确认框叠在菜单之上造成点击错位。
 const showLogoutModal = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
+// menuRef/cardRef 分离：菜单和卡片在 DOM 上是兄弟节点，需要分别判断点击落点。
 const menuRef = ref<HTMLElement | null>(null)
 const cardRef = ref<HTMLElement | null>(null)
+// 头像加载失败兜底：用户自定义头像 URL 失效时回退到本地默认头像，避免破图。
 const avatarError = ref(false)
 
 const menuItems = [
   { id: 'settings', label: '设置', emoji: '⚙️', action: () => { settingsStore.openSettings(); closeMenu() } },
+  // disabled 项预留后续功能入口，先占位避免菜单结构后续频繁改动。
   { id: 'my-characters', label: '我的角色', emoji: '✨', disabled: true },
   { id: 'my-rooms', label: '我的聊天', emoji: '💬', disabled: true },
 ]
@@ -35,6 +43,8 @@ function closeMenu() {
   isOpen.value = false
 }
 
+// 同时排除菜单和卡片：用户可能点击卡片本身（再次点击关闭），也可能在菜单内交互，
+// 只有两者都不包含目标时才真正算「外部点击」。
 function handleClickOutside(event: MouseEvent) {
   if (!isOpen.value) return
 
@@ -73,6 +83,7 @@ function handleConfirmLogout() {
 }
 
 onMounted(() => {
+  // 监听挂到 document 而非组件根节点：菜单用 absolute 定位脱离文档流，组件内监听会漏掉外部点击。
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
 })

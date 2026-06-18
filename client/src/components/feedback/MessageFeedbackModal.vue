@@ -1,9 +1,12 @@
 <script setup lang="ts">
+// 消息反馈弹窗：让用户为 AI 回复选择踩的原因并补充说明。
+// 由 ChatMessage 气泡上的"踩"按钮触发，复用于"新增反馈"和"更新已有反馈"两种场景。
+// 所有副作用都通过 emit 上交（提交 / 取消反馈 / 关闭），组件本身不直接调后端，便于单测和复用。
 import { ref, watch } from 'vue'
 import { ThumbsDown } from 'lucide-vue-next'
 import type { MessageFeedbackPayload } from '@/composables/useSocket'
 
-/** 5 个固定原因，对应后端 FeedbackCategory 枚举顺序。 */
+// 5 个固定原因，value 与后端 FeedbackCategory 枚举一一对应：调整顺序或新增项需要前后端同步。
 const CATEGORIES: { value: string; label: string }[] = [
   { value: 'IRRELEVANT', label: '答非所问' },
   { value: 'INACCURATE', label: '事实不准' },
@@ -12,11 +15,14 @@ const CATEGORIES: { value: string; label: string }[] = [
   { value: 'OTHER', label: '其他' }
 ]
 
+// current 为 null 表示新增反馈；非 null 表示编辑已有反馈，UI 据此切换「取消反馈」按钮和确认文案。
 interface Props {
   show: boolean
   current: MessageFeedbackPayload | null
 }
 
+// submit 携带标准化后的 { category, comment }，由父组件决定走「新增」还是「更新」接口。
+// cancel-feedback 用于撤销已存在的反馈记录；close 只关闭弹窗，不动服务端数据。
 interface Emits {
   (e: 'close'): void
   (e: 'submit', payload: { category: string; comment: string | null }): void
@@ -30,6 +36,7 @@ const selectedCategory = ref<string>('')
 const comment = ref<string>('')
 const submitting = ref(false)
 
+// 只在弹窗从隐藏变为打开时回填，避免关闭过程中残留状态污染下次打开的"新增反馈"场景。
 watch(
   () => props.show,
   (open) => {
@@ -45,6 +52,8 @@ function pickCategory(value: string) {
   selectedCategory.value = value
 }
 
+// 提交反馈：未选原因直接放弃；trim 后的空串归一为 null，避免后端存到无意义空白。
+// 注意：submitting 仅用于立刻锁住按钮防重复提交，真正的请求结果由父组件负责。
 async function handleSubmit() {
   if (!selectedCategory.value) return
   submitting.value = true
@@ -58,10 +67,12 @@ async function handleSubmit() {
   }
 }
 
+// 正在提交时不允许关闭，否则会与父组件的请求生命周期脱钩，导致状态不一致。
 function handleClose() {
   if (!submitting.value) emit('close')
 }
 
+// 撤销已有反馈与 handleSubmit 一样需要在请求进行中保持弹窗，避免 UI 与服务端状态错位。
 function handleRemove() {
   if (!submitting.value) emit('cancel-feedback')
 }

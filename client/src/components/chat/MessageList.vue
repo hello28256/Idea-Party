@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 聊天消息列表容器：
+// - 负责把历史消息 + 流式增量片段 + 思考指示器按时间顺序渲染到 MessageBubble
+// - 父组件（ChatRoom）通过 ref 调用 scrollToBottom() 实现「追加消息后自动贴底」
+// - 输入是 Socket 流式事件和 REST 历史消息的合并视图，因此需要分别处理「已落库」与「正在生成」两类数据
 import { computed, nextTick, ref } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
@@ -22,6 +26,9 @@ interface MessageGroup {
   showName: boolean
 }
 
+// 把扁平消息序列按"同一发送者 + 时间相邻"折叠成视觉上的消息组：
+// - 仿微信/Telegram 风格：连续消息只保留一次头像/名字，减少视觉噪声
+// - 5 分钟阈值是经验值，覆盖正常对话节奏，又不会把午休前后的同一人发言误合并
 const messageGroups = computed<MessageGroup[]>(() => {
   const result: MessageGroup[] = []
   let lastSenderId: string | null = null
@@ -60,6 +67,9 @@ const messageGroups = computed<MessageGroup[]>(() => {
 })
 
 // Compute streaming message bubbles
+// 把 socket 推来的"按角色累加的字符串"包装成虚拟的 ChatMessage，
+// 这样就能复用 MessageBubble 的渲染管线（同一组件、同样的样式/分组逻辑）。
+// 注意 id 用 `streaming-${characterId}` 作为临时键，等真正的消息落库后再由后端返回的最终消息替换掉这段。
 const streamingMessageBubbles = computed(() => {
   if (!props.streamingMessages || Object.keys(props.streamingMessages).length === 0) return []
 
@@ -80,6 +90,8 @@ const streamingMessageBubbles = computed(() => {
   return bubbles
 })
 
+// 流式片段里只携带 characterId，不带展示用的名字；
+// 这里在角色列表里反查，避免每个 MessageBubble 都重复查找，且当角色中途加入/改名时能取到最新值。
 function getCharacterName(characterId: string | null): string {
   if (!characterId) return 'AI'
   const char = props.characters.find(c => c.id === characterId)
@@ -98,6 +110,9 @@ const hasMessages = () => props.messages.length > 0 || streamingMessageBubbles.v
 const scrollContainer = ref<HTMLDivElement | null>(null)
 
 // 滚动到底部
+// 通过 nextTick 等本次 DOM 更新完再设置 scrollTop，
+// 否则在消息刚追加完成时立刻读取 scrollHeight 会拿到旧值，导致贴底失败。
+// 暴露给父组件（ChatRoom）用于：1) 进入房间初始贴底；2) 用户已在底部时新消息继续自动跟随。
 function scrollToBottom() {
   nextTick(() => {
     if (!scrollContainer.value) return
@@ -143,6 +158,7 @@ defineExpose({ scrollToBottom })
           :is-first-of-group="group.isFirstOfGroup"
           :is-last-of-group="group.isLastOfGroup"
         />
+        <!-- 流式片段渲染在已落库消息之后：保证"打字内容"始终出现在历史下方，视觉上和生成顺序一致 -->
         <MessageBubble
           v-for="msg in streamingMessageBubbles"
           :key="msg.id"
@@ -154,11 +170,13 @@ defineExpose({ scrollToBottom })
           :is-first-of-group="true"
           :is-last-of-group="true"
         />
+        <!-- 思考指示器只挂一个：socket 同一时刻通常只通知一个角色在思考，多角色并发是后面 Moderator 编排要解决的问题 -->
         <div v-if="thinkingCharacterId" class="thinking-area">
           <ThinkingIndicator :character-name="getCharacterName(thinkingCharacterId)" />
         </div>
       </template>
 
+      <!-- 底部 1px 锚点：scrollToBottom 把 scrollTop 设到 scrollHeight 时，依靠这个不可见元素做最终缓冲，避免最末消息被 padding 截掉 -->
       <div class="bottom-anchor"></div>
     </div>
   </div>

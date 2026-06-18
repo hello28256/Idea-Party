@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 角色列表中的单个角色卡片：负责展示角色基础信息（头像/名称/描述），
+// 并向父列表反馈"选中"事件。由 CharacterListView 之类容器按数组渲染，
+// 通过 isActive 区分当前正在对话的角色，通过 isThinking 展示正在发言动画。
 import type { Character } from '@/types'
 import Avatar from '@/components/ui/Avatar.vue'
 
@@ -8,6 +11,7 @@ interface Props {
   isThinking?: boolean
 }
 
+// 默认值让父组件可省略非必填状态，避免每次使用都写两遍 false。
 const props = withDefaults(defineProps<Props>(), {
   isActive: false,
   isThinking: false
@@ -17,6 +21,8 @@ const emit = defineEmits<{
   select: [character: Character]
 }>()
 
+// 点击事件向上抛出，由父组件决定切换当前角色或加入房间等业务动作；
+// 卡片本身不持有选中状态，保持纯展示+事件转发，避免与父级选中态冲突。
 function handleClick() {
   emit('select', props.character)
 }

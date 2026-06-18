@@ -1,20 +1,29 @@
 <script setup lang="ts">
+// 房间视图顶栏：展示房间名 + 角色数量徽标，并承载右侧操作菜单的容器。
+// 菜单项由父组件通过具名 slot "menu-items" 注入，使本组件可在不同上下文（房间详情 / 我的房间等）
+// 复用，避免把删除、重命名等业务操作耦合进纯展示组件。
 import { ref } from 'vue'
 import type { Room } from '@/types'
 
 interface Props {
+  // 当前房间实体；characterCount 来自后端聚合，避免前端再发请求统计。
   room: Room
 }
 
 defineProps<Props>()
 
+// 本地 UI 状态：是否展开右侧下拉菜单。与父级路由/数据解耦，关闭时由 mouseleave 自动收起。
 const showMenu = ref(false)
 
 function toggleMenu() {
+  // 切换菜单可见性；按钮 click 会冒泡，但菜单容器 @mouseleave 已独立处理关闭，
+  // 这里只需翻转布尔值，无需阻止事件。
   showMenu.value = !showMenu.value
 }
 
 function closeMenu() {
+  // 鼠标移出菜单区域时触发，用于桌面端的"鼠标离开即收起"交互；
+  // 移动端无 hover 时由父级点击外部或路由切换等场景调用。
   showMenu.value = false
 }
 </script>

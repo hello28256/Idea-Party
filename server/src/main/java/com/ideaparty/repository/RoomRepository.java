@@ -11,12 +11,26 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 聊天室数据访问层:封装对 rooms 表及 room_characters 多对多关联的查询,
+ * 为 RoomService 提供权限隔离(按 owner / member)、加载策略(FETCH JOIN 避免 N+1)
+ * 和角色引用检测(删除角色前必须清空关联房间)三类能力。
+ */
 @Repository
 public interface RoomRepository extends JpaRepository<Room, UUID> {
 
+    /**
+     * 查询某用户作为 owner 的所有房间。JOIN FETCH owner 是为了在
+     * 列表展示时一次性拿到房主信息,避免遍历时触发懒加载 N+1。
+     */
     @Query("SELECT r FROM Room r JOIN FETCH r.owner WHERE r.owner.id = :ownerId")
     List<Room> findByOwnerId(@Param("ownerId") UUID ownerId);
 
+    /**
+     * 加载房间详情:一次性 JOIN 出 characters 和 members,供进入房间页
+     * 直接渲染参与者列表与成员列表,避免后续访问触发多次 SELECT。
+     * LEFT JOIN 是允许 rooms.characters / members 为空(空房间/单人房)。
+     */
     @Query("SELECT r FROM Room r LEFT JOIN FETCH r.characters LEFT JOIN FETCH r.members WHERE r.id = :id")
     Optional<Room> findWithCharactersById(@Param("id") UUID id);
 
@@ -24,6 +38,12 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
 
     boolean existsByIdAndOwnerId(UUID id, UUID ownerId);
 
+    /**
+     * 列出某用户作为活跃成员加入的所有房间,按最近活跃时间倒序。
+     * ORDER BY 中 COALESCE(lastEnterTime, updatedAt) 优先使用房主最近进入时间,
+     * 未进入过则回退到更新时间,确保"最近访问"排序稳定。
+     * status='active' 过滤掉已退出/被踢的成员记录。
+     */
     @Query("SELECT r FROM Room r JOIN FETCH r.owner JOIN FETCH r.members m JOIN FETCH m.user WHERE m.user.id = :userId AND m.status = 'active' ORDER BY COALESCE(r.lastEnterTime, r.updatedAt) DESC")
     List<Room> findRoomsByMemberUserId(@Param("userId") UUID userId);
 

@@ -1,5 +1,6 @@
 <template>
   <div class="legal-page">
+    <!-- 顶栏两个入口都跳 /login：法务页对未登录用户开放，但所有交互最终仍需登录态，故品牌与"返回"共用一个出口。 -->
     <header class="legal-header">
       <RouterLink to="/login" class="brand">Idea Party</RouterLink>
       <RouterLink to="/login" class="back-button">返回登录</RouterLink>
@@ -26,6 +27,9 @@
 </template>
 
 <script setup lang="ts">
+// 法务类静态页（条款 / 隐私政策等）共用布局：统一头尾视觉与暗色主题，便于各法务页只关注正文内容。
+// 之所以独立成 layout 而非复用 AuthLayout：法务页对未登录访客也必须可访问，且视觉走"长文阅读"卡片风，而非登录的双栏表单，故刻意拆开。
+// title / subtitle 由各法务页传入：标题块与正文 slot 解耦，方便复用同一布局且每页可独立文案；不内嵌文案是为了避免每个页面重复相同的 <h1>/<p> 结构。
 defineProps<{
   title: string
   subtitle: string
@@ -135,6 +139,8 @@ defineProps<{
   line-height: 1.9;
 }
 
+/* 用 :deep() 穿透 slot 子内容：法务正文（h2 / p / ul 等）由各页面在本 layout 内自行编写，
+   样式由本 layout 统一约束，保证多份法务文档排版一致。 */
 .legal-content :deep(section) {
   margin-top: 40px;
 }
@@ -174,6 +180,8 @@ defineProps<{
   font-size: 14px;
 }
 
+/* 用 :global(.dark) 而非 scoped 类：暗色主题由根节点 <html> 上的 .dark 类触发，
+   scoped 样式无法命中组件外的祖先节点，必须显式穿透才能跟随全局主题切换。 */
 :global(.dark) .legal-page {
   background: linear-gradient(180deg, #0b0d12 0%, #111318 100%);
   color: white;

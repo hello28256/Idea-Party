@@ -27,11 +27,16 @@ import java.util.stream.Collectors;
 @Slf4j
 public class CharacterService {
 
+    // 角色是聊天室的最小可发言单元；本服务负责 AI 角色 prompt 的"冷启动"生成、CRUD 和删除前的外键守卫，
+    // 与 RoomService（编排发言）、FirecrawlService（联网抓取）配合，避免在控制器里散落 HTTP/AI 调用细节。
+
     private final CharacterRepository characterRepository;
     private final UserRepository userRepository;
     private final RoomRepository roomRepository;
     private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
+    // 直接读 langchain4j 的 base-url 而非单独建配置项：与 LangChain4j 自动装配的 OpenAI 客户端共用同一接入点，
+    // 这样 REST 调用走的也是同一个 DeepSeek 兼容 endpoint，便于将来切换供应商时只改一个配置。
     private final String deepseekBaseUrl;
 
     public CharacterService(
@@ -51,6 +56,8 @@ public class CharacterService {
 
     /**
      * Detect if the given text is primarily Chinese.
+     * 阈值 30% 是为了在"中英混杂"的角色名（如"马斯克 Elon Musk"）下也能正确路由到中文 prompt 分支，
+     * 避免被少量英文单词稀释导致走英文模板，丢失中文用户体验。
      * @param text the text to check
      * @return true if more than 30% of characters are Chinese
      */
@@ -66,6 +73,8 @@ public class CharacterService {
 
     /**
      * Load character prompt generator template from external file.
+     * 模板放在 classpath 而非硬编码：prompt 调优是非开发人员（产品/运营）的高频动作，
+     * 改 txt 比改 Java 重新发版更轻量，也避免污染代码历史。
      * @return the system prompt template
      */
     private String loadPromptTemplate() {
@@ -82,6 +91,8 @@ public class CharacterService {
     }
 
     public CharacterResponse create(UUID userId, CharacterRequest request) {
+        // 创建角色的入口：若请求未带 prompt 则走联网抓取 + AI 生成（generatePromptFromWeb），
+        // 让"只给个名字"就能建出可聊角色；preset 强制 false 以保证用户自定义角色不会被混入公共预设池。
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
@@ -107,6 +118,8 @@ public class CharacterService {
 
     /**
      * Generate a character prompt based on name and/or description.
+     * 异常被吞掉并返回兜底 prompt：prompt 生成是"锦上添花"步骤，失败不应阻塞主链路（角色创建/预览），
+     * 宁可让角色显得平庸，也不要让用户看到 500。
      * @param userId the user requesting the generation (to get their API key)
      * @param name character name (optional, used for web search)
      * @param description user-provided description (optional, used directly for AI generation)
@@ -141,6 +154,10 @@ public class CharacterService {
 
     /**
      * Generate prompt using AI directly from a character name.
+     * 走"纯 LLM 知识"路径而非联网：避免对常见人物（如 Elon Musk）触发 Firecrawl 限流或抓取失败，
+     * 也能拿到模型预训练时已经内化的语气/代表作，比"摘要一段维基百科"更像本人。
+     * apiKey 为 null/空/dummy 时不携带 Authorization：交给上游 DeepSeek 网关走平台共享额度，
+     * 保证没配 key 的用户也能体验 prompt 生成。
      * Uses the LLM's knowledge about the character without web scraping.
      */
     private String generatePromptWithAIFromName(String characterName, String apiKey) {
@@ -214,6 +231,10 @@ public class CharacterService {
 
     /**
      * Generate prompt using AI directly from a description.
+     * description 来自用户自定义输入（非真实人物），不能像 name 那样依赖 LLM 知识生成，
+     * 所以这里使用强约束的中英 system prompt（性格/语言习惯/世界观/行为规则/对话示例），
+     * 把一段模糊描述"翻译"成稳定可复用的角色卡。中文/英文 prompt 内容互为镜像翻译，
+     * 是为了让两种语言用户拿到的角色气质一致，而不是仅把变量翻译过去。
      */
     private String generatePromptWithAIFromDescription(String description, String apiKey) {
         RestTemplate restTemplate = new RestTemplate();
@@ -357,6 +378,8 @@ public class CharacterService {
     }
 
     private String generatePromptFromWeb(String characterName, String userApiKey) {
+        // 三级降级策略：1) Firecrawl 联网抓原文；2) 用模板 + LLM 浓缩成角色卡；3) 直接拼"角色名+前1000字原文"作为兜底，
+        // 保证哪怕 AI 全部不可用，用户至少能拿到一份基于真实资料的可用 prompt。
         // Step 1: Scrape web content about the character
         String scrapedContent = firecrawlService.scrape(characterName);
         log.info("[DEBUG] Scraped content length: {}", scrapedContent.length());
@@ -435,6 +458,12 @@ public class CharacterService {
         return null;
     }
 
+    /**
+     * 把 Firecrawl 抓回的原始 markdown 清洗成"接近正文"的纯文本，给下游 prompt 生成当输入。
+     * 该方法是大量经验性的正则：维基百科/百度百科的引用标记、目录、链接碎片、"请勿直接提交机械翻译"等
+     * 噪声如果不剔除，会被 LLM 当作角色语料学进去，导致角色张口就是"参见 [1]"。保守截断 2000 字上限
+     * 控制 prompt token 成本，避免把整本百科喂给模型。
+     */
     private String cleanMarkdown(String markdown) {
         if (markdown == null) return "";
 
@@ -558,6 +587,10 @@ public class CharacterService {
         return cleanText.toString().trim();
     }
 
+    /**
+     * 与 generatePromptWithAIFromWebContent 职责重复（旧版本中文专用版），目前未被任何上游调用，
+     * 保留是因为模板在历史版本里调优过，先不删以便回滚对比；后续清理 prompt 生成链路时再移除。
+     */
     private String generatePromptWithAI(String characterName, String scrapedContent, String apiKey) {
         RestTemplate restTemplate = new RestTemplate();
 
@@ -642,6 +675,11 @@ public class CharacterService {
         return null;
     }
 
+    /**
+     * 把清洗后的句子级内容拼成最终 prompt 文本。多个 fallback 文案（<50 / <100 / 正常）是因为
+     * 真实抓取结果长度波动很大（维基百科短条目 vs 长人物），宁可换措辞也不能让生成的 prompt 出现
+     * "You are {{name}}. " 这种半成品——下游 LLM 会原样复读。
+     */
     private String convertToPromptFormat(String characterName, String content) {
         // If content is too short, try to use it directly
         if (content == null || content.trim().length() < 50) {
@@ -724,6 +762,11 @@ public class CharacterService {
         return Optional.of(CharacterResponse.fromEntity(saved));
     }
 
+    /**
+     * 删除角色前显式校验外键引用，而不是直接依赖 DB 的 ON DELETE 行为：
+     * 删除"被聊天室/历史消息引用"的角色会让数据出现孤儿引用或被级联清空，破坏用户聊天历史；
+     * 业务上选择让用户先去手动清理（删房间），把误删成本留给用户可控的步骤。
+     */
     public boolean deleteIfOwner(UUID characterId, UUID userId) {
         if (!characterRepository.existsByIdAndOwnerId(characterId, userId)) {
             return false;
@@ -740,6 +783,8 @@ public class CharacterService {
 
     /**
      * 检查该角色是否被其他表引用，返回具体原因；无引用返回 null。
+     * 返回"中文提示字符串"而不是结构化对象，是因为这条异常会原样抛给前端展示给用户，
+     * 让用户看到具体数量（"被 3 个聊天室引用"）比"FK conflict"更可执行。
      */
     private String checkForeignKeyReferences(UUID characterId) {
         // 1) 房间引用
@@ -759,6 +804,10 @@ public class CharacterService {
         return characterRepository.existsByIdAndOwnerId(characterId, userId);
     }
 
+    /**
+     * 按 usage_count 排序的热门角色列表，给"我不知该挑谁"的新用户做冷启动推荐。
+     * 用真实使用量而非运营人工配置：随着系统运转，自带飞轮效果，越用越准，省去运营维护成本。
+     */
     public List<CharacterResponse> findRecommended(int limit) {
         return characterRepository.findTopByUsageCount(limit)
                 .stream()

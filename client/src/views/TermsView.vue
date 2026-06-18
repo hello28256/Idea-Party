@@ -152,5 +152,7 @@
 </template>
 
 <script setup lang="ts">
+// 服务条款页：纯静态展示页面，正文全部硬编码在 <template> 内，
+// 无任何状态、副作用或动态逻辑——条款变更只需修改模板文案并同步底部"最后更新"时间。
 import LegalLayout from '@/layouts/LegalLayout.vue'
 </script>

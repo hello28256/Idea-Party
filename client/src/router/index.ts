@@ -2,10 +2,16 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 // Placeholder views - will be implemented in future plans
+// 抽出为局部常量而非在每条 route 里直接 import：复用同一份懒加载 chunk，
+// 多个路径（/rooms、/scenarios、/characters 共用 RoomListView）能命中浏览器缓存，
+// 也便于后续把这些入口一次性替换为真实视图。
 const RoomListView = () => import('@/views/RoomListView.vue')
 const ChatView = () => import('@/views/ChatView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 
+// 应用前端路由中心。
+// 设计意图：把路由表（meta 标记 + 名称）与全局守卫抽到一处，
+// 让视图组件只关心渲染；权限/登录/管理员拦截由守卫统一把关，避免散落在组件内。
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -67,6 +73,8 @@ const router = createRouter({
       path: '/admin/feedbacks',
       name: 'admin-feedbacks',
       component: () => import('@/views/admin/AdminFeedbackView.vue'),
+      // requiresAdmin 必须在守卫里二次校验，不能只看 token；
+      // 后端会把 isAdmin 写入用户对象，这里只是前端兜底，真正的权限拦截由接口保证。
       meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
@@ -83,19 +91,27 @@ const router = createRouter({
     },
     {
       path: '/',
+      // 根路径根据 token 做条件跳转：有 token 进房间列表，无 token 进登录页。
+      // 这里只能依赖 localStorage，因为守卫此时还未执行，是用户打开应用的第一跳。
       redirect: () => {
         const isAuthenticated = !!localStorage.getItem('accessToken')
         return isAuthenticated ? '/rooms' : '/login'
       }
     },
     {
+      // 兜底路由：任何未匹配上的 URL（拼错、过期链接、手输路径）都收口到房间列表，
+      // 避免进入空白页影响体验。
       path: '/:pathMatch(.*)*',
       redirect: '/rooms'
     }
   ]
 })
 
-// Auth guard - redirect to login if accessing protected route without token
+// 全局导航守卫。
+// 契约：每次路由切换前同步判定，无 token 直接踢回登录页；
+// 已登录用户访问登录/注册页时反向跳转到房间列表，避免重复进入认证流程；
+// requiresAdmin 路由二次校验用户 store 中的 isAdmin 字段（接口返回的是真实权限位，不能只看 token）。
+// 调用方：Vue Router 内部，App 挂载时注册一次即可生效。
 router.beforeEach((to, _from, next) => {
   const publicPaths = ['/login', '/register', '/terms', '/privacy']
   const isAuthenticated = !!localStorage.getItem('accessToken')

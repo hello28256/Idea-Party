@@ -13,8 +13,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
+// 聊天室消息的数据访问层。聊天室加载/流式回放需要按房间取消息并附带角色信息（展示发言头像），
+// 管理后台需要按角色统计引用数与查找上下文，故在 Spring Data JPA 之上补充少量 JPQL。
 public interface MessageRepository extends JpaRepository<Message, UUID> {
 
+    // JOIN FETCH 角色：消息列表展示需要角色名称/头像，单独查会出现 N+1。
     @Query("SELECT m FROM Message m LEFT JOIN FETCH m.character WHERE m.room.id = :roomId ORDER BY m.createdAt ASC")
     List<Message> findByRoomIdWithCharacter(@Param("roomId") UUID roomId);
 
@@ -52,7 +55,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
                                         @Param("before") java.time.LocalDateTime before,
                                         org.springframework.data.domain.Pageable pageable);
 
-    /** 统计指定角色的消息数（用于删除角色前的引用检查） */
+    /** 统计指定角色的消息数（用于删除角色前的引用检查，避免出现悬挂外键；用 COUNT 而非 EXISTS 是为了在返回数量时直接给提示文案）。 */
     @Query("SELECT COUNT(m) FROM Message m WHERE m.character.id = :characterId")
     long countByCharacterId(@Param("characterId") UUID characterId);
 }

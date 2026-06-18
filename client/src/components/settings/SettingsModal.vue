@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// SettingsModal: 聚合账户、偏好、AI 配置与高级选项的左侧栏 + 右侧内容布局弹窗。
+// 由 settingsStore.settingsModalOpen 控制显隐；外部触发（如缺 API Key 提示）可写入 pendingTab 让弹窗落到指定 tab。
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +9,7 @@ import { useSettingsStore } from '@/stores/settings'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
 
+// TabKey: 强类型约束，避免与 store / 模板里的字符串拼接散落。
 type TabKey = 'account' | 'preferences' | 'ai' | 'advanced'
 
 const router = useRouter()
@@ -17,8 +20,8 @@ const toast = useToast()
 
 const activeTab = ref<TabKey>('account')
 
-// If the store requested a specific tab when opening (e.g. "ai" from the
-// missing-API-key modal), honor it on mount.
+// consumePendingTab 是“读后即清”的语义：调用方（如缺 Key 弹窗）只能把用户跳一次到目标 tab，
+// 之后再开设置就不会被旧请求劫持——所以这里不在 watch 里轮询，只在 mount 时取一次。
 const validTabs: TabKey[] = ['account', 'preferences', 'ai', 'advanced']
 const requested = settingsStore.consumePendingTab()
 if (requested && (validTabs as string[]).includes(requested)) {
@@ -62,6 +65,7 @@ const tabTitles: Record<TabKey, { title: string; desc: string }> = {
 }
 
 // Computed
+// canChangeUsername: 用户名是稳定身份标识，后端策略限定 30 天内只能改一次；前端禁用输入框避免无效请求。
 const canChangeUsername = computed(() => {
   if (!authStore.user?.lastUsernameChangeAt) return true
   const lastChange = new Date(authStore.user.lastUsernameChangeAt)
@@ -77,7 +81,8 @@ const hasChanges = computed(() => {
          avatarFile.value !== null
 })
 
-// Load data
+// loadData: 进入弹窗时一次性拉取 API Key 状态 + 个人资料 + 当前主题，用于回填表单与状态展示。
+// 注意 fetchApiKey 与 fetchProfile 串行是因为两者都会改 store，串行避免响应交叉覆盖 UI 状态。
 async function loadData() {
   await settingsStore.fetchApiKey()
   apiKey.value = settingsStore.deepseekApiKey
@@ -110,6 +115,8 @@ function handleEsc(e: KeyboardEvent) {
   }
 }
 
+// 监听 user 变化：账户页可能由其他视图（顶部栏、抽屉）更新资料后回到设置页，
+// watch + immediate 保证表单始终与服务端最新值同步，避免脏表单被误提交。
 watch(() => authStore.user, (user) => {
   if (user) {
     accountForm.value = {
@@ -122,6 +129,8 @@ watch(() => authStore.user, (user) => {
 }, { immediate: true })
 
 // Avatar handling
+// handleAvatarChange: 前端先做 5MB 限制，避免无意义的上传带宽浪费；
+// URL.createObjectObjectURL 生成的本地预览 URL 在保存或关闭弹窗时由浏览器释放，无需手动 revoke。
 function handleAvatarChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files && input.files[0]) {
@@ -135,7 +144,8 @@ function handleAvatarChange(event: Event) {
   }
 }
 
-// Save account
+// saveAccount: 头像必须先于资料保存——只有拿到后端返回的新 URL 后，写库才不会出现“资料里引用旧头像 URL”的不一致。
+// 成功后 2 秒自动隐藏提示，避免常驻 UI 干扰后续操作。
 async function saveAccount() {
   saving.value = true
   saveError.value = null
@@ -180,6 +190,7 @@ function handleThemeChange(mode: 'system' | 'light' | 'dark') {
 }
 
 // API Key handlers
+// handleSaveApiKey: 设置失败时回退到通用“保存失败”——避免向用户暴露后端原始错误，便于调试收敛。
 async function handleSaveApiKey() {
   try {
     await settingsStore.setApiKey(apiKey.value)
@@ -190,6 +201,7 @@ async function handleSaveApiKey() {
   }
 }
 
+// handleClearApiKey: 删除是不可逆操作，必须经 ConfirmDialog 二次确认，避免误触导致 AI 角色不可用。
 async function handleClearApiKey() {
   showClearApiKeyConfirm.value = true
 }
@@ -209,6 +221,8 @@ const emit = defineEmits<{
   close: []
 }>()
 
+// handleClose: 既要通知父组件（关闭弹窗 + 路由后退），也要同步全局 store 标志位，
+// 否则下次打开会因 store 仍为 open 状态而 v-if 永远命中（与 Teleport 配合时容易踩坑）。
 function handleClose() {
   settingsStore.closeSettings()
   emit('close')

@@ -7,6 +7,10 @@ import { useToasts } from '@/composables/useToast'
 
 const toasts = useToasts()
 
+/**
+ * 点击 Toast 立即移除该条 —— 让用户可以提前关掉提示，不必等自动消失计时器。
+ * 通过 id 过滤而不是按索引 splice：setTimeout 的延迟回调可能在用户多次操作后乱序执行，id 唯一且稳定。
+ */
 function dismiss(id: number) {
   toasts.value = toasts.value.filter(t => t.id !== id)
 }
@@ -24,6 +28,7 @@ function dismiss(id: number) {
           @click="dismiss(t.id)"
         >
           <span class="toast-icon">
+            <!-- 纯符号 emoji 而非图标字体：避免引入额外依赖和体积，且在不同 OS 下样式差异可接受 -->
             <template v-if="t.type === 'success'">✓</template>
             <template v-else-if="t.type === 'error'">✕</template>
             <template v-else>ⓘ</template>
@@ -37,6 +42,8 @@ function dismiss(id: number) {
 
 <style scoped>
 .toast-container {
+  /* 固定底部居中定位，z-index 高于一般弹层（如 ConfirmDialog）以确保覆盖。
+     pointer-events: none 让空白区域不拦截下层点击，仅 toast 本体可点（pointer-events: auto）。 */
   position: fixed;
   bottom: 40px;
   left: 50%;
@@ -62,6 +69,7 @@ function dismiss(id: number) {
   pointer-events: auto;
   cursor: pointer;
   border: 1px solid;
+  /* backdrop-filter 模糊背景：让 Toast 在任何颜色页面下都能保持可读性，避免深色背景下浅色 toast 看不清。 */
   backdrop-filter: blur(8px);
 }
 
@@ -101,7 +109,8 @@ function dismiss(id: number) {
   line-height: 1.4;
 }
 
-/* 进入/离开动画 */
+/* 进入/离开动画 —— 仅在 TransitionGroup 包裹下生效，对应 <TransitionGroup name="toast">。
+   translateY(20px) 让 Toast 从下方滑入，与底部定位方向一致，比 fade-only 更自然。 */
 .toast-enter-active,
 .toast-leave-active {
   transition: all 0.25s ease;

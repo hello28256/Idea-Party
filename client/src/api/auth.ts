@@ -1,13 +1,23 @@
 import axios, { type AxiosInstance } from 'axios'
 import type { AuthResponse, LoginRequest, RegisterRequest } from '@/types'
 
-// Base axios instance with configuration
+/**
+ * 共享 axios 实例：作为整个前端所有 API 调用的统一入口。
+ * 通过 baseURL `/api` 让 Vite 代理转发到后端，避免在浏览器侧硬编码后端域名。
+ * timeout 设为 60s 是为兼容大文件上传场景（如头像/附件），
+ * 普通 JSON 请求的响应时间远小于此值，不影响体感。
+ */
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
   timeout: 60000 // 60 seconds for large file uploads
 })
 
-// Request interceptor: add JWT token and set Content-Type for non-FormData requests
+/**
+ * 请求拦截器：两件事——自动附带 JWT、为非 FormData 请求兜底 JSON 头。
+ * token 键名 `accessToken` 与后端 AuthFilter 解析逻辑约定一致，必须保持同步；
+ * Content-Type 仅在非 FormData 时设置，是为了不覆盖上传文件时浏览器自动生成的 multipart boundary，
+ * 否则文件上传会因 boundary 丢失而失败。
+ */
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken')
@@ -25,7 +35,12 @@ api.interceptors.request.use(
   }
 )
 
-// Response interceptor: handle 401 by clearing token and redirecting to login
+/**
+ * 响应拦截器：集中处理 401（token 过期或无效）。
+ * 选择 hard redirect 而非 router.push，是因为 store 外的拦截器拿不到 Vue Router 实例，
+ * 且 token 已失效时通常意味着状态不可信，全量刷新到登录页更安全。
+ * 排除已在 `/login` 的场景，防止拦截器与登录页自身 401 形成重定向死循环。
+ */
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -47,12 +62,21 @@ export const login = (data: LoginRequest) =>
 export const register = (data: RegisterRequest) =>
   api.post<AuthResponse>('/auth/register', data)
 
+/**
+ * 更新个人资料请求体：所有字段可选。
+ * 因为是 PATCH 语义（部分更新），后端只覆盖传入的非空字段，
+ * 调用方只需传"想改的那一项"，不必先 GET 再 PUT。
+ */
 export interface UpdateProfileRequest {
   username?: string
   displayName?: string
   email?: string
 }
 
+/**
+ * 修改密码请求体：当前密码必填。
+ * 用于后端二次校验身份，防止 token 被劫持后攻击者直接改密码锁定原用户。
+ */
 export interface ChangePasswordRequest {
   currentPassword: string
   newPassword: string

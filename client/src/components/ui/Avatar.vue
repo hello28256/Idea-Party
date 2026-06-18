@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+// 通用头像组件：支持图片源失败回退为首字母占位、思考中状态指示。
+// 配合聊天消息列表使用：聊天室中每个 AI 角色都需要稳定可识别的头像展示。
+
 interface Props {
   src?: string | null
   name: string
@@ -13,6 +16,7 @@ const props = withDefaults(defineProps<Props>(), {
   src: null,
   size: 'medium',
   isThinking: false,
+  // 海军蓝渐变作为占位背景：与品牌主色调一致，避免在缺少头像时出现突兀的纯色块。
   gradient: 'linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%)'
 })
 
@@ -22,15 +26,21 @@ const sizeClasses = {
   large: 'avatar-large',
 }
 
+// 项目根静态资源 fallback：用户未上传头像时使用，保证 UI 不留空白。
 const DEFAULT_AVATAR = '/image.png'
 
+// 优先使用用户上传的头像，缺失时回退到项目默认图；保持 template 单条件渲染的简洁性。
 const avatarSrc = computed(() => props.src || DEFAULT_AVATAR)
 const imageError = ref(false)
 
+// 标记图片加载失败：浏览器 <img> 触发 @error 时（如 404/网络断开），
+// 必须切到占位首字母显示，否则会留下破图图标影响观感。
 function handleImageError() {
   imageError.value = true
 }
 
+// 监听 src 变化时重置错误态：换源后要重新允许尝试加载，
+// 否则一次失败后即使换图也会永久停留在占位态。
 watch(() => props.src, () => {
   imageError.value = false
 })

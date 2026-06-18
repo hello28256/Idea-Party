@@ -23,6 +23,7 @@ public class AuthController {
 
     private final AuthService authService;
 
+    // 注册走 201 Created：新账号是服务端创建的新资源，符合 REST 语义而非 200。
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         log.info("[DEBUG] Register request received for username: {}", request.getUsername());
@@ -37,6 +38,8 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    // 个人资料修改：解析 Authorization 头得到 userId，避免信任请求体里的 userId 字段
+    // （防止越权改他人资料），所有需鉴权的写操作都走这个模式。
     @PutMapping("/profile")
     public ResponseEntity<AuthResponse> updateProfile(
             @RequestHeader("Authorization") String authHeader,
@@ -51,6 +54,7 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    // 改密返回 200 + 空体：操作是幂等的（重复请求结果相同），无需返回新 token。
     @PatchMapping("/change-password")
     public ResponseEntity<Void> changePassword(
             @RequestHeader("Authorization") String authHeader,
@@ -61,6 +65,8 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    // 解析 + 校验合二为一：减少每个接口重复样板；同时把"非法 header"这类调用方错误
+    // 抛为 IllegalArgumentException，由全局异常处理器转 400。
     private UUID extractUserIdFromToken(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             throw new IllegalArgumentException("Missing or invalid Authorization header");

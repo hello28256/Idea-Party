@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 单条聊天气泡组件：负责 IM 风格渲染（头像/用户名/气泡/时间戳/反馈按钮），
+// 同时挂载 IntersectionObserver 用于"用户看到此消息"的事件埋点。
+// 由父级列表（ChatRoom 等）按"消息组"传 props 决定是否合并显示。
+
 import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import Avatar from '@/components/ui/Avatar.vue'
 import MessageFeedbackButtons from '@/components/feedback/MessageFeedbackButtons.vue'
@@ -11,6 +15,8 @@ import type { ChatMessage, MessageFeedbackPayload } from '@/composables/useSocke
 const authStore = useAuthStore()
 const messageStore = useMessageStore()
 
+// Props 设计：以"消息组"为单位控制展示，避免每条消息都重复渲染头像/用户名；
+// 由父组件（消息列表）按发送者+时间窗聚合后再下发 group 标记。
 interface Props {
   message: ChatMessage
   isOwn?: boolean
@@ -30,11 +36,14 @@ const props = withDefaults(defineProps<Props>(), {
   isLastOfGroup: true,
 })
 
-// Implicit event tracking (only for AI messages, only when not streaming).
+// 只对"已结束流式输出的 AI 消息"做曝光埋点：用户自己发的消息不算，
+// 还在打字中的消息在内容稳定前不统计，避免半成品被计入曝光。
 const events = useMessageEvents({ messageId: props.message.id })
 const bubbleEl = ref<HTMLElement | null>(null)
 const trackable = computed(() => !props.isOwn && !props.isStreaming && props.message.senderType === 'CHARACTER')
 
+// 挂载时若已满足 trackable，挂 IntersectionObserver 追踪可见性。
+// 用 nextTick 等待 template 渲染完成，保证 bubbleEl 已挂到 DOM。
 onMounted(() => {
   if (!trackable.value) return
   nextTick(() => {
@@ -42,7 +51,8 @@ onMounted(() => {
   })
 })
 
-// Re-attach observer if streaming flips off (e.g. message finalized).
+// 流式结束后（消息落定）需重新挂载观察者，因为初次挂载时 isStreaming=true 跳过了。
+// 监听 isStreaming 而非 message.content，是为了让"内容仍可能变化"和"可埋点"解耦。
 watch(() => props.isStreaming, (streaming) => {
   if (!streaming && trackable.value && bubbleEl.value) {
     events.setupObserver(bubbleEl.value)
@@ -52,6 +62,7 @@ watch(() => props.isStreaming, (streaming) => {
 const showFeedbackModal = ref(false)
 const modalPayload = ref<MessageFeedbackPayload | null>(null)
 
+// 反馈按钮仅对 AI 角色的"已结束流式"消息开放：用户消息无意义、还在打字的消息不能评价。
 const showFeedbackButtons = computed(() => {
   return !props.isOwn && !props.isStreaming && props.message.senderType === 'CHARACTER'
 })
@@ -69,10 +80,14 @@ const displayName = computed(() => {
   return props.message.characterName || '未知角色'
 })
 
+// 双触发条件：父组件显式传 isStreaming（推荐），或服务端刚好以 "..." 结尾作为兜底，
+// 保证即使 prop 没传，UI 也能展示打字动画而不是静止的死文本。
 const showStreamingIndicator = computed(() => {
   return props.isStreaming || props.message.content.endsWith('...')
 })
 
+// 用角色名首字符的 charCode 取模调色板，保证同一角色在不同消息里颜色稳定可识别。
+// 用户固定用第一档金色，与系统"你"的徽标视觉一致。
 const avatarGradient = computed(() => {
   const gradients = [
     'linear-gradient(135deg, #C9A962 0%, #A68B4B 100%)',
@@ -88,6 +103,8 @@ const avatarGradient = computed(() => {
   return gradients[hash % gradients.length]
 })
 
+// 行内反馈（点赞/点踩）的写入：失败仅打日志，不弹 toast；
+// 因为这是用户长流程里的轻量操作，错误已经包含在 messageStore 内可被上层观测。
 async function handleFeedbackChange(payload: MessageFeedbackPayload | null) {
   try {
     await messageStore.setFeedback(props.message.id, payload)
@@ -101,6 +118,8 @@ function handleOpenFeedbackModal(current: MessageFeedbackPayload | null) {
   showFeedbackModal.value = true
 }
 
+// 弹窗提交即代表用户明确选择"踩 + 原因 + 备注"，固定 type=DISLIKE；
+// 服务端只用 category/comment 做归因分析，type 字段在此场景是常量。
 async function handleModalSubmit(data: { category: string; comment: string | null }) {
   const payload: MessageFeedbackPayload = {
     type: 'DISLIKE',
@@ -116,6 +135,8 @@ async function handleModalSubmit(data: { category: string; comment: string | nul
   }
 }
 
+// 弹窗内"撤销反馈"路径：与行内 removeFeedback 等价，统一走 setFeedback(null)，
+// 让后端只维护一条反馈状态而不是"曾经有过"的删除语义。
 async function handleModalRemove() {
   try {
     await messageStore.setFeedback(props.message.id, null)

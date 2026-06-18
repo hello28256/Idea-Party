@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// AdminFeedbackView：管理员后台的「消息反馈总览」页
+// 从后端聚合视图拉取所有 AI 回复消息 + 反馈汇总，支持按状态/用户筛选、
+// 分页浏览、点击行打开反馈详情。配合 AdminFeedbackDetailModal 展示单条反馈。
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from 'lucide-vue-next'
@@ -7,6 +10,9 @@ import { api } from '@/api/auth'
 import type { AdminFeedbackDetail, AdminListParams } from '@/api/messageFeedback'
 import AdminFeedbackDetailModal from '@/components/admin/AdminFeedbackDetailModal.vue'
 
+// AdminMessageObservation：后端 /admin/messages 聚合视图的单行 DTO
+// 把「一条 AI 消息」和「它累计收到的反馈（任意用户的 like/dislike）」聚合在一起，
+// 避免前端多次拼装。AGGREGATED 即「被任意用户评过」的合并语义。
 interface AdminMessageObservation {
   messageId: string
   roomId: string
@@ -35,6 +41,8 @@ interface AdminMessageObservation {
   userFeedbackAt: string | null
 }
 
+// PageResponse：与后端 Spring Data Page 序列化对齐的最小分页壳
+// 之所以不复用公共类型：本页只关心 content + totalElements，自带壳更轻、无外部依赖。
 interface PageResponse<T> {
   content: T[]
   totalElements: number
@@ -43,6 +51,8 @@ interface PageResponse<T> {
   size: number
 }
 
+// STATUS_OPTIONS：状态过滤器下拉项
+// 空字符串表示「不过滤」，与服务端约定的 status 参数语义一致（空=全部）。
 const STATUS_OPTIONS = [
   { value: '', label: '全部消息' },
   { value: 'UNRATED', label: '未反馈' },
@@ -55,17 +65,24 @@ const router = useRouter()
 const items = ref<AdminMessageObservation[]>([])
 const total = ref(0)
 const page = ref(0)
-const size = 10
+const size = 10 // 固定每页 10 条：管理员巡检场景下 10 行刚好一屏可览，分页粒度足够细
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size)))
 const jumpToInput = ref('')
 
 // Server-side stat counts (driven by totalElements of each filtered query).
+// FEEDBACK_EXISTS 是后端的「任意用户评过」桶，前端把 RATED/AGGREGATED 卡片都映射到它，
+// 因此服务端无需为两个卡片各发一次查询，节省一半的 count 请求。
+const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
+  UNRATED: 0, RATED: 0, AGGREGATED: 0, FEEDBACK_EXISTS: 0
+})
 const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
   UNRATED: 0, RATED: 0, AGGREGATED: 0, FEEDBACK_EXISTS: 0
 })
 
 const filterStatus = ref<string>('')
 const filterUserId = ref<string>('')
+// filterFrom / filterTo 暂未拼接到请求：保留 UI 占位便于后续接入服务端时间区间过滤，
+// 而不必改动布局与管理员已有的操作习惯。
 const filterFrom = ref<string>('')
 const filterTo = ref<string>('')
 
@@ -74,6 +91,9 @@ const error = ref<string | null>(null)
 const showDetail = ref(false)
 const detail = ref<AdminFeedbackDetail | null>(null)
 
+// load()：拉取当前筛选条件下的消息分页，并异步刷新顶部统计卡片
+// 入参：依赖外部 ref（filterStatus/filterUserId/page/size）；副作用：写 items/total/loading/error。
+// 每次翻页或筛条件变化都重新触发；统计刷新另发小查询，结果不影响主表格。
 async function load() {
   loading.value = true
   error.value = null
@@ -118,6 +138,8 @@ function goPage(p: number) {
   load()
 }
 
+// jumpToPage()：把用户输入的 1-based 页码转换为 0-based 并跳转
+// 输入越界时吸附到最近的有效页而非报错——管理员手抖常见，体验优先。
 function jumpToPage() {
   const target = parseInt(jumpToInput.value, 10)
   if (Number.isNaN(target)) return
@@ -131,6 +153,8 @@ function jumpToPage() {
   jumpToInput.value = ''
 }
 
+// refreshStatTotals()：best-effort 拉取顶部卡片的全局计数
+// 失败时只静默退化（卡片显示 0），不阻塞主表格——统计属于辅助信息，不应成为错误源。
 async function refreshStatTotals() {
   // Issue one count-only query per status so the summary cards reflect
   // the full database, not just the current page slice.
@@ -160,6 +184,8 @@ function statCountFor(value: string): number {
   }
 }
 
+// openDetail()：打开某条消息的反馈详情弹窗
+// 列表视图不携带单条 feedbackId，所以走「先按 messageId 命中，否则用列表兜底」的两段式查找。
 async function openDetail(item: AdminMessageObservation) {
   // Only meaningful for messages that have at least one feedback.
   if (item.feedbackCount === 0) {
@@ -192,6 +218,8 @@ async function openDetail(item: AdminMessageObservation) {
   }
 }
 
+// fetchAnyFeedbackForMessage()：MVP 兜底查询，给定 messageId 找一条反馈详情
+// 仅在 openDetail 的精确路径失败时调用；外部不直接依赖。
 async function fetchAnyFeedbackForMessage(messageId: string): Promise<AdminFeedbackDetail | null> {
   // The legacy list endpoint accepts page/size only — we cannot filter by
   // messageId server-side. Page through up to 50 entries looking for a

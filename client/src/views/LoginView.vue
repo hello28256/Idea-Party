@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// 登录/注册合一视图：复用同一张卡片，通过 URL ?mode=register 切换。
+// 与 authStore / useRememberCredentials 协作：
+//   - authStore.login 负责真正的登录态与 token 持久化；
+//   - useRememberCredentials 用登录密码派生密钥 AES 加密本地凭据，
+//     二次访问时需用户输入密码解锁（不解密拿不到 password）。
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
@@ -57,6 +62,7 @@ function resetForm() {
 }
 
 // Try to unlock previously stored credentials. Resolves true on success.
+// 解锁凭据后顺手把 identifier/password 写入当前表单，省去用户再次输入。
 async function tryUnlockStoredCreds(passphrase: string): Promise<boolean> {
   const creds = await remember.unlock(passphrase)
   if (!creds) return false
@@ -66,6 +72,8 @@ async function tryUnlockStoredCreds(passphrase: string): Promise<boolean> {
 }
 
 // Toggle between login and register
+// 切换时不仅切 URL，还要 reset 表单：登录态的 identifier 和注册态的 username
+// 是不同字段，混在一起会让用户感到「刚才填的东西去哪了」。
 function toggleMode() {
   const newMode = !isRegisterMode.value
   isRegisterMode.value = newMode
@@ -80,6 +88,10 @@ function toggleMode() {
 }
 
 // Login/Register
+// 同一个表单提交入口，按 isRegisterMode 分支：
+//   - 注册：直接调 register API（不写入 authStore），成功后跳转登录页并预填用户名；
+//   - 登录：调 authStore.login，仅在「记住我」开启时再把凭据加密落盘。
+// 错误信息优先取后端 message，便于排查 i18n 之前保留英文返回。
 async function handleSubmit() {
   error.value = ''
 
@@ -148,6 +160,9 @@ const submitButtonText = computed(() => {
 
 // === WATCHES AND ONMOUNTED LAST ===
 // Watch route changes to clear password and pre-fill username on navigation
+// 在 /login 路径下清空密码和确认密码（避免从注册切回登录时残留），
+// 但保留 identifier 以支持「注册完直接进入登录」的体验。
+// query.username 优先级高于「记住我」，因为它代表用户刚走完的注册流程。
 watch(() => route.fullPath, () => {
   if (route.path === '/login') {
     // Only clear password, preserve identifier if already set
@@ -169,6 +184,11 @@ watch(() => route.query.mode, (newMode) => {
 })
 
 // Check URL params on mount to set initial mode
+// 初始化顺序很关键：先 resetForm 防止上一会话残留，再按优先级回填 identifier：
+//   1) 注册跳转带的 username query（最确定的用户意图）；
+//   2) 已加密的本地凭据 → 弹解锁框（不解密拿不到密码）；
+//   3) 旧版明文 identifier（迁移期兼容，后续会淘汰）。
+// 50ms 延后打开 isVisible 是为了让 CSS 过渡动画能触发。
 onMounted(async () => {
   // Save username if present before reset
   const savedUsername = route.query.username as string || ''
@@ -194,6 +214,8 @@ onMounted(async () => {
 })
 
 async function handleUnlock() {
+  // 解锁对话框的提交逻辑：密码错时不弹后端错误，统一用「密码错误」文案
+  // 避免泄漏后端密钥派生/解密失败的细节给攻击者。
   if (!unlockPassword.value) {
     unlockError.value = '请输入密码'
     return

@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// 创建聊天室的统一入口弹窗：
+// 同时承载「单人对话」与「多人对话」两种模式，由父组件通过 v-model 风格控制 show。
+// 由父组件（如 RoomListView）监听 created 事件获取新房间 id 并跳转，不在本组件内做路由跳转，
+// 以便复用同一个弹窗组件、避免耦合具体路由路径。
+
 import { ref, watch, computed } from 'vue'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
@@ -10,6 +15,8 @@ interface Props {
   show: boolean
 }
 
+// created 把新/复用房间 id 抛给父组件；不直接 router.push 是为了把「创建」与「导航」解耦，
+// 父组件可决定跳转到 /rooms/:id 还是更新 my-rooms 当前选中项等。
 interface Emits {
   close: []
   created: [roomId: string]
@@ -43,10 +50,15 @@ const dupDialog = ref<{
 } | null>(null)
 const dupDialogLoading = ref(false)
 
+// 当用户在 single 模式下选了一个角色，但已存在与之相关的 single 房间时，
+// 不直接复用也不直接新建，而是弹此 dialog 让用户在「进入已有」/「仍要新建」之间选择，
+// 避免静默跳转到旧房间造成困惑，也避免重复创建难以清理。
+
 function openDupDialog(name: string, id: string) {
   dupDialog.value = { characterName: name, existingRoomId: id }
 }
 function closeDupDialog() {
+  // 提交进行中禁止关闭：避免用户在异步创建中途关闭弹窗导致状态不一致
   if (dupDialogLoading.value) return
   dupDialog.value = null
 }
@@ -98,13 +110,14 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-// Get user's own characters for selection
+// 仅展示「当前用户自己创建 + 非预设」的角色：预设角色由系统统一管理，普通用户不应直接基于其建房间
 const myCharacters = computed(() => {
   return characterStore.characters.filter(
     c => c.ownerId === authStore.user?.id && !c.isPreset
   )
 })
 
+// 每次 show 切换时同步状态：false 时重置所有表单字段，防止残留上次填写；true 时若角色未加载则拉取
 watch(() => props.show, (newShow) => {
   if (!newShow) {
     // Reset to default state
@@ -156,6 +169,7 @@ function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
 
+// 头像上传：前端先做 MIME + 大小校验，避免无意义请求打到后端；5MB 限制与后端上传接口对齐
 async function handleAvatarFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
@@ -191,6 +205,8 @@ async function handleAvatarFileChange(event: Event) {
   }
 }
 
+// 调用后端 AI 接口生成角色 prompt：name 和 description 至少有一个非空才有意义，
+// 因此两者都为空时直接拒绝请求，避免浪费 AI 调用配额。
 async function handleGeneratePrompt() {
   if (!createForm.value.name.trim() && !createForm.value.description.trim()) {
     error.value = '请输入角色名称或描述'
@@ -213,6 +229,8 @@ async function handleGeneratePrompt() {
   }
 }
 
+// 创建完角色后自动选中并切回「选择角色」tab，让用户无需再点一次即可继续创建房间；
+// 这是 UX 上的「一键到位」：创建 → 选中 → 进入下一步 保持最短路径。
 async function handleCreateCharacter() {
   if (!createForm.value.name.trim()) {
     error.value = '请输入角色名称'
@@ -249,6 +267,9 @@ async function handleCreateCharacter() {
   }
 }
 
+// 总入口：根据 dialogMode 分派到 single / group 两条创建路径。
+// single 模式特殊：在创建前会先查「是否已存在与该角色相关的 single 房间」，
+// 若已存在则弹出 dupDialog 让用户主动选择复用或新建，避免静默跳转/重复创建。
 async function handleSubmit() {
   if (dialogMode.value === 'single') {
     // 单人对话 validation

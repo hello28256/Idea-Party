@@ -18,11 +18,13 @@ const PBKDF2_ITERATIONS = 100_000
 const SALT_LEN = 16
 const IV_LEN = 12
 
+// 加密后落盘的凭据载荷：明文 JSON 仅存在于加密边界内，落盘即密文
 interface StoredCreds {
   identifier: string
   password: string
 }
 
+// 旧明文迁移的最小契约：只保留 identifier，方便 LoginView 自动回填用户名框
 interface Remembered {
   identifier: string
 }
@@ -38,6 +40,7 @@ function isCryptoAvailable(): boolean {
 
 // ===== 编码工具 =====
 
+// 手动拼接 + btoa：避免在不支持 Buffer 的浏览器环境引入第三方 polyfill
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = ''
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
@@ -53,6 +56,7 @@ function base64ToBytes(b64: string): Uint8Array {
 
 // ===== 加密原语 =====
 
+// PBKDF2 把「主密码」拉伸为 AES-GCM 密钥；迭代次数跟随 OWASP 2023 推荐（≥600k for SHA-256）
 async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder()
   const keyMaterial = await crypto.subtle.importKey(
@@ -77,6 +81,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
   )
 }
 
+// 每次加密都生成新 salt + iv，与密文拼接后整体 base64：salt 和 iv 无需单独存储，解密侧按固定偏移切分即可
 async function encryptJSON(payload: unknown, passphrase: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN))
   const iv = crypto.getRandomValues(new Uint8Array(IV_LEN))
@@ -91,6 +96,7 @@ async function encryptJSON(payload: unknown, passphrase: string): Promise<string
   return bytesToBase64(packed)
 }
 
+// 解密端必须按 SALT_LEN / IV_LEN 的固定偏移切分；AES-GCM 鉴权失败会抛错，调用方据此判定密码错误
 async function decryptJSON<T>(b64: string, passphrase: string): Promise<T> {
   const packed = base64ToBytes(b64)
   const salt = packed.slice(0, SALT_LEN)
@@ -120,12 +126,14 @@ function clearLegacy() {
 
 // ===== Composable =====
 
+// 登录页「记住密码」的状态胶囊：暴露 enabled/identifier 响应式状态 + set/unlock/hasStoredCreds/clear 操作
+// 调用方：LoginView 在挂载时读 hasStoredCreds() 决定是否显示解锁框，登录成功后调 setCredentials 落盘
 export function useRememberCredentials() {
   const enabled = ref(loadEnabled())
   // 旧方案的明文 identifier 优先回填一次（迁移），然后清掉
   const identifier = ref<string>(enabled.value ? loadIdentifier() : '')
 
-  // 勾选状态变化时立即持久化
+  // 勾选状态变化时立即持久化；关闭时连带清掉密文与 identifier，避免「勾掉复选框但密文仍在」的隐私残留
   watch(enabled, (val) => {
     if (val) {
       localStorage.setItem(ENABLED_KEY, '1')
@@ -165,6 +173,7 @@ export function useRememberCredentials() {
   /**
    * 用主密码（=登录密码）解锁已保存的凭据。
    * 成功时回填 identifier + password；密码错误时返回 null。
+   * 注意：传入的是用户当前输入的密码，与 setCredentials 时的密码必须完全一致（PBKDF2 是确定性的）
    */
   async function unlock(passphrase: string): Promise<StoredCreds | null> {
     if (!isCryptoAvailable()) return null
@@ -189,6 +198,7 @@ export function useRememberCredentials() {
     try { return !!localStorage.getItem(CREDS_KEY) } catch { return false }
   }
 
+  // 与「关闭复选框」不同：clear() 由用户在已解锁页主动调用，仅清密文+enabled flag，不影响当前会话内的 identifier 引用重置
   function clear() {
     identifier.value = ''
     enabled.value = false
@@ -210,6 +220,7 @@ export function useRememberCredentials() {
   }
 }
 
+// 用字符串 '1' 而非 boolean 序列化：避免某些浏览器把 'true'/'false' 当字符串解析时与历史值产生歧义
 function loadEnabled(): boolean {
   try {
     return localStorage.getItem(ENABLED_KEY) === '1'
@@ -218,6 +229,7 @@ function loadEnabled(): boolean {
   }
 }
 
+// 加密凭据存在时不主动回填 identifier——避免在用户未输入密码前就把密文里的标识暴露到 DOM 输入框
 function loadIdentifier(): string {
   try {
     const raw = localStorage.getItem(CREDS_KEY)
@@ -229,6 +241,7 @@ function loadIdentifier(): string {
   }
 }
 
+// 旧数据清理刻意只删 key、不搬数据：避免迁移期密码错误时把唯一可恢复的 identifier 也清掉
 function migrateLegacy() {
   try {
     const legacy = localStorage.getItem(LEGACY_KEY)

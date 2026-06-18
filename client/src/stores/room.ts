@@ -3,19 +3,30 @@ import { ref, computed } from 'vue'
 import { roomsApi, type RoomMemberResponse } from '@/api/rooms'
 import type { Room, CreateRoomRequest, UpdateRoomModeRequest } from '@/types'
 
+/**
+ * 聊天室全局状态中心（Pinia setup store）。
+ * 把"全站可见"的房间列表、当前进入的房间、我的房间列表、成员列表收敛到这里，
+ * 避免在多个页面（RoomListView / RoomDetailView / CreateRoomDialog）之间重复拉接口或互相传 ref。
+ */
 export const useRoomStore = defineStore('room', () => {
   // State
+  // 全量房间列表（公共浏览用），与 myRooms 解耦：用户可能没加入但可以预览/加入
   const rooms = ref<Room[]>([])
+  // 当前正在查看的房间；切房间时由 setCurrentRoom / fetchRoomById 写入
   const currentRoom = ref<Room | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // 标记当前房间是否处于"多角色讨论"模式，用于 UI 决定是否展示讨论流相关控件
   const isDiscussing = ref(false)
+  // 当前用户已加入的房间；侧栏"我的聊天室"专用
   const myRooms = ref<Room[]>([])
   const myRoomsLoading = ref(false)
+  // 当前房间成员列表；详情页邀请/移除成员时使用
   const roomMembers = ref<RoomMemberResponse[]>([])
   const roomMembersLoading = ref(false)
 
   // Computed
+  // 公共列表按 updatedAt 倒序：最近有改动的房间最相关，置顶展示
   const sortedRooms = computed(() => {
     return [...rooms.value].sort((a, b) => {
       const dateA = new Date(a.updatedAt).getTime()
@@ -30,6 +41,7 @@ export const useRoomStore = defineStore('room', () => {
    *  - 15 分钟没动过的：按 lastEnterTime 倒序（最新用过的在最上）
    *  - 从未进入过的：按 updatedAt 排（最近编辑/创建在最上）
    */
+  // 冷却窗口：刚访问过的房间不立即按 lastEnterTime 重排，防止"点哪条哪条跳第一"造成的视觉抖动
   const LRU_COOLDOWN_MS = 15 * 60 * 1000
   const sortedMyRooms = computed(() => {
     const now = Date.now()
@@ -47,6 +59,7 @@ export const useRoomStore = defineStore('room', () => {
   })
 
   // Actions
+  // 拉公共房间列表；失败时清空列表，避免展示旧数据误导用户
   async function fetchRooms() {
     loading.value = true
     error.value = null
@@ -61,6 +74,7 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  // 拉"我加入的"列表；这里不设置顶层 error，因为侧栏降级为空态不影响主流程
   async function fetchMyRooms() {
     myRoomsLoading.value = true
     try {
@@ -73,6 +87,7 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  // 按 id 拉单个房间：同步更新 rooms 缓存（如果存在）并设为 currentRoom；调用方负责后续跳转
   async function fetchRoomById(id: string) {
     loading.value = true
     error.value = null
@@ -92,6 +107,7 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  // 入参容忍 "null"/"undefined" 字符串：路由 params 在某些跳转路径下会序列化成字符串，需要防御性短路
   async function fetchRoomMembers(roomId: string | null | undefined) {
     if (!roomId || roomId === 'null' || roomId === 'undefined') {
       console.warn('[Room] skip fetchRoomMembers: invalid roomId', roomId)

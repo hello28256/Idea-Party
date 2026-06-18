@@ -31,10 +31,12 @@ import java.util.UUID;
 public class ScenarioService {
 
     private final UserRepository userRepository;
+    // 复用 langchain4j 已配好的 base url，避免在配置里再维护一份重复的 DeepSeek endpoint。
     private final String deepseekBaseUrl;
 
     public ScenarioService(
             UserRepository userRepository,
+            // 从 application.yml 注入 base URL（不含 /chat/completions），运行时拼接路径调用 DeepSeek。
             @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
         this.userRepository = userRepository;
         this.deepseekBaseUrl = deepseekBaseUrl;
@@ -48,6 +50,7 @@ public class ScenarioService {
      * @return 解析后的（角色名 + prompt）
      */
     public InterviewScenarioResponse generateInterviewPrompt(UUID userId, InterviewScenarioRequest request) {
+        // position 是 prompt 生成的核心锚点（行业/年限/JD 都只是修饰），为空时直接拒绝，避免生成无意义的 fallback。
         if (request.getPosition() == null || request.getPosition().isBlank()) {
             throw new IllegalArgumentException("岗位信息不能为空");
         }
@@ -65,10 +68,12 @@ public class ScenarioService {
         try {
             User owner = userRepository.findById(userId).orElse(null);
             String key = owner != null ? owner.getApiKey() : null;
+            // 过滤占位 key：开发期写入的 "sk-dummy-key-for-testing" 不能用来真调用 DeepSeek，必须回退到 null。
             if (key != null && !key.isBlank() && !key.equals("sk-dummy-key-for-testing")) {
                 return key;
             }
         } catch (Exception e) {
+            // 解析失败时降级为 null，由调用方走无 key 路径；这里只是查表，不应阻断主流程。
             log.warn("[DEBUG] Failed to resolve user API key: {}", e.getMessage());
         }
         return null;
@@ -81,6 +86,7 @@ public class ScenarioService {
         if (apiKey != null) {
             headers.set("Authorization", "Bearer " + apiKey);
         }
+        // 没填 key 时也不阻断：仍发请求，但会被 DeepSeek 拒绝 → 进入 catch 走 fallback。
 
         // 加载 prompt 模板，把 {{xxx}} 占位符替换为用户输入
         String template = loadPromptTemplate("prompts/interview-prompt-generator.txt");
@@ -103,6 +109,7 @@ public class ScenarioService {
         log.info("[DEBUG] Calling DeepSeek for interview prompt, position: {}", req.getPosition());
 
         try {
+            // 直接复用 langchain4j 配置的 base URL + /chat/completions 拼接，避免再起一个独立的 DeepSeek client。
             ResponseEntity<Map> response = restTemplate.exchange(
                     deepseekBaseUrl + "/chat/completions",
                     HttpMethod.POST,
@@ -126,6 +133,7 @@ public class ScenarioService {
     }
 
     private String buildFallbackPrompt(InterviewScenarioRequest req) {
+        // 故意不抛异常：用户没配 key 或 DeepSeek 临时不可用时，仍然要给前端一份能用的 prompt，避免创建角色流程被打断。
         String position = nullToEmpty(req.getPosition());
         String industry = nullToEmpty(req.getIndustry());
         String exp = req.getExperienceYears() != null ? req.getExperienceYears() + " 年" : "";

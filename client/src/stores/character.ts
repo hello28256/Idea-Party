@@ -3,17 +3,28 @@ import { ref, computed } from 'vue'
 import type { Character, CharacterRequest } from '@/types'
 import { charactersApi } from '@/api/characters'
 
+/**
+ * 角色全局状态（Pinia setup store）。
+ * 统一管理「用户自建角色 + 系统预设角色」的缓存与 CRUD，
+ * 让房间、场景配置等视图共享同一份角色数据，避免重复请求后端。
+ */
 export const useCharacterStore = defineStore('character', () => {
   // State
+  // characters: 当前用户可见的全部角色（混合预设与自建）；presets: 仅系统预设角色，独立缓存便于场景快速选取。
   const characters = ref<Character[]>([])
   const presets = ref<Character[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
   // Computed
+  // 仅暴露用户自建角色，预设角色走 presets，避免在「我的角色」管理界面混入系统角色。
   const userCharacters = computed(() => characters.value.filter(c => !c.isPreset))
 
   // Check if user already has a character with the same name
+  /**
+   * 重名校验：同一 ownerId 下不允许出现同名角色（大小写不敏感）。
+   * excludeId 用于编辑场景下排除自身，避免「未改名也判重」的假阳性。
+   */
   function hasDuplicateName(ownerId: string, name: string, excludeId?: string): boolean {
     return characters.value.some(c =>
       c.ownerId === ownerId &&
@@ -23,6 +34,10 @@ export const useCharacterStore = defineStore('character', () => {
   }
 
   // Actions
+  /**
+   * 拉取当前用户可见的全部角色。
+   * 副作用：写入 characters、loading、error；失败保留旧数据，由调用方决定是否提示用户。
+   */
   async function fetchCharacters() {
     loading.value = true
     error.value = null
@@ -37,6 +52,10 @@ export const useCharacterStore = defineStore('character', () => {
     }
   }
 
+  /**
+   * 拉取系统预设角色列表。
+   * 与 fetchCharacters 分开请求，原因是预设数据更新频率低、可独立缓存，避免每次进入房间都重复拉取。
+   */
   async function fetchPresets() {
     loading.value = true
     error.value = null
@@ -51,6 +70,10 @@ export const useCharacterStore = defineStore('character', () => {
     }
   }
 
+  /**
+   * 创建新角色，成功后立即追加到本地缓存，避免再次拉取列表。
+   * 返回值：成功为新建实体，失败为 null（不抛错，错误写入 error 供 UI 展示）。
+   */
   async function createCharacter(data: CharacterRequest): Promise<Character | null> {
     loading.value = true
     error.value = null
@@ -67,6 +90,10 @@ export const useCharacterStore = defineStore('character', () => {
     }
   }
 
+  /**
+   * 更新指定角色，本地用 findIndex 定位后原地替换（保留数组顺序与引用稳定的 UI）。
+   * 若本地不存在该 id（极端并发：被其他端删除），静默忽略并直接返回服务端最新实体。
+   */
   async function updateCharacter(id: string, data: CharacterRequest): Promise<Character | null> {
     loading.value = true
     error.value = null
@@ -86,6 +113,10 @@ export const useCharacterStore = defineStore('character', () => {
     }
   }
 
+  /**
+   * 删除角色，乐观失败语义：服务端成功才从本地缓存移除，避免「后端拒绝但前端消失」的不一致。
+   * 返回 boolean 给上层（场景/房间）做后续清理判断。
+   */
   async function deleteCharacter(id: string): Promise<boolean> {
     loading.value = true
     error.value = null
@@ -106,6 +137,10 @@ export const useCharacterStore = defineStore('character', () => {
     return characters.value.find(c => c.id === id)
   }
 
+  /**
+   * 上传头像并返回可访问的 URL（写入角色表单的 avatar 字段）。
+   * 与其他 action 不同：不修改 store 内部状态、不操作 loading/error，因为这是被表单调用方管理的辅助接口。
+   */
   async function uploadAvatar(file: File): Promise<string | null> {
     try {
       const response = await charactersApi.uploadAvatar(file)

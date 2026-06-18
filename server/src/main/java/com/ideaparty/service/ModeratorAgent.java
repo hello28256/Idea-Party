@@ -41,6 +41,22 @@ import java.nio.charset.StandardCharsets;
  * 1. Round 1: All characters respond to the user's question in PARALLEL
  * 2. Round 2+: Characters comment on each other's responses, forming a debate
  * 3. After MAX_ROUNDS, discussion ends
+ *
+ * 为什么存在：本类把"多角色群聊"从一组孤立调用升级为有状态的多轮编排——既负责挑选本轮发言者（Moderator LLM），
+ * 又负责驱动多轮对话、暂停/恢复、用户中途插入、线程归属跟踪，并通过 ChatSocketHandler 把进度推给前端。
+ * 与 AIService、CharacterPromptBuilder、SettingsService、ChatSocketHandler 协作；DisposableBean 用于关闭时清理执行器。
+ */
+/**
+ * 字段说明：
+ * - executor：自定义线程池，必须继承 Spring SecurityContext；否则子线程拿不到认证，AI 调用会失败。
+ * - roomFutures：按 roomId 跟踪运行中的 CompletableFuture，用于在 cancelRoom / destroy 时取消仍在飞的 LLM 调用，避免资源泄漏。
+ * - roomDiscussionState：每个房间的会话级可变状态，多线程访问因此用 ConcurrentHashMap 包裹。
+ * - objectMapper：仅用于把 ModeratorMessage / DiscussionStateEvent / 错误事件序列化进 Socket.IO 帧，前缀 42[...] 即 Socket.IO MESSAGE 帧格式。
+ */
+/**
+ * 常量说明：
+ * - MAX_ROUNDS：硬编码 3 轮上限，避免无终止地递归辩论造成 token 浪费；调用方可在 processMessage 通过 maxRounds 覆盖。
+ * - ROUND_DELAY_MS：轮间间隔，让前端先把上一轮内容渲染完再开始下一轮；用户触发时会被忽略以保证响应即时性。
  */
 @Slf4j
 @Service
@@ -139,6 +155,11 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
+    /**
+     * 处理用户在多轮讨论中途发送的新消息。
+     * 中断语义：清空待发队列、置位 userInterjected、把消息写入历史后立即触发新一轮 Moderator 选人。
+     * 用户在交互中途打断时，不希望等待当前 pendingQueue 排空，所以这里是"硬重置"而不是"追加"。
+     */
     public void handleUserInterjection(String roomId, String userId, String userMessage) {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null) return;
@@ -223,6 +244,11 @@ public class ModeratorAgent implements DisposableBean {
         return false;
     }
 
+    /**
+     * 调 Moderator LLM 选本轮发言者，并把选人结果广播到房间。
+     * 三层兜底：LLM 返回 JSON 时按 JSON 解析；JSON 解析失败回退到 [SELECT:xxx] 正则；选不到人再回退到第一个角色。
+     * 线程归属：当语义匹配只命中一人且属于"延续性短句"，优先复用 activeThreadOwner 避免在多角色场景下被错误切线。
+     */
     private void processModeratorAnalysis(String roomId, String userMessage) {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null) return;
@@ -466,6 +492,11 @@ public class ModeratorAgent implements DisposableBean {
      * @param onChunk Callback for streaming chunks (called as content is generated)
      * @param onResponse Callback for each character's complete response
      */
+    /**
+     * WebSocket / 控制器层入口。根据 isContinuous 路由到"联合多轮讨论"或"单轮对话"两条路径。
+     * 关键前置：先校验 API Key——这是 chatSocketHandler 调用方常常遗漏的失败点，提前通过 onError 上报，
+     * 避免前端停留在 thinking 状态却没有任何回应。
+     */
     public void processMessage(String roomId, String userId, String userMessage, List<Character> characters,
                                boolean isContinuous, int maxRounds,
                                Consumer<String> onThinking, Consumer<ResponseFragment> onChunk,
@@ -541,6 +572,11 @@ public class ModeratorAgent implements DisposableBean {
 
     // ================== JOINT (single-LLM-call) FLOW ==================
 
+    /**
+     * 联合推理：把整轮（多角色依次发言）打包成一次 LLM 调用，让所有角色从同一个上下文中生成。
+     * 比每个角色各调一次更省 token，且 LLM 能看到全角色视角实现相互引用。
+     * 副作用：通过 JointStreamParser 增量派发 onChunk/onResponse，并通过 chatSocketHandler 广播错误事件。
+     */
     private void runJointSingleRound(String roomId, String userId, String userMessage, String context,
                                      List<Character> characters,
                                      Consumer<ResponseFragment> onChunk,
@@ -612,6 +648,11 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
+    /**
+     * 联合多轮讨论：每轮调一次 runJointSingleRound，把上一轮所有发言塞进下一轮的 prompt 实现"互相反驳"。
+     * 使用 capturingOnResponse 把每段发言累积到 state.responses——下一轮 buildRoundContext 要从这里读。
+     * state.responses 在 round>1 时清空，避免上一轮残留污染本轮 context；本轮快照在调用后留作"上一轮"传入下轮。
+     */
     private void runJointDiscussion(String roomId, String userId, String userMessage, List<Character> characters,
                                     int maxRounds, String initialContext,
                                     Consumer<String> onThinking,
@@ -632,7 +673,9 @@ public class ModeratorAgent implements DisposableBean {
         state.userId = userId;
         roomDiscussionState.put(roomId, state);
 
-        CompletableFuture.runAsync(() -> {
+        // 把 future 注册到 roomFutures：cancelRoom 才能真正中断仍在飞的 LLM 调用，
+        // 否则仅设置 isRunning=false，但 runJointSingleRound 内部的 latch.await 会一直等待上游 SSE。
+        CompletableFuture<Void> discussionFuture = CompletableFuture.runAsync(() -> {
             try {
                 while (state.isRunning && state.currentRound <= state.maxRounds) {
                     // Wait for pause
@@ -696,6 +739,18 @@ public class ModeratorAgent implements DisposableBean {
                 state.isRunning = false;
             }
         }, executor);
+
+        // 注册到 roomFutures 让 cancelRoom 能找到并取消；自然结束后自动清理
+        roomFutures.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>()).add(discussionFuture);
+        discussionFuture.whenComplete((r, e) -> {
+            List<CompletableFuture<?>> list = roomFutures.get(roomId);
+            if (list != null) {
+                list.remove(discussionFuture);
+                if (list.isEmpty()) {
+                    roomFutures.remove(roomId, list);
+                }
+            }
+        });
     }
 
     /**
@@ -745,6 +800,10 @@ public class ModeratorAgent implements DisposableBean {
      * Avoids lazy Character access by pre-fetching character names in a single
      * findAllById round-trip. Self-invocation from runJointSingleRound would
      * otherwise bypass the @Transactional proxy, so we do not rely on it here.
+     */
+    /**
+     * 预取最近 N 条消息的角色名：一次性 findAllById 解决懒加载代理问题，避免在序列化时触发 LazyInitializationException。
+     * 不通过 this 内部调用同名 @Transactional 方法——会绕过 Spring 代理导致事务失效。
      */
     public String loadRecentHistory(String roomId, int limit) {
         try {
@@ -901,6 +960,11 @@ public class ModeratorAgent implements DisposableBean {
      * Characters take turns speaking one by one with random delays between turns.
      * Supports pause/resume and user message triggering.
      */
+    /**
+     * 顺序讨论（每角色单独调一次 LLM 的旧路径，目前主要保留作 fallback）。
+     * 与 runJointDiscussion 的关键差异：每个角色独立 prompt，无法看到彼此视角，代价更高但隔离性更好；
+     * 由随机 1-3s 间隔模拟"真人发言节奏"，同时 userTriggered 允许用户中途插队。
+     */
     private void runSequentialDiscussion(String roomId, String userId, DiscussionState state,
                                          Consumer<String> onThinking) {
         log.info("[Moderator] runSequentialDiscussion START - roomId: {}, chars: {}, rounds: {}",
@@ -976,6 +1040,11 @@ public class ModeratorAgent implements DisposableBean {
      * Merged overload: internally fetches API key, broadcasts canonical events
      * (message stream / chat message / error) directly, and persists the
      * complete message via messageRepository.save.
+     */
+    /**
+     * 单角色阻塞式生成 + 直接广播/落库（合并重载）。上层调用方不再需要自己处理 Socket 推送和持久化。
+     * 关键并发守卫：settled AtomicBoolean 防止 latch 超时与 onComplete/onError 回调同时触发，导致消息被广播两次、落库两次。
+     * context 已由调用方嵌入用户问题；这里不再追加，避免与 discussion 路径重复。
      */
     private void generateCharacterResponse(String roomId, Character character, DiscussionState state,
                                            String userId, String userMessage, String context) {
@@ -1181,6 +1250,10 @@ public class ModeratorAgent implements DisposableBean {
     /**
      * Resume discussion for a room.
      */
+    /**
+     * 恢复 + 触发即时继续：通过 userTriggered=true 让轮间循环立刻跳出等待，不必等满 ROUND_DELAY_MS。
+     * 这是"用户期待响应即时"的权衡——恢复时不再维持原有的延迟节奏。
+     */
     public void resumeDiscussion(String roomId) {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state != null) {
@@ -1226,6 +1299,10 @@ public class ModeratorAgent implements DisposableBean {
 
     /**
      * Run a single dialogue round (dialogue mode).
+     */
+    /**
+     * 单角色顺序对话模式（非联合推理的旧路径）。同步阻塞等 latch，角色之间随机 1-3s 间隔。
+     * 适用场景：联合推理暂不可用或用户偏好"逐个出场"的体验；runJointSingleRound 是当前主路径，本方法保留作兼容。
      */
     private void runSingleRound(String roomId, String userId, String userMessage, String context,
                                 List<Character> characters,
@@ -1391,6 +1468,9 @@ public class ModeratorAgent implements DisposableBean {
 
     /**
      * Build context for subsequent rounds with previous responses.
+     *
+     * 把上一轮所有角色的发言拼接到 prompt 中，并显式要求本轮"互相引用/反驳"——解决"各说各话"问题。
+     * 模板里强约束：禁止把用户消息当主语、禁止绕回原始问题、必须直接点名或引用上一轮某句话。
      */
     private String buildRoundContext(String previousContext, List<ResponseFragment> responses, int roundNum) {
         StringBuilder context = new StringBuilder();
@@ -1497,6 +1577,10 @@ public class ModeratorAgent implements DisposableBean {
      * This method cancels all tracked CompletableFutures associated with the room.
      *
      * @param roomId The room ID to cancel
+     */
+    /**
+     * 取消房间时先 stopDiscussion 把 isRunning 置位 false，再 cancel 所有跟踪的 future；
+     * 顺序很重要——先停调度再中断任务，避免生成中回调看到不一致状态。
      */
     public void cancelRoom(String roomId) {
         // Stop discussion state if running

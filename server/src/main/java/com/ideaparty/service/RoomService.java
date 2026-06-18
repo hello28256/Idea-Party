@@ -32,6 +32,9 @@ public class RoomService {
     private final CharacterRepository characterRepository;
     private final RoomMemberRepository roomMemberRepository;
 
+    // 负责聊天室的创建/查询/成员与角色编排；权限校验（成员/房主）在这里前置，
+    // 让 Controller 只需要转发请求并处理 DTO 转换。
+
     public RoomResponse create(UUID userId, CreateRoomRequest request) {
         log.info("[DEBUG] Creating room for user: {}", userId);
 
@@ -49,6 +52,8 @@ public class RoomService {
 
         // Add characters (group mode). Mirrors the findById + add pattern from addCharacterToRoom.
         // No ownership/visibility check here because the existing addCharacterToRoom does not perform one either.
+        // 选择"在创建时直接绑定角色"而非事务结束再追加，避免出现"已建空房间但角色未挂上"的中间态，
+        // 同时复用 Room.characters 的级联保存，省一次显式事务。
         if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
             for (UUID characterId : request.getCharacterIds()) {
                 Character character = characterRepository.findById(characterId)
@@ -74,6 +79,7 @@ public class RoomService {
 
     @Transactional(readOnly = true)
     public List<RoomResponse> findByUserId(UUID userId) {
+        // 只列出"我是成员"的房间（不仅是我创建的），匹配前端"我的聊天室"列表的语义。
         log.info("[DEBUG] Finding rooms for user: {}", userId);
 
         return roomRepository.findRoomsByMemberUserId(userId).stream()
@@ -82,6 +88,7 @@ public class RoomService {
     }
 
     public void deleteIfOwner(UUID roomId, UUID userId) {
+        // 仅房主可删除：刻意只比较 owner，不退化成"任一成员都能解散"，避免误删他人创建的会话。
         log.info("[DEBUG] Deleting room {} for user {}", roomId, userId);
 
         Room room = roomRepository.findById(roomId)
@@ -97,6 +104,7 @@ public class RoomService {
     }
 
     public RoomResponse addCharacterToRoom(UUID roomId, UUID characterId, UUID userId) {
+        // 仅校验"成员资格"而非房主：设计上允许任何成员拉新角色入群，体现多人协作编排。
         log.info("[DEBUG] Adding character {} to room {} by user {}", characterId, roomId, userId);
 
         Room room = roomRepository.findById(roomId)
@@ -133,6 +141,7 @@ public class RoomService {
     }
 
     public void recordEnter(UUID roomId, UUID userId) {
+        // 仅刷新 lastEnterTime，用于"最近进入"排序；不写消息，避免污染聊天历史。
         log.info("[DEBUG] Recording enter for room {} by user {}", roomId, userId);
 
         Room room = roomRepository.findById(roomId)
@@ -150,6 +159,8 @@ public class RoomService {
     }
 
     public RoomResponse updateChatMode(UUID roomId, UUID userId, String chatMode, Integer maxDiscussionRounds) {
+        // 任意成员即可调整发言模式：Moderator Agent 在每轮对话中实时读取这两个字段，
+        // 因此变更要立即落库而不是缓存到会话内。
         log.info("[DEBUG] Updating chat mode for room {} by user {}", roomId, userId);
 
         Room room = roomRepository.findById(roomId)

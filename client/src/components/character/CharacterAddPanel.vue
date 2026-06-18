@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 角色添加/编辑抽屉面板
+// 同一组件承担"创建角色"和"编辑现有角色"两种模式，由 editingCharacter 是否传入决定。
+// 与 characterStore（持久化）、authStore（ownerId 注入）、charactersApi（AI 生成 prompt）配合，
+// 完成角色 CRUD 的前端编排；通过 emit('characterAdded') 把结果回传给父组件（通常是房间配置面板）。
 import { ref, watch } from 'vue'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
@@ -28,7 +32,7 @@ const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 const toast = useToast()
 
-// Form state
+// 表单字段统一在一个 ref 对象里，便于整体重置和 watch 批量更新
 interface CharacterForm {
   name: string
   description: string
@@ -36,6 +40,7 @@ interface CharacterForm {
   prompt: string
 }
 
+// 模式状态：用单一字段区分，避免组件被父级拆成两份导致表单/校验/布局重复维护
 const mode = ref<'create' | 'edit'>('create')
 const form = ref<CharacterForm>({
   name: '',
@@ -51,7 +56,8 @@ const uploadingAvatar = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-// Reset form when props change
+// 面板打开时同步外部状态：模式、表单字段、预览图。
+// 必须在这里重置，不能依赖 v-model，否则上次编辑的残留会污染新一次"创建"。
 watch(() => props.show, (newShow) => {
   if (newShow) {
     if (props.editingCharacter) {
@@ -69,13 +75,15 @@ watch(() => props.show, (newShow) => {
       avatarPreview.value = null
     }
     error.value = null
-    // Fetch presets if not loaded
+    // 仅在首次打开时拉取预设，避免每次开关抽屉都重复请求
     if (characterStore.presets.length === 0) {
       characterStore.fetchPresets()
     }
   }
 })
 
+// 保存：根据 mode 走 create/update；store 返回 null 时表示业务失败，error 兜底来自 store.error
+// 成功路径同时触发 characterAdded + close，让父级列表能立即拿到新对象（无需再 fetch 一次）。
 async function handleSave() {
   if (!form.value.name.trim()) {
     error.value = '请输入角色名称'
@@ -120,6 +128,8 @@ function handlePresetSelect(character: Character) {
   emit('close')
 }
 
+// 调用后端 LLM 生成角色 prompt：name/description 任一非空即可触发
+// 失败时优先展示后端业务 message（更友好），再退回通用文案
 async function handleGeneratePrompt() {
   if (!form.value.name.trim() && !form.value.description.trim()) {
     error.value = '请输入角色名称或描述'
@@ -152,6 +162,8 @@ async function handleDelete() {
   showDeleteConfirm.value = true
 }
 
+// 二次确认后的实际删除：store 失败时直接复用其 error（已在 store 层捕获网络/业务异常）
+// 成功路径主动 toast 通知，因为面板关闭后用户可能已经看不到上下文
 async function confirmDelete() {
   if (!props.editingCharacter) return
   const name = props.editingCharacter?.name || ''
@@ -180,6 +192,8 @@ function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
 
+// 本地校验 + 上传：白名单 mime + 5MB 体积限制，目的是在请求前拦截明显非法文件
+// 清空 fileInput.value 是关键，否则同一张图无法触发第二次 change 事件
 async function handleAvatarFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 房间设置弹窗：承载两类不可逆操作（清空消息、删除聊天室）。
+// 删除路径需要回写路由并清理 store，因此同时持有 router / roomStore / messageStore；
+// 清空仅前端 in-memory，不触发后端，避免误删用户真实聊天记录。
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
@@ -24,6 +27,8 @@ const dangerLoading = ref(false)
 const dangerError = ref<string | null>(null)
 
 // Reset confirm state every time the modal opens
+// 防止用户上一次关闭弹窗时残留的 confirmAction / dangerError
+// 在下次打开时被错误展示（例如残留「确认删除」状态）。
 watch(() => props.show, (isOpen) => {
   if (isOpen) {
     confirmAction.value = null
@@ -36,10 +41,14 @@ function askConfirm(action: DangerAction) {
 }
 
 function cancelConfirm() {
+  // 请求进行中禁止关闭确认框，避免用户在 DELETE 飞行途中点取消导致状态错乱。
   if (dangerLoading.value) return
   confirmAction.value = null
 }
 
+// 执行危险操作的核心入口：根据 confirmAction 分发到 clear / delete。
+// clear 仅前端清理缓存消息；delete 走 store 并在成功后回写路由（保持当前 tab）。
+// 任何分支抛错都收集到 dangerError，由模板顶部 banner 展示，不抛给上层。
 async function confirmDangerous() {
   const action = confirmAction.value
   if (!action) return

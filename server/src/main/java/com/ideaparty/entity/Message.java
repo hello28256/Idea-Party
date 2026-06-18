@@ -5,10 +5,19 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 聊天室中的一条发言（用户或角色均可）。
+ * 作为聚合根同时挂载流式生成过程事件（events）与用户反馈（feedbacks），
+ * 因此删除 Room 时必须通过反向级联先清理这些子表，否则会撞外键约束。
+ */
 @Entity
 @Table(name = "messages")
 public class Message {
 
+    /**
+     * 发言主体区分：USER 走 user_id 关联，CHARACTER 走 character_id 关联，
+     * 两条 FK 在表中都是可空的，但每条消息实际只会填充其中一个。
+     */
     public enum SenderType {
         USER,
         CHARACTER
@@ -27,6 +36,7 @@ public class Message {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
+    // TEXT 长度：角色回复（含上下文拼接）经常超过 255 / VARCHAR 上限
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
@@ -49,6 +59,7 @@ public class Message {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    // length=16 够放 "COMPLETE" / "EMPTY" / "FAILED"；前向兼容未来加更长的状态枚举值
     @Enumerated(EnumType.STRING)
     @Column(name = "stream_status", length = 16)
     private StreamStatus streamStatus;
@@ -68,6 +79,8 @@ public class Message {
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<MessageFeedback> feedbacks = new ArrayList<>();
 
+    // 默认 COMPLETE：用户消息走正常保存路径，没有「流式生成」概念；
+    // AI 消息在 onResponse 成功回调时也会显式设为 COMPLETE，FAILED/EMPTY 由异常分支写入。
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

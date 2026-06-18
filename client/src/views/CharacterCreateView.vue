@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// CharacterCreateView.vue
+// 角色创建/编辑共用视图。
+// 通过路由参数 /characters/:id 区分"创建"与"编辑"两种模式：
+// - 无 id：创建新角色，所有者取自当前登录用户。
+// - 有 id：从 characterStore 读取已有角色填充表单，提交走 updateCharacter。
+// 表单字段同步给后端的 Character DTO，prompt 字段支持 AI 一键生成（调用 Firecrawl + DeepSeek 后端服务）。
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'
@@ -10,14 +16,17 @@ const route = useRoute()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
+// mounted 用于触发入场过渡动画；其他 loading* 区分不同按钮的繁忙态，避免互相阻塞
 const mounted = ref(false)
 const loading = ref(false)
 const generatingPrompt = ref(false)
 const uploadingAvatar = ref(false)
 const error = ref<string | null>(null)
+// avatarPreview 与 form.avatarUrl 分离：URL 可能是后端返回的相对路径，preview 始终保证可直接用于 <img :src>
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+// 通过路由参数判断当前是创建还是编辑模式；两个 computed 供模板和提交逻辑复用同一来源
 const isEditMode = computed(() => !!route.params.id)
 const editingCharacterId = computed(() => route.params.id as string | undefined)
 
@@ -28,6 +37,8 @@ const form = ref({
   prompt: ''
 })
 
+// 挂载时：延迟 50ms 翻起 mounted 标志触发淡入动画；
+// 编辑模式下从 store 取已有角色回填表单，避免重新请求后端（列表页已加载过）。
 onMounted(async () => {
   setTimeout(() => { mounted.value = true }, 50)
 
@@ -46,6 +57,10 @@ onMounted(async () => {
   }
 })
 
+// 提交处理：
+// - 校验顺序：名称必填 → 登录态 → 同名重复（仅创建模式，编辑允许改名为已存在名称）。
+// - 失败时不抛异常，由 store 写入 error 字段供 UI 展示；返回路由后回到角色列表。
+// 调用方：表单 @submit.prevent；副作用：路由跳转 + store 状态变更。
 async function handleSubmit() {
   if (!form.value.name.trim()) {
     error.value = '请输入角色名称'
@@ -96,8 +111,12 @@ async function handleSubmit() {
   } finally {
     loading.value = false
   }
-}
+})
 
+// AI 一键生成角色 prompt：
+// - 触发条件放宽：名称或描述至少有一项非空（用于"只有描述没名字"的草稿场景）。
+// - 后端实现：基于名称走 Firecrawl 联网检索 + DeepSeek 总结；仅传 description 时退化为纯 LLM 生成。
+// - 失败兜底：优先展示后端 message，便于定位 Firecrawl/DeepSeek 限流或超时。
 async function handleGeneratePrompt() {
   if (!form.value.name.trim() && !form.value.description.trim()) {
     error.value = '请输入角色名称或描述'
@@ -129,6 +148,10 @@ function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
 
+// 头像文件选择处理：
+// - 前端先做 MIME 和体积校验，避免无意义的上传请求（后端虽也会校验，但提前拦截可省一次往返）。
+// - 5MB 是与后端一致的硬上限，超过会被 OSS/对象存储直接拒绝。
+// - finally 中清空 input.value：连续选择同一文件时仍能触发 change 事件。
 async function handleAvatarFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]

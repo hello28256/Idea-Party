@@ -14,17 +14,23 @@ const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 const roomStore = useRoomStore()
 
+// mounted 用作入场淡入动画的触发标志：onMounted 后延迟一帧再置 true，
+// 让 <style> 里的 opacity 过渡能正常播放，避免首屏闪烁。
 const mounted = ref(false)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const editingCharacter = ref<Character | null>(null)
 
 onMounted(() => {
+  // 进入页面立即拉取一次角色列表，保证 Tab 切换回来时数据是最新的。
   characterStore.fetchCharacters()
+  // 50ms 延迟是为了让 CSS transition 真正生效，而不是在元素挂载前就改了 class。
   setTimeout(() => { mounted.value = true }, 50)
 })
 
 // Get current user's characters
+// 仅展示当前用户创建的自定义角色：排除 isPreset 的系统预置角色，
+// 是因为业务上预置角色由系统统一提供，用户不应在"我的角色库"里看到/编辑它们。
 const myCharacters = computed(() => {
   if (!authStore.user) return []
   const filtered = characterStore.characters.filter(
@@ -48,6 +54,8 @@ function closeCreateModal() {
 }
 
 async function handleCharacterCreated(character: any) {
+  // 先乐观地把新角色 unshift 到 store 顶部，让 UI 立即可见；
+  // 再异步 fetchCharacters 校正排序与字段，避免本地与服务端短暂不一致。
   if (character) {
     characterStore.characters.unshift(character)
   }
@@ -61,12 +69,15 @@ function openEditModal(character: Character) {
 }
 
 function closeEditModal() {
+  // 关闭编辑弹窗时清空 editingCharacter，防止下次打开旧实例复用导致脏数据。
   showEditModal.value = false
   editingCharacter.value = null
 }
 
 function handleCharacterUpdated(updatedCharacter: Character) {
   // Update the character in the list
+  // 直接在 store 数组中原地替换，避免再次请求后端造成的闪烁；
+  // 后端已是最新数据来源，UI 与 store 同步即可。
   const index = characterStore.characters.findIndex(c => c.id === updatedCharacter.id)
   if (index !== -1) {
     characterStore.characters[index] = updatedCharacter
@@ -75,6 +86,8 @@ function handleCharacterUpdated(updatedCharacter: Character) {
 }
 
 async function startChat(character: Character) {
+  // 一键开聊：以角色名作为房间名创建房间，再把该角色加入房间并跳转。
+  // 创建和加入是两个独立调用，因为后端没有提供"建房间 + 绑定初始角色"的复合接口。
   try {
     const room = await roomStore.createRoom(character.name)
     await roomStore.addCharacterToRoom(room.id, character.id)

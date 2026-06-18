@@ -2,6 +2,10 @@
 import type { Character } from '@/types'
 import Avatar from '@/components/ui/Avatar.vue'
 
+// 角色详情弹窗：只读展示角色信息（头像/简介/Prompt/预设标识），不提供编辑入口。
+// 设计为受控组件：父组件通过 show 控制可见性，character 为 null 时不渲染，
+// 避免父组件在弹窗打开期间清空数据时残留旧内容。
+
 interface Props {
   show: boolean
   character: Character | null
@@ -13,19 +17,23 @@ const emit = defineEmits<{
   close: []
 }>()
 
+// 统一封装关闭逻辑：点击遮罩、关闭按钮、底部"关闭"按钮三处共用，
+// 让父组件只需监听一个事件即可回收弹窗状态。
 function handleClose() {
   emit('close')
 }
 </script>
 
 <template>
+  <!-- Teleport 到 body：避免父容器的 overflow/transform/stacking context 影响 fixed 定位和层级。
+       z-[100] 保持在应用层浮层之上，但低于全局 Toast（Toast 使用更高 z-index）。 -->
   <Teleport to="body">
     <Transition name="modal">
       <div
         v-if="show && character"
         class="fixed inset-0 z-[100] flex items-center justify-center p-4"
       >
-        <!-- Backdrop -->
+        <!-- Backdrop：点击遮罩即关闭，符合用户对模态弹窗的预期。 -->
         <div
           class="absolute inset-0 bg-black/40 backdrop-blur-sm"
           @click="handleClose"
@@ -61,6 +69,8 @@ function handleClose() {
               <h2 class="mt-4 text-xl font-semibold text-[var(--color-navy)] font-['Playfair_Display']">
                 {{ character.name }}
               </h2>
+              <!-- 同时兼容 isPreset 和 preset 两个字段：历史数据中两种命名都存在，
+                   后续统一后可收敛为单一字段。 -->
               <span
                 v-if="character.isPreset || character.preset"
                 class="mt-2 px-3 py-1 text-xs font-medium rounded-full bg-[var(--color-gold)]/20 text-[var(--color-gold-dark)] border border-[var(--color-gold)]/30"
@@ -78,7 +88,9 @@ function handleClose() {
             </p>
           </div>
 
-          <!-- Prompt -->
+          <!-- Prompt 区块：whitespace-pre-wrap 保留 LLM prompt 中的换行与缩进。
+             后端生成的 prompt 经常带结构化段落，原样展示才能体现格式。
+             空值兜底文案，避免卡片出现空白段落影响阅读。 -->
           <div class="px-6 pt-4 pb-6">
             <h3 class="text-sm font-medium text-[var(--color-text-muted)] mb-2">角色设定 (Prompt)</h3>
             <div class="bg-white/60 rounded-xl p-4 border border-[var(--color-border)]">
@@ -104,6 +116,8 @@ function handleClose() {
 </template>
 
 <style scoped>
+/* 模态过渡：遮罩淡入淡出 + 内容轻微缩放上移，营造"浮起"感而非生硬出现。
+   > div:last-child 定位到内容卡片（遮罩是首个 div），让两者动画解耦。 */
 .modal-enter-active,
 .modal-leave-active {
   transition: all 0.3s ease;

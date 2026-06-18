@@ -1,8 +1,14 @@
 <script setup lang="ts">
+// 角色侧边栏：双形态渲染（桌面固定侧栏 + 移动端滑出抽屉），集中维护
+// 角色列表、当前选中态、思考指示以及对话/讨论模式切换。
+// 与父组件（聊天室页）通过 emit 协作：父组件持有真实状态，本组件只负责
+// 展示与意图转发，避免双向数据流导致状态不一致。
 import { computed } from 'vue'
 import type { Character } from '@/types'
 import Avatar from '@/components/ui/Avatar.vue'
 
+// Props 设计原则：所有状态都受控于父组件，侧边栏本身不持有业务状态。
+// `show` 仅控制移动端抽屉可见性；桌面端在 lg+ 始终渲染，不依赖 `show`。
 interface Props {
   show: boolean
   characters: Character[]
@@ -26,17 +32,23 @@ const emit = defineEmits<{
   switchMode: [mode: 'dialogue' | 'discussion']
 }>()
 
+// 派生而非存储：模式真值由父组件 chatMode 维护，此处仅做视图判定，
+// 防止本地副本与父级脱钩，触发切回时状态错乱。
 const isDiscussionMode = computed(() => props.chatMode === 'discussion')
 
+// 选中角色：仅上抛意图，路由跳转/会话切换由父组件处理。
 function handleCharacterClick(character: Character) {
   emit('characterSelected', character)
 }
 
+// 详情按钮需 stopPropagation，避免点击详情图标时同时触发卡片选中。
+// 父组件据此区分"查看资料"与"切到该角色聊天"两种意图。
 function handleCharacterDetail(character: Character, event: Event) {
   event.stopPropagation()
   emit('characterDetail', character)
 }
 
+// 抽屉关闭：仅移动端触发（桌面端侧栏常驻），父组件收到后置 show=false。
 function handleClose() {
   emit('close')
 }

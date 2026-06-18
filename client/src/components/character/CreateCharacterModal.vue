@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// CreateCharacterModal：统一处理角色创建、编辑、删除，以及在聊天室上下文下从角色库挑选已存在角色的弹窗。
+// 同一份组件通过 mode + context 双维度切换行为，避免在多个入口处重复实现表单与上传逻辑。
 import { ref, watch, computed } from 'vue'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
@@ -7,6 +9,8 @@ import { charactersApi } from '@/api/characters'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
 
+// Props：show 控制显隐；mode 决定新建还是编辑；context 决定标题文案、是否出现 Tab、回调事件名。
+// 在 room 上下文下从角色库选角色时复用同一组件，通过 addedToRoom 事件把已有角色交给父页面挂入聊天室。
 interface Props {
   show: boolean
   mode?: 'create' | 'edit'
@@ -36,7 +40,8 @@ const toast = useToast()
 
 const isEditMode = computed(() => props.mode === 'edit')
 
-// Form state
+// Form state：与后端 Character 字段对齐的最小子集，仅承载用户可编辑部分。
+// avatarUrl 与后端真实上传后的 URL 解耦，本地另存 avatarPreview 用于即时回显未提交的本地预览。
 interface CharacterForm {
   name: string
   description: string
@@ -62,7 +67,8 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 // Tab state for room context
 const activeTab = ref<'create' | 'library'>('create')
 
-// Reset form when shown
+// 弹窗每次重新显示时重置表单：避免上次编辑残留。
+// 编辑模式下从 props.character 回填，新建模式下清空；avatarPreview 跟随 avatarUrl 同步，便于提交后立刻看到新头像。
 watch(() => props.show, (newShow) => {
   if (newShow) {
     error.value = null
@@ -89,6 +95,8 @@ watch(() => props.show, (newShow) => {
   }
 }, { immediate: true })
 
+// handleSubmit：表单提交入口。根据 isEditMode 走 update / create 分支，统一通过 characterStore 调用后端。
+// store 返回 null + error 表示失败已被捕获（不抛错），因此同时回填 error 字段并把后端 message 透传给用户。
 async function handleSubmit() {
   if (!form.value.name.trim()) {
     error.value = '请输入角色名称'
@@ -100,7 +108,8 @@ async function handleSubmit() {
     return
   }
 
-  // Check for duplicate name (only in create mode)
+  // 仅在创建模式下做重名校验：编辑模式允许同名保存（场景是用户改其他字段时不必先改名字）。
+  // 第三个参数传 undefined 表示忽略当前 id，store 内部据此判定是「新增校验」还是「编辑校验」。
   if (!isEditMode.value && authStore.user && characterStore.hasDuplicateName(authStore.user.id, form.value.name.trim(), undefined)) {
     error.value = '你已经创建过这个角色了'
     return
@@ -113,6 +122,7 @@ async function handleSubmit() {
     let result: Character | null = null
 
     if (isEditMode.value && props.character) {
+      // 编辑路径：传更新后的字段到 store，由 store 负责同步本地列表与服务端调用。
       // Update existing character
       result = await characterStore.updateCharacter(props.character.id, {
         name: form.value.name.trim(),
@@ -127,6 +137,7 @@ async function handleSubmit() {
         error.value = characterStore.error || '更新角色失败'
       }
     } else {
+      // 创建路径：ownerId 必须从 authStore 取，不能让前端伪造；这是后端做权限校验的关键依据。
       // Create new character
       if (!authStore.user) {
         error.value = '请先登录'
@@ -154,6 +165,8 @@ async function handleSubmit() {
   }
 }
 
+// handleGeneratePrompt：调用后端的 AI 联网检索 / 描述生成接口，用返回的 prompt 覆盖当前表单的 prompt。
+// 仅校验「名字或描述至少有一个」，避免在两者都空时让 AI 端做无效推理；网络错误统一落到 error 字段，由 UI 顶部展示。
 async function handleGeneratePrompt() {
   if (!form.value.name.trim() && !form.value.description.trim()) {
     error.value = '请输入角色名称或描述'
@@ -186,6 +199,8 @@ async function handleDeleteCharacter() {
   showDeleteConfirm.value = true
 }
 
+// handleDeleteCharacter 与 confirmDelete 拆成两步：先打开 ConfirmDialog 让用户二次确认，确认后才真正调用删除 API。
+// store 的 deleteCharacter 返回 boolean：false 表示后端返回了错误且被 store 内部捕获（非 throw），因此要主动读取 characterStore.error。
 async function confirmDelete() {
   if (!props.character?.id) return
   const name = props.character?.name || ''
@@ -216,6 +231,8 @@ async function confirmDelete() {
   }
 }
 
+// handleSelectFromLibrary：仅在 room 上下文下有意义——从用户已有角色库中挑一个直接挂入当前聊天室。
+// 该函数不会创建任何新角色，所以走 addedToRoom 事件而非 created；其他上下文调用此函数是 no-op，避免误触发。
 function handleSelectFromLibrary(character: Character) {
   if (props.context === 'room' && props.roomId) {
     emit('addedToRoom', character)
@@ -227,6 +244,8 @@ function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
 
+// handleAvatarFileChange：客户端先做 MIME 与体积两道校验，失败时不发请求，减轻后端 / OSS 压力。
+// 后端返回的图片 URL 同时回写到 form.avatarUrl（用于提交）和 avatarPreview（用于即时预览），保持两者一致避免视觉错位。
 async function handleAvatarFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]

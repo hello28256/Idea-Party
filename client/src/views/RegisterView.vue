@@ -5,13 +5,24 @@ import { register } from '@/api/auth'
 
 const router = useRouter()
 
+// 注册页表单的本地状态：所有字段在客户端临时保存，
+// 只在成功提交时通过 register() 发往后端，不在页面间共享，因此无需 pinia。
 const username = ref('')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
+// loading 在请求期间禁用提交按钮，防止重复点击产生并发注册请求。
 const loading = ref(false)
+// error 集中展示所有校验/服务端失败信息；模板里仅渲染这一个变量，
+// 是为了避免每个字段各管一段错误样式导致 UI 不一致。
 const error = ref('')
 
+// 注册提交处理器：先做本地校验（必填/一致/长度），再调用 register API。
+// 校验顺序按"用户最常犯的错误"排序——空字段 > 密码不一致 > 长度不足，
+// 让最直观的错误最先暴露，减少用户来回修改的次数。
+// 入参约束：username/password 必填，email 可选；password >= 6 字符（与后端规则一致，避免来回往返）。
+// 副作用：成功后清空密码字段并跳转到登录页（query 携带用户名以便自动回填），
+// 失败时展示后端 message 或兜底文案，不写任何持久化状态——token 的存取由 login 流程负责。
 async function handleSubmit() {
   if (!username.value || !password.value) {
     error.value = '请填写用户名和密码'
@@ -49,6 +60,8 @@ async function handleSubmit() {
   }
 }
 
+// 第三方登录占位：保留按钮是为了一期 UI 不变，二期接 OAuth 时只替换实现，
+// 调用方（模板按钮）无需改动。
 function handleGoogleLogin() {
   console.log('Google login not implemented yet')
 }

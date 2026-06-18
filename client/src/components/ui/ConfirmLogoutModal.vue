@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 退出登录二次确认弹窗：与父组件通过 v-model:show 控制可见性，仅做 UI 与交互编排，
+// 不直接调登出 API；登出副作用由父组件在 confirm 事件中处理，便于复用与单测。
 import { ref, watch } from 'vue'
 
 interface Props {
@@ -13,8 +15,11 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
+// 按钮加载态：用于在用户点击「退出登录」后锁定交互，避免重复点击导致重复触发登出请求。
 const isLoading = ref(false)
 
+// 弹窗关闭时重置 loading：避免父组件下次再打开弹窗时仍处于「已点击」的禁用状态，
+// 保持组件无状态、可重复使用的语义。
 watch(() => props.show, (newVal) => {
   if (!newVal) {
     isLoading.value = false
@@ -22,6 +27,8 @@ watch(() => props.show, (newVal) => {
 })
 
 function handleClose() {
+  // 加载中禁止关闭：登出请求已发出，避免用户在请求飞行途中通过遮罩/关闭按钮取消，
+  // 防止 UI 状态与后端真实登出状态不一致。
   if (!isLoading.value) {
     emit('close')
   }
@@ -30,6 +37,8 @@ function handleClose() {
 async function handleConfirm() {
   isLoading.value = true
   // Simulate a brief delay for better UX
+  // 人为延迟：登出接口通常极快（本地清 token），加 ~300ms 让 spinner 至少被看到，
+  // 避免「点了没反应」的体感，掩盖网络/状态切换的瞬时空白。
   await new Promise(resolve => setTimeout(resolve, 300))
   emit('confirm')
 }

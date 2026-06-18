@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// AI 角色发言前的"正在思考"占位指示器。
+// 由父组件在等待流式首 token 返回的间隙挂载，避免用户感知到"无响应"——
+// 多角色群聊场景下 LLM 推理常有数秒延迟，纯空白会让人误以为崩溃。
+// 仅依赖 characterName 一个 prop：刻意保持无状态，由调用方控制显隐（v-if），
+// 这样不同角色轮次可独立挂载/卸载，也便于配合 Moderator 的发言编排节奏复用。
 defineProps<{
   characterName: string
 }>()

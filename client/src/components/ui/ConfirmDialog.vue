@@ -3,9 +3,12 @@
  * 通用确认弹窗：用于"危险操作前最后确认"场景（删除、清空等）。
  * 替代 window.confirm()，风格与项目深色主题一致。
  */
+// 通过 Teleport 挂到 body，避免父容器 transform/overflow 影响定位；
+// 由调用方控制 show/danger/loading，本组件只负责 UI 与事件转发（不内置异步请求）。
 import { watch, onUnmounted } from 'vue'
 
 interface Props {
+  // 受控开关：父组件持有 show 状态，便于在请求返回后异步关闭
   show: boolean
   title?: string
   message: string
@@ -13,6 +16,7 @@ interface Props {
   cancelText?: string
   /** danger 模式：确定按钮变红色（用于删除等不可逆操作） */
   danger?: boolean
+  // 提交中态：触发后由父组件置 true，期间禁用按钮并阻止重复 emit
   loading?: boolean
 }
 
@@ -29,6 +33,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
+// 守卫 loading：防止用户在异步请求未完成时多次点击，导致重复删除/重复请求
 function handleConfirm() {
   if (props.loading) return
   emit('confirm')
@@ -40,10 +45,14 @@ function handleCancel() {
 }
 
 // 打开时锁住背景滚动，关闭时恢复
+// 原因：弹窗出现时长内容滚动会显得页面"穿透"，锁定可强化模态感；
+// 通过监听 show 切换而非挂载时锁定，是为了支持"调用方控制显隐"的受控模式。
 watch(() => props.show, (visible) => {
   document.body.style.overflow = visible ? 'hidden' : ''
 })
 
+// 兜底清理：组件被卸载（如父级 v-if 销毁）时若 show 仍为 true，需恢复 body 滚动，
+// 否则会污染其他页面（这是一个历史踩过的坑）。
 onUnmounted(() => {
   document.body.style.overflow = ''
 })
@@ -52,6 +61,7 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <Transition name="confirm-fade">
+      <!-- @click.self 仅在遮罩自身点击时关闭，避免点击 modal 内容冒泡误关闭 -->
       <div v-if="show" class="confirm-overlay" @click.self="handleCancel">
         <div class="confirm-modal" role="dialog" aria-modal="true">
           <header class="confirm-header">
@@ -95,6 +105,7 @@ onUnmounted(() => {
 }
 
 .confirm-modal {
+  /* 通过 CSS 变量集中管理配色，便于 :global(.dark) 主题切换时一次性覆盖 */
   --modal-bg: #ffffff;
   --modal-border: rgba(226, 232, 240, 0.95);
   --modal-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
@@ -210,6 +221,9 @@ onUnmounted(() => {
 }
 
 /* 危险模式仍用主色（保持项目一致），如需红可加，但项目无此先例 */
+/* 说明：danger 状态下复用 primary 样式（而不是使用红色）——
+   保持与项目其它 Modal（CreateCharacterModal 等）的视觉语言一致；
+   真实"危险感"由文案与按钮 loading 态传达，而非颜色，刻意克制以避免视觉噪音。 */
 
 /* 过渡 */
 .confirm-fade-enter-active,

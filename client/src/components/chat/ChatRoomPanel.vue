@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// ChatRoomPanel：聊天室主面板（核心对话 UI）。
+// 作为视图层容器协调 socket、消息/角色/房间 store、子组件（消息列表、输入框、侧栏、弹窗）。
+// 支持独立使用与 embedded 两种模式：embedded 时由父布局提供 header/侧栏，避免重复渲染。
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useSocket, type ChatMessage } from '@/composables/useSocket'
 import { useMessageStore } from '@/stores/message'
@@ -51,6 +54,7 @@ function scrollToBottom() {
 }
 
 // 监听消息变化，自动滚动（仅用于流式消息时的实时跟进）
+// 仅在流式/思考状态变化时滚动：避免历史消息加载或非用户行为打断用户当前浏览位置
 watch(
   () => [Object.keys(messageStore.streamingMessages).length, messageStore.thinkingCharacterId],
   () => {
@@ -58,6 +62,9 @@ watch(
   }
 )
 
+// useSocket：订阅与该房间绑定的实时事件，所有回调只负责把事件转写到 store，
+// 真正的状态机与渲染由 store 驱动，便于其他组件共享同一份状态。
+// onThinking 时同步 roomStore.isDiscussing 是为了让讨论控制条（暂停/继续）只在真正有人在发言时显示。
 const { isConnected, sendMessage, leaveRoom, pauseDiscussion, resumeDiscussion } = useSocket(props.roomId, {
   onMessage: (msg: ChatMessage) => {
     messageStore.addMessage(msg)
@@ -133,6 +140,8 @@ function goToSettings() {
   showApiKeyPrompt.value = true
 }
 
+// 保存 API Key：保存到账号设置而非房间本地，所有房间复用。
+// apiKeySaving 用于避免重复提交；finally 保证 loading 状态一定被关闭。
 async function saveApiKey() {
   if (!apiKeyInput.value.trim()) {
     apiKeyError.value = '请输入 API Key'
@@ -184,7 +193,10 @@ async function switchMode(mode: 'dialogue' | 'discussion') {
   }
 }
 
-// Load data when roomId changes
+// 加载房间数据：fetchRoomById → fetchCharacters → loadMessages 三步串行，
+// 顺序依赖：先有 currentRoom 才能正确渲染角色列表与消息归属。
+// 末尾两次 nextTick 后再滚动，因为 MessageList 内部滚动容器嵌套在 ref host 之下，
+// 单次 nextTick 拿到的 DOM 高度还未稳定，可能导致滚动位置偏差。
 async function loadRoomData() {
   if (!props.roomId) return
 
@@ -222,7 +234,8 @@ onUnmounted(() => {
   roomStore.setCurrentRoom(null)
 })
 
-// Handle sending a message
+// 发送消息：先在 store 里插入一条临时 USER 消息以获得即时反馈（乐观更新），
+// 等服务端回传真实消息后再被替换；discussion 模式下额外标记 isDiscussing 以展示控制条。
 function handleSend(content: string) {
   if (!content.trim()) return
 
@@ -246,7 +259,8 @@ function handleSend(content: string) {
   sendMessage(content.trim())
 }
 
-// Handle pause/resume discussion
+// 暂停/继续讨论：同时调用 socket 与本地 store，保持 UI 状态与服务端一致；
+// 本地先翻状态以避免网络往返造成按钮响应迟滞。
 function togglePause() {
   if (messageStore.paused) {
     resumeDiscussion()
@@ -257,7 +271,8 @@ function togglePause() {
   }
 }
 
-// Handle adding a character to the room
+// 添加角色到房间：调用后端关联后，用最新 room 刷新 currentRoom 以触发角色列表与状态重渲染；
+// 错误统一写入 characterError，由模板顶部 banner 展示，避免打断对话流。
 async function handleCharacterAdded(character: Character) {
   characterError.value = null
   try {

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 通用侧边栏组件：渲染品牌区 + 父级传入的「创建」操作槽位 + 导航列表。
+// 不内嵌任何具体路由数据：每个视图（HomeView / RoomListView 等）按需传入 navItems 子集与当前 activeId，
+// 这样同一组件能服务于「发现/我的聊天/角色库/场景」等多种上下文，避免在侧边栏里硬编码路由分支。
+
 import { useRouter } from 'vue-router'
 import type { NavItem } from '@/config/sidebar'
 
@@ -9,6 +13,8 @@ defineProps<{
 
 const router = useRouter()
 
+// 用 router.push 而非 <router-link>：因为外层 <a href="#"> + @click.prevent 的写法更便于自定义 hover/active 样式，
+// 同时避免在多次重渲染时 router-link 触发默认 scrollBehavior 的副作用。
 function go(route: string) {
   router.push(route)
 }

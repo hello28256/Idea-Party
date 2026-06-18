@@ -32,6 +32,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 
+/**
+ * Spring Security 总配置：定义无状态的 JWT 鉴权链路、公开端点白名单与 CORS 规则。
+ * 与 {@link JwtAuthenticationFilter} 配合完成基于 Bearer Token 的身份注入；
+ * 前端为 Vue SPA，使用 Cookie 之外的 token 方案，因此禁用 CSRF 并采用 STATELESS 会话策略。
+ */
 @Configuration
 @EnableWebSecurity
 @Slf4j
@@ -42,6 +47,10 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * 装配鉴权过滤链：白名单内端点（含登录、健康检查、WebSocket、Swagger、上传静态资源）放行，
+     * 其余一律要求认证；未认证请求统一以 JSON 401 响应，便于前端 axios 拦截器识别。
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter) throws Exception {
         http
@@ -70,6 +79,7 @@ public class SecurityConfig {
         return http.build();
     }
 
+    // 允许的跨域来源：优先读取配置属性，再回退到环境变量；默认包含本地开发常用的 5 个 Vite 端口（5173-5177），覆盖多开调试场景
     @Value("${app.cors.allowed-origins:${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177}}")
     private String corsAllowedOrigins;
 
@@ -91,13 +101,26 @@ public class SecurityConfig {
         return request -> configuration;
     }
 
+    /**
+     * JWT 鉴权过滤器：每个请求解析一次 Authorization 头中的 Bearer Token，
+     * 校验通过则把 userId 写入 SecurityContext；不通过则返回 401 短路响应，避免被下游视为越权 403。
+     */
     @Component
     @Slf4j
     public static class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         private final SecretKey secretKey;
 
-        public JwtAuthenticationFilter(@Value("${jwt.secret}") String jwtSecret) {
+        public JwtAuthenticationFilter(
+                @Value("${jwt.secret}") String jwtSecret,
+                @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
+            // 启动期校验密钥强度：避免部署弱密钥 + 解析失败时给出明确日志
+            if (jwtSecret == null || jwtSecret.isBlank()
+                    || jwtSecret.startsWith("CHANGE_ME")
+                    || jwtSecret.getBytes(StandardCharsets.UTF_8).length < jwtSecretMinLength) {
+                throw new IllegalStateException(
+                        "jwt.secret 未配置或长度不足 HS256 要求（>= " + jwtSecretMinLength + " 字节），请通过 JWT_SECRET 环境变量注入");
+            }
             this.secretKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
         }
 

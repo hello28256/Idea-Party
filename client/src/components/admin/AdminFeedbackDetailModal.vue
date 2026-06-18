@@ -1,9 +1,14 @@
 <script setup lang="ts">
+// 管理端「反馈详情」弹窗：在 AdminFeedbackListView 里点开某条 like/dislike 反馈时打开。
+// 既要展示用户显式反馈（分类、备注），也要拉取并展示该消息的隐式信号
+// （复制/重写/停留等），帮助管理员判断是否需要标记低质回答或调整角色 prompt。
 import { ref, watch } from 'vue'
 import { X, ThumbsUp, ThumbsDown, Copy, Eye, RefreshCw, Pencil } from 'lucide-vue-next'
 import type { AdminFeedbackDetail } from '@/api/messageFeedback'
 import { messageEventsApi, type MessageSignals } from '@/api/messageEvents'
 
+// 反馈详情只读视图：无内部状态可写回后端，因此只暴露 close 事件，
+// 由父组件决定如何响应关闭（关闭弹窗、清理选中项等）。
 interface Props {
   show: boolean
   detail: AdminFeedbackDetail | null
@@ -12,6 +17,8 @@ interface Props {
 const props = defineProps<Props>()
 defineEmits<{ (e: 'close'): void }>()
 
+// 后端 category 是英文枚举；这里集中翻译成中文标签，避免模板里散落 i18n 字符串。
+// 取不到时回退原始 key（OTHER 等）以便排查未知分类。
 const CATEGORY_LABELS: Record<string, string> = {
   IRRELEVANT: '答非所问',
   INACCURATE: '事实不准',
@@ -35,6 +42,8 @@ function formatDwell(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`
 }
 
+// 加载消息隐式信号；失败（如该消息无事件记录、404）也不阻塞反馈详情展示，
+// 仅在底部追加一行提示，由模板里的 signalsError 渲染。
 async function loadSignals(messageId: string) {
   signalsLoading.value = true
   signalsError.value = null
@@ -49,6 +58,8 @@ async function loadSignals(messageId: string) {
   }
 }
 
+// 监听 show + messageId：每次打开弹窗或切换到不同消息都重新拉一次隐式信号，
+// 关闭时清空避免下次打开瞬间闪现上一次的数据。
 watch(
   () => [props.show, props.detail?.messageId],
   ([show, mid]) => {

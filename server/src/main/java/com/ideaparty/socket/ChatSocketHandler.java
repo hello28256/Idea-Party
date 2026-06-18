@@ -192,7 +192,18 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 msgUserId = savedMessage.getUser().getId().toString();
             }
         } catch (Exception e) {
-            log.error("[WS] Failed to save message: {}", e.getMessage());
+            // 持久化失败时必须通知发送方并中断后续流程：
+            // 原来仅 log 然后继续广播，前端会收到一条"成功"的消息但数据库实际未持久化，
+            // 下游 Moderator/observation 流水线也会丢失这条消息，造成静默数据丢失。
+            log.error("[WS] Failed to save message for room {}: {}", roomId, e.getMessage(), e);
+            String errorEvent = "42[\"error\","
+                + objectMapper.writeValueAsString(Map.of(
+                    "message", "消息保存失败，请重试",
+                    "code", "PERSISTENCE_FAILED"
+                ))
+                + "]";
+            session.sendMessage(new TextMessage(errorEvent));
+            return;
         }
 
         // Broadcast to all clients in the room (include message id for deduplication)

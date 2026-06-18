@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// RoomListView 是应用的核心"中枢"页面：
+// 通过 URL query (?tab=...&roomId=...) 同时承载「发现/角色库/场景/我的聊天」多个视图，
+// 并在 my-rooms tab 下用三栏布局（房间列表 + 聊天面板 + 角色面板）替代独立 /chat 路由。
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
 import { scenariosApi } from '@/api/scenarios'
@@ -35,14 +38,17 @@ const createCharacterRoomId = ref<string | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
 const searchQuery = ref('')
+// mounted 在 onMounted 延迟 50ms 后置 true，触发 .page-layout 渐显动画（避免首帧空白闪烁）
 const mounted = ref(false)
 
 // Selected room for chat panel (my-rooms tab two-column layout)
 const selectedRoomId = ref<string | null>(null)
 
 // Three-way collapsible layout state
+// localStorage key：保存三栏折叠状态，让刷新后仍能恢复用户偏好的布局
 const SIDEBAR_STATE_KEY = 'idea-party-chat-layout-state'
 const isGlobalSidebarCollapsed = ref(false)
+// 默认折叠中间和右侧栏：进入 my-rooms 时优先展示列表，选中房间后才展开聊天面板
 const isRoomListCollapsed = ref(true)
 const isRolePanelCollapsed = ref(true)
 
@@ -81,6 +87,8 @@ function handleDeleteRoom(roomId: string, event: MouseEvent) {
   showDeleteRoomConfirm.value = true
 }
 
+// 确认删除：调用 store 真正删；如果删的恰好是当前选中的房间，把 URL 上的 roomId 清掉并停留在 my-rooms，
+// 避免右侧聊天面板继续渲染一个已不存在的房间。
 async function confirmDeleteRoom() {
   const roomId = deletingRoomId.value
   const name = deletingRoomName.value
@@ -109,6 +117,7 @@ async function confirmDeleteRoom() {
   }
 }
 
+// 全局 document click 监听：当点击落在「三点按钮 + 弹出菜单」之外时关闭该行的 more menu。
 function onRoomMenuOutsideClick(e: MouseEvent) {
   if (!openMenuRoomId.value) return
   const t = e.target as Node
@@ -118,6 +127,8 @@ function onRoomMenuOutsideClick(e: MouseEvent) {
 }
 
 // Resolve avatar URL for member avatars
+// 后端返回的头像地址已经是可直接使用的相对路径或绝对 URL，
+// 这里保留作为扩展点：如果未来接入 CDN 或外部图床，按前缀规则改写即可。
 function resolveAvatarUrl(url: string | null | undefined): string {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://')) return url
@@ -128,6 +139,7 @@ function resolveAvatarUrl(url: string | null | undefined): string {
 }
 
 // Load saved collapse state from localStorage
+// 解析失败时静默回退到默认值：避免一次坏数据导致整个页面布局异常。
 function loadLayoutState() {
   try {
     const saved = localStorage.getItem(SIDEBAR_STATE_KEY)
@@ -143,6 +155,7 @@ function loadLayoutState() {
 }
 
 // Save collapse state to localStorage
+// 写入失败（隐私模式 / 配额耗尽）只 log，不打扰用户：布局状态本身是体验优化，非核心。
 function saveLayoutState() {
   try {
     localStorage.setItem(
@@ -167,6 +180,8 @@ watch(
 )
 
 // Current room characters - read from currentRoom which is updated by addCharacterToRoom
+// 优先读 currentRoom（由 addCharacterToRoom 等写操作更新），回退到 myRooms 列表：
+// 这样切换已加载的房间无需再发请求。
 const currentRoomCharacters = computed(() => {
   if (!selectedRoomId.value) return []
   if (roomStore.currentRoom?.id === selectedRoomId.value) {
@@ -194,6 +209,7 @@ const availableCharactersForRoom = computed(() => {
 })
 
 // Current room chat mode
+// 'dialogue' = 多角色并行响应；'discussion' = 轮流讨论。由后端决定编排逻辑，前端只展示与切换。
 const currentChatMode = computed(() => {
   if (!selectedRoomId.value) return 'dialogue'
   if (roomStore.currentRoom?.id === selectedRoomId.value) {
@@ -204,6 +220,8 @@ const currentChatMode = computed(() => {
 })
 
 // Switch between dialogue and discussion mode
+// 同模式重复点击直接返回，避免无意义的 PUT 请求。
+// 失败时仍用 alert（暂未迁移到 toast）：遗留行为，后续可统一改为 toast。
 async function switchMode(mode: 'dialogue' | 'discussion') {
   console.log('[DEBUG] switchMode called with mode:', mode)
   console.log('[DEBUG] selectedRoomId:', selectedRoomId.value)
@@ -232,6 +250,7 @@ async function switchMode(mode: 'dialogue' | 'discussion') {
 }
 
 // Sync selectedRoomId with URL query
+// URL 上的 'null'/'undefined' 视为缺失：兼容 router.replace 时显式传 undefined 被序列化成字符串的情况。
 watch(
   () => route.query.roomId as string | undefined,
   (roomId) => {
@@ -266,6 +285,7 @@ const navItems = [
 ]
 
 // Active nav item based on current route
+// 优先级：query.tab > 路径前缀。'/chat/*' 仍归为 discover：因为新版三栏布局已替代独立聊天路由。
 const activeNavId = computed(() => {
   const path = route.path
   const tab = route.query.tab as string
@@ -317,6 +337,7 @@ const isDragging = ref(false)
 const jdImageUploading = ref(false)
 const jdImageError = ref<string | null>(null)
 
+// 打开场景弹窗时全量重置状态：避免上一次场景的输入（岗位/JD/简历）泄漏到下一个。
 function openScenario(s: Scenario) {
   activeScenario.value = s
   userInput.value = ''
@@ -351,6 +372,7 @@ function closeScenario() {
 }
 
 // 简历上传：选择文件或拖拽
+// 前端只做轻量预校验（大小/扩展名），真正的解析在后端完成；这样能减少无效网络请求并给出更准确的错误。
 async function handleResumeFile(file: File) {
   if (!file) return
   // 前端预校验：大小 + 扩展名
@@ -413,6 +435,7 @@ function clearResume() {
 }
 
 // JD 截图 OCR：支持点击、拖拽、Ctrl+V 粘贴
+// 追加而非覆盖：用户可能想叠加多张 JD 截图，自动换行拼接保留所有来源。
 async function handleJdImageFile(file: File) {
   if (!file) return
   // 前端预校验
@@ -478,6 +501,7 @@ function onJdImagePaste(e: ClipboardEvent) {
 }
 
 // 简单解析岗位字符串，提取行业和经验年限（"前端 / SaaS / 5年" -> 行业=SaaS, 年限=5）
+// 启发式规则：纯数字+"年"视为年限；短词视为行业。不做强语义理解，交给后端 LLM 做更精准的拆解。
 function parsePositionMeta(input: string): { industry: string; experienceYears: number | null } {
   const parts = input.split(/[／/、,，]/).map(s => s.trim()).filter(Boolean)
   let industry = ''
@@ -493,6 +517,9 @@ function parsePositionMeta(input: string): { industry: string; experienceYears: 
   return { industry, experienceYears }
 }
 
+// 场景弹窗「下一步」按钮的统一入口：
+// - 动态生成场景（面试）：先调用后端 LLM 生成面试官 prompt，弹窗进入 preview 步骤让用户编辑。
+// - 静态场景：跳过预览，直接调用 finalizeScenario 创建角色+房间。
 async function nextStep() {
   if (!activeScenario.value) return
   const scenario = activeScenario.value
@@ -535,7 +562,12 @@ async function nextStep() {
   await finalizeScenario()
 }
 
-async function finalizeScenario() {
+// 真正落地创建角色+房间。两类入口：
+// 1) dynamicPrompt 场景：复用 preview 步骤的 prompt 创建角色，避免重复调用 LLM。
+// 2) 旧场景：调用通用 generatePrompt，按 scenario.id 映射固定的 characterName。
+// 简单解析岗位字符串，提取行业和经验年限（"前端 / SaaS / 5年" -> 行业=SaaS, 年限=5）
+// 启发式规则：纯数字+"年"视为年限；短词视为行业。不做强语义理解，交给后端 LLM 做更精准的拆解。
+function parsePositionMeta(input: string): { industry: string; experienceYears: number | null } {
   if (!activeScenario.value) return
   const scenario = activeScenario.value
   const input = userInput.value.trim()
@@ -671,6 +703,7 @@ function handleCharacterUpdated(updatedCharacter: any) {
 }
 
 // Start chat with a character - creates/joins a single-person chat room
+// 幂等保证：每次先 fetchMyRooms 再查找已有房间，避免跨页面/跨设备创建重复会话。
 async function startChat(character: any) {
   try {
     console.log('[DEBUG] startChat called with character:', character)
@@ -758,6 +791,8 @@ const categories = [
 const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
 
+// 发现页"推荐角色"列表的拉取与兜底：头像缺失时用 DiceBear SVG 生成确定性占位（seed=name），
+// 这样同一角色无论何时显示都是同一张图，提升品牌识别一致性。
 async function fetchFeaturedCharacters() {
   featuredCharactersLoading.value = true
   try {
@@ -887,6 +922,8 @@ const recentChats = computed(() => {
   }))
 })
 
+// 挂载时并发拉取四份数据（不互依赖），让发现/我的/角色库等多个 tab 都能秒开。
+// document 级 click 监听注册在此处而非组件内：避免 dropdown 被 portal 出去后点不到关闭。
 onMounted(() => {
   roomStore.fetchRooms()
   roomStore.fetchMyRooms()
@@ -924,6 +961,8 @@ function handleRoomCreated(roomId: string) {
   })
 }
 
+// 我的聊天列表点击：先上报一次访问（用于后端统计/排序），再把 URL 切换到对应 roomId。
+// 用 router.replace 而非 push：避免每次切换房间都堆积一条历史记录。
 function selectRoom(roomId: string) {
   roomStore.recordEnter(roomId)
   selectedRoomId.value = roomId
@@ -938,6 +977,7 @@ function selectRoom(roomId: string) {
 }
 
 // For demo/placeholder rooms in Discover view - still uses old navigation
+// 即使是 demo 占位房间也走 my-rooms tab：新版三栏布局是唯一支持 chat 渲染的入口。
 async function enterRoom(roomId: string) {
   await roomStore.recordEnter(roomId)
   selectedRoomId.value = roomId
@@ -964,6 +1004,8 @@ function handleCreateCharacter() {
   showCreateCharacterModal.value = true
 }
 
+// 创建角色成功后的双轨同步：先重新拉列表兜底，再把本次返回的角色 unshift 到 store 头部，
+// 解决后端在某些路径下不返回新资源导致的列表不刷新问题。
 async function handleCharacterCreated(character: any) {
   showCreateCharacterModal.value = false
   // First fetch to sync with server
@@ -985,6 +1027,8 @@ function handleCreateRoom() {
   showCreateModal.value = true
 }
 
+// 与 handleCharacterCreated 不同：这条路径用户是在房间里点"+ 添加角色"新建的，
+// 无需再处理"列表里要不要插入"，重点是把这个新角色立即加入当前房间。
 async function handleAddedToRoom(character: any) {
   showCreateCharacterModal.value = false
   // Refresh characters list from API
@@ -1000,6 +1044,8 @@ function openAddCharacterModal() {
   showCreateCharacterModal.value = true
 }
 
+// 通过用户名/邮箱向当前房间发送邀请：成功后清空关键字并关闭弹窗；
+// 失败时把错误留在弹窗内而不是用 toast：让用户在邀请上下文里直接看到失败原因。
 async function handleInviteMember() {
   if (!inviteKeyword.value.trim() || !selectedRoomId.value) return
   inviteLoading.value = true

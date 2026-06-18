@@ -2,6 +2,11 @@
 import { ref, computed } from 'vue'
 import { Send } from 'lucide-vue-next'
 
+// ChatInput：聊天室底部的消息输入区。
+// 对外只暴露「是否禁用」与「send 事件」两个契约：父组件（ChatRoom 等）通过 disabled 屏蔽
+// AI 正在生成/未连上 WebSocket 的场景，发送时拿到已 trim 的纯文本，由父组件决定是普通消息
+// 还是 Moderator 触发新一轮发言。
+
 const props = withDefaults(defineProps<{
   disabled?: boolean
 }>(), {
@@ -13,12 +18,16 @@ const emit = defineEmits<{
 }>()
 
 const content = ref('')
+// textareaRef 同时承担两件事：响应式拿到 DOM（v-model 双向绑定需要），
+// 以及在 autoResize 里手动改写 style.height —— 因此必须是非空的 HTMLTextAreaElement 引用。
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
+// canSend 的 trim() 校验保证「全空白字符」不能发送，避免误触回车把空消息丢给后端。
 const canSend = computed(() => {
   return content.value.trim().length > 0 && !props.disabled
 })
 
+// 处理键盘事件：拦截 IME 组合中的 Enter（让用户确认候选词），并实现回车发送 / Shift+回车换行。
 function handleKeydown(event: KeyboardEvent) {
   // When a CJK IME (pinyin / kana / hangul) is composing, Enter is used to
   // confirm a candidate — not to send the message. Skip in that case so the
@@ -34,6 +43,8 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+// 发送主流程：canSend 兜底防双击 / 父组件外部触发；清空内容并重置高度，
+// 避免下一次输入前还残留上一次的多行高度造成视觉跳动。
 function handleSend() {
   if (!canSend.value) return
 
@@ -46,6 +57,8 @@ function handleSend() {
   }
 }
 
+// 输入自适应高度：先重置 auto 再读取 scrollHeight，是为了能正确收缩到更短的内容
+// （如果不先归零，长文本切短时高度不会回退）。封顶约 4 行避免长消息把输入区顶穿屏幕。
 function autoResize() {
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'

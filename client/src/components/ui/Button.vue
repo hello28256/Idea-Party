@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// 通用按钮 UI 原子组件
+// 全站统一按钮外观与交互（提交/取消/危险/次级），封装 loading 态以避免每个调用方重复实现 disabled + spinner 联动。
 interface Props {
   type?: 'button' | 'submit' | 'reset'
   variant?: 'primary' | 'secondary' | 'destructive' | 'outline'
@@ -6,6 +8,8 @@ interface Props {
   loading?: boolean
 }
 
+// withDefaults 给所有 prop 提供非空默认值，保证模板里直接使用 props.x 不会是 undefined
+// 同时避免调用方必须显式传 type='button'（表单内不指定 type 会默认 submit，触发意外提交 —— 这里强制 type 默认 'button' 是有意为之）
 const props = withDefaults(defineProps<Props>(), {
   type: 'button',
   variant: 'primary',
@@ -17,6 +21,9 @@ const emit = defineEmits<{
   click: [event: MouseEvent]
 }>()
 
+// 点击拦截：loading 期间也屏蔽 click
+// 因为浏览器在 disabled=true 时不会派发 click 事件，但 loading 状态下我们并未真正禁用 disabled 属性（仍可被屏幕阅读器读为可点），
+// 必须在 JS 层再做一次闸门，防止 loading 中重复触发副作用（例如重复提交表单）。
 function handleClick(event: MouseEvent) {
   if (!props.disabled && !props.loading) {
     emit('click', event)

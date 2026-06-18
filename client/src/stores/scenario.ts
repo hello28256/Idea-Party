@@ -1,12 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+// 场景模板：用户进入「创建房间」弹窗时看到的预设剧本。
+// 一个 Scenario 描述一次会话的"上下文 + 引导语 + 角色池"，与底层 Character 解耦——
+// 同一组角色可以挂在不同 Scenario 下，扮演不同的角色关系。
 export interface Scenario {
+  // 路由/query 透传的主键：弹窗 deep-link（?scenario=xxx）直接据此定位
   id: string
+  // 仅用于 UI 视觉锚点，不参与业务逻辑；前端可随意替换不影响后端契约
   emoji: string
   title: string
   description: string
+  // 静态提示词模板；当 dynamicPrompt=true 时该字段被后端忽略，由运行时拼接
   promptTemplate: string
+  // 弹窗里预勾选的角色；最终是否使用由用户在创建房间时的选择覆盖
   suggestedCharacterIds: string[]
   // 是否在弹窗里让用户补充输入（如岗位描述 / 产品 idea / 写作题材）
   requiresUserInput?: boolean
@@ -19,6 +26,8 @@ export interface Scenario {
 }
 
 // 初始的 4 个示例场景。先在前端写死；将来可改为后端 API
+// 选型原因：场景数量少且变动不频繁，前端硬编码可以避免额外的网络往返和冷启动空白；
+// 后续若运营需要热更新，再迁移到 GET /api/scenarios，调用方（store.getById）签名不变。
 const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'interview-coach',
@@ -113,9 +122,15 @@ const SEED_SCENARIOS: Scenario[] = [
   }
 ]
 
+// 场景 Pinia store。
+// 当前不持久化、不写后端：仅作为路由 / 弹窗之间的「共享只读数据源」，
+// 避免在多个组件里各自 import SEED_SCENARIOS 造成耦合。
 export const useScenarioStore = defineStore('scenario', () => {
+  // 用展开运算符拷贝一份：防御 SEED_SCENARIOS 被外部引用修改（例如单测里 mock 状态时）。
   const scenarios = ref<Scenario[]>([...SEED_SCENARIOS])
 
+  // 单纯的 O(n) 查表；场景数量在个位数级别，无需上 Map / 索引。
+  // 返回引用（而非深拷贝）：调用方应当只读消费，修改需要走明确的 mutation action。
   function getById(id: string): Scenario | undefined {
     return scenarios.value.find(s => s.id === id)
   }
