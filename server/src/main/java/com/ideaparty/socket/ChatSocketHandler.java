@@ -46,6 +46,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
     // Track recent AI responses per room for cross-agent context (keeps last 5 responses)
     private final ConcurrentHashMap<String, List<RecentResponse>> roomRecentResponses = new ConcurrentHashMap<>();
+    // Per-room locks used to make "is discussion running? then route / start" check-and-start atomic.
+    // Two concurrent user messages can otherwise both pass the "not running" check and start parallel
+    // discussion loops, overwriting the same DiscussionState.
+    private final ConcurrentHashMap<String, Object> roomDiscussionLocks = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Simple record to store recent response context
@@ -232,16 +236,20 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             boolean isDiscussionMode = room != null && "discussion".equals(room.getChatMode());
 
             if (isDiscussionMode) {
-                // In discussion mode, start or continue the discussion
-                // Check if discussion is already running
-                if (moderatorAgent.isDiscussionRunning(roomId)) {
-                    // 用户插话，立即中断并重新组织讨论
-                    moderatorAgent.handleUserInterjection(roomId, userId, content);
-                    log.info("[WS] Discussion mode: user interjection, reorganizing discussion");
-                } else {
-                    // Start new discussion
-                    log.info("[WS] Discussion mode: starting new discussion");
-                    triggerAIForRoom(roomId, content, userId, null);
+                // 用 per-room 锁把 "isRunning 检查 + 启动" 包成一个原子段：
+                // 否则并发用户消息会双双通过 isRunning=false 检查，启动两条并行讨论循环，
+                // 后启动的会覆盖前者的 roomDiscussionState 导致 round 计数错乱。
+                Object roomLock = roomDiscussionLocks.computeIfAbsent(roomId, k -> new Object());
+                synchronized (roomLock) {
+                    if (moderatorAgent.isDiscussionRunning(roomId)) {
+                        // 用户插话，立即中断并重新组织讨论
+                        moderatorAgent.handleUserInterjection(roomId, userId, content);
+                        log.info("[WS] Discussion mode: user interjection, reorganizing discussion");
+                    } else {
+                        // Start new discussion
+                        log.info("[WS] Discussion mode: starting new discussion");
+                        triggerAIForRoom(roomId, content, userId, null);
+                    }
                 }
             } else {
                 // In dialogue mode, use moderator to select who should respond
@@ -732,6 +740,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             roomActiveThreadOwner.remove(roomId);
             roomLastSpeaker.remove(roomId);
             roomRecentResponses.remove(roomId);
+            // 只有房间为空时才释放锁对象；如果还有其它会话在线，保留供它们继续互斥
+            if (remaining == null || remaining.isEmpty()) {
+                roomDiscussionLocks.remove(roomId);
+            }
             log.debug("[WS] Released per-room state for empty room {}", roomId);
         }
     }
