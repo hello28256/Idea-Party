@@ -8,6 +8,7 @@ import com.ideaparty.repository.UserRepository;
 import com.ideaparty.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,7 +29,10 @@ public class UserController {
     private final AuthService authService;
 
     private static final Set<String> ALLOWED_AVATAR_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
-    private static final long MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
+    // 头像大小上限改为从配置注入，与 FileUploadController / application.yml 保持一致，
+    // 避免在两个上传入口维护两份硬编码常量。
+    @Value("${upload.avatar.max-size:5242880}")
+    private long maxAvatarSize;
     private static final String UPLOAD_DIR = "uploads/avatars/";
 
     @GetMapping("/profile")
@@ -67,8 +71,8 @@ public class UserController {
             throw new IllegalArgumentException("不支持的头像格式，仅支持 jpg/jpeg/png/webp");
         }
 
-        if (file.getSize() > MAX_AVATAR_SIZE) {
-            throw new IllegalArgumentException("头像文件过大，最大 5MB");
+        if (file.getSize() > maxAvatarSize) {
+            throw new IllegalArgumentException("头像文件过大，最大 " + (maxAvatarSize / 1024 / 1024) + "MB");
         }
 
         try {

@@ -46,8 +46,11 @@ public class MessageEventService {
 
         UUID roomId = message.getRoom().getId();
         if (!roomMemberRepository.isMember(roomId, userId)) {
-            // Same: ignore cross-room noise rather than 403-ing the client.
-            log.debug("[Event] ignoring event from non-member {} for room {}", userId, roomId);
+            // Same: ignore cross-room noise rather than 403-ing the client. 这种"静默拒绝"
+            // 比抛 AccessDeniedException 更好——攻击者无法通过响应差异枚举房间成员关系。
+            // 但仍升级到 warn 级别便于安全监控发现异常事件流。
+            log.warn("[Event] ignoring event from non-member {} for room {} (message {})",
+                userId, roomId, messageId);
             return;
         }
 
