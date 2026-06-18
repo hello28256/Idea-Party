@@ -52,7 +52,8 @@ class AuthServiceTest {
                 userRepository,
                 passwordEncoder,
                 TEST_SECRET,
-                JWT_EXPIRATION
+                JWT_EXPIRATION,
+                32
         );
 
         userId = UUID.randomUUID();
@@ -214,7 +215,8 @@ class AuthServiceTest {
                 userRepository,
                 passwordEncoder,
                 TEST_SECRET,
-                -1000 // Negative expiration = already expired
+                -1000, // Negative expiration = already expired
+                32
         );
 
         String expiredToken = shortExpService.generateToken(testUser);
