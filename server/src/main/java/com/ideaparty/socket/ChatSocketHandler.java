@@ -42,6 +42,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> sessionUsers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> roomLastSpeaker = new ConcurrentHashMap<>();  // Track last speaker per room
+    // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
+    private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
     // Track recent AI responses per room for cross-agent context (keeps last 5 responses)
     private final ConcurrentHashMap<String, List<RecentResponse>> roomRecentResponses = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -375,7 +377,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                             // (truncated for display)
                             chunkData.put("roomId", roomId);
                             chunkData.put("streaming", true);
-                            String chunkEvent = "42[\"message stream\","
+                            String chunkEvent = "42[\"chat chunk\","
                                 + objectMapper.writeValueAsString(chunkData)
                                 + "]";
                             broadcastToRoom(roomId, chunkEvent);
@@ -649,7 +651,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     }
 
     // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
-    private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
+    // Field is declared near other room-* maps above.
 
     /**
      * Update the active thread owner for a room after a character responds.
@@ -712,6 +714,15 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         sessionUsers.remove(session.getId());
         // Clear SecurityContext for this session
         SecurityContextHolder.clearContext();
+
+        // If no more sessions remain in this room, release per-room state to prevent unbounded growth.
+        Set<WebSocketSession> remaining = roomId != null ? rooms.get(roomId) : null;
+        if (roomId != null && (remaining == null || remaining.isEmpty())) {
+            roomActiveThreadOwner.remove(roomId);
+            roomLastSpeaker.remove(roomId);
+            roomRecentResponses.remove(roomId);
+            log.debug("[WS] Released per-room state for empty room {}", roomId);
+        }
     }
 
     public void joinRoom(String roomId, WebSocketSession session) {

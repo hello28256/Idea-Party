@@ -12,7 +12,6 @@ import com.ideaparty.service.ChatService;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -38,7 +37,10 @@ import java.util.stream.Collectors;
  * - 'message stream' { characterId, chunk } - streaming response chunk (simulated)
  */
 @Slf4j
-@Component
+// NOTE: 不再标注 @Component。当前运行时由 SocketConfig + ChatSocketHandler 接管 /ws 端点，
+// 保留此类仅作降级 / 对照实现，便于未来在不需要 Socket.IO 的场景下快速切换。
+// 若想启用，请同时打开 WebSocketConfig 中的 @Configuration / @EnableWebSocket，
+// 并确认不会与 ChatSocketHandler 在同一路径产生两个 handler 冲突。
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     // Maps roomId -> set of sessions
