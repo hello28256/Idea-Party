@@ -75,9 +75,6 @@ const jumpToInput = ref('')
 const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
   UNRATED: 0, RATED: 0, AGGREGATED: 0, FEEDBACK_EXISTS: 0
 })
-const statTotals = ref<{ UNRATED: number; RATED: number; AGGREGATED: number; FEEDBACK_EXISTS: number }>({
-  UNRATED: 0, RATED: 0, AGGREGATED: 0, FEEDBACK_EXISTS: 0
-})
 
 const filterStatus = ref<string>('')
 const filterUserId = ref<string>('')

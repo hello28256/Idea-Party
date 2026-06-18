@@ -565,9 +565,7 @@ async function nextStep() {
 // 真正落地创建角色+房间。两类入口：
 // 1) dynamicPrompt 场景：复用 preview 步骤的 prompt 创建角色，避免重复调用 LLM。
 // 2) 旧场景：调用通用 generatePrompt，按 scenario.id 映射固定的 characterName。
-// 简单解析岗位字符串，提取行业和经验年限（"前端 / SaaS / 5年" -> 行业=SaaS, 年限=5）
-// 启发式规则：纯数字+"年"视为年限；短词视为行业。不做强语义理解，交给后端 LLM 做更精准的拆解。
-function parsePositionMeta(input: string): { industry: string; experienceYears: number | null } {
+async function finalizeScenario() {
   if (!activeScenario.value) return
   const scenario = activeScenario.value
   const input = userInput.value.trim()

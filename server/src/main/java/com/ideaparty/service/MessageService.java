@@ -26,6 +26,10 @@ import java.util.UUID;
 @Transactional
 public class MessageService {
 
+    private final MessageRepository messageRepository;
+    private final RoomRepository roomRepository;
+    private final CharacterRepository characterRepository;
+    private final UserRepository userRepository;
     // 观测服务：仅在 AI 消息落库后触发，用于驱动 Moderator 编排下一轮发言等异步逻辑，不影响主写入路径。
     private final MessageObservationService observationService;
 

@@ -18,9 +18,6 @@ function generateId(): string {
 // 一次性兼容老数据：早期版本 User 没有 id 字段，本地为现有用户补 id
 // 避免迁移过程中出现「同一用户被当成多人」导致的列表重复、头像错乱
 function migrateUserData(): void {
-
-// Migrate old user data that doesn't have an id
-function migrateUserData(): void {
   try {
     const usersJson = localStorage.getItem('users')
     if (!usersJson) return
