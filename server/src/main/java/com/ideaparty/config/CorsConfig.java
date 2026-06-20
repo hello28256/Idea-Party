@@ -10,30 +10,30 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * CORS configuration.
+ * CORS 配置类。
  *
- * Allowed origins are configured via the env var APP_CORS_ALLOWED_ORIGINS
- * (comma-separated). When unset or blank, dev defaults are used.
+ * 允许的来源通过环境变量 APP_CORS_ALLOWED_ORIGINS（以逗号分隔）配置。
+ * 当该变量未设置或为空时，使用开发环境的默认值。
  */
 @Configuration
 @SuppressWarnings("null") // @NonNullApi null-safety check is over-strict for List/Stream chains here
 public class CorsConfig implements WebMvcConfigurer {
 
     /**
-     * Raw comma-separated CORS allow-list injected from configuration.
+     * 从配置注入的原始逗号分隔 CORS 白名单字符串。
      * <p>
-     * Resolution order: Spring property {@code app.cors.allowed-origins} → env var
-     * {@code APP_CORS_ALLOWED_ORIGINS} → dev fallback {@code http://localhost:5173,http://localhost:5174}.
-     * Kept as a single string so the same source can drive both Spring property files and
-     * container env vars without splitting config across two keys.
+     * 解析顺序：Spring 属性 {@code app.cors.allowed-origins} → 环境变量
+     * {@code APP_CORS_ALLOWED_ORIGINS} → 开发环境兜底值 {@code http://localhost:5173,http://localhost:5174}。
+     * 保持为单一字符串，这样同一份配置源既能驱动 Spring 配置文件，
+     * 也能驱动容器环境变量，避免把配置拆成两个 key。
      */
     @Value("${app.cors.allowed-origins:${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}}")
     private String allowedOrigins;
 
     /**
-     * Fallback allow-list used when the env var is missing/blank or only contains
-     * commas/whitespace. Matches the Vite dev server ports the frontend team uses,
-     * so local {@code npm run dev} works out-of-the-box without extra env setup.
+     * 当环境变量缺失、为空、或只包含逗号/空白时使用的兜底白名单。
+     * 与前端团队使用的 Vite 开发服务器端口保持一致，
+     * 这样本地执行 {@code npm run dev} 即可开箱即用，无需额外的环境配置。
      */
     private static final List<String> DEFAULT_DEV_ORIGINS = List.of(
             "http://localhost:5173", "http://localhost:5174"

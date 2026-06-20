@@ -78,32 +78,31 @@ public class MessageEvent {
     private EventType eventType;
 
     /**
-     * Time spent on this message, in milliseconds. Only populated for dwell-tracking
-     * events (READ_COMPLETE / FOCUS); nullable because COPY / REWRITE / EDIT have no
-     * meaningful duration.
+     * 在该消息上停留的时间，单位毫秒。
+     * 仅在 dwell 追踪事件（READ_COMPLETE / FOCUS）中填充；
+     * 可为空，因为 COPY / REWRITE / EDIT 并不具有有意义的持续时长。
      */
     @Column(name = "dwell_ms")
     private Integer dwellMs;
 
     /**
-     * Optional JSON blob for event-specific extras (e.g. character range for COPY,
-     * before/after diff for EDIT). Stored as TEXT to avoid imposing a hard schema
-     * on evolving client telemetry.
+     * 可选的 JSON 字段，用于存放事件特有的扩展信息（例如 COPY 的字符区间、EDIT 的前后 diff）。
+     * 使用 TEXT 存储，避免对持续演进的客户端埋点强加固定 schema。
      */
     @Column(columnDefinition = "TEXT")
     private String metadata;
 
     /**
-     * Wall-clock insert time. Set once by {@link #onCreate()} and never updated,
-     * giving analytics a stable timeline even if the entity is later backfilled.
+     * 实际入库时间。由 {@link #onCreate()} 写入一次后不再更新，
+     * 即使实体之后被回填，分析侧也能获得稳定的时间线。
      */
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     /**
-     * JPA lifecycle hook that stamps {@link #createdAt} before INSERT runs.
-     * Kept package-private/protected so JPA can invoke it but application code
-     * cannot bypass the server-side timestamp.
+     * JPA 生命周期回调：在 INSERT 执行前写入 {@link #createdAt}。
+     * 保持为包内/protected 可见性，以便 JPA 可调用，
+     * 同时让业务代码无法绕过服务器端的时间戳。
      */
     @PrePersist
     protected void onCreate() {
