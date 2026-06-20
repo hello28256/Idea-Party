@@ -66,7 +66,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         log.error("[DEBUG] Unexpected error: ", ex);
         String detailedMessage = ex.getMessage() != null ? ex.getMessage() : "Unknown error";
-        // Return more detailed error message for debugging
+        // 返回详细错误信息便于调试
         // 返回详细错误信息便于调试：将异常类名与 message 拼接，前端可据此直接定位问题。
         ErrorResponse error = new ErrorResponse(500, "Internal Server Error",
             ex.getClass().getSimpleName() + ": " + detailedMessage);

@@ -23,16 +23,16 @@ function go(route: string) {
 
 <template>
   <aside class="app-sidebar">
-    <!-- Brand -->
+    <!-- 品牌 -->
     <div class="sidebar-brand">
       <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
       <span class="logo-text">Idea Party</span>
     </div>
 
-    <!-- Create button slot (different per view: 创建角色 / 创建对话) -->
+    <!-- 创建按钮插槽（不同页面不同：创建角色 / 创建对话） -->
     <slot name="create" />
 
-    <!-- Nav -->
+    <!-- 导航 -->
     <nav class="nav-menu">
       <a
         v-for="item in navItems"

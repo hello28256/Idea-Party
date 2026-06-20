@@ -23,13 +23,13 @@ const roomStore = useRoomStore()
 const messageStore = useMessageStore()
 const router = useRouter()
 
-// Danger-zone confirm dialog state
+// 危险操作确认对话框状态
 type DangerAction = 'clear' | 'delete' | null
 const confirmAction = ref<DangerAction>(null)
 const dangerLoading = ref(false)
 const dangerError = ref<string | null>(null)
 
-// Reset confirm state every time the modal opens
+// 每次弹窗打开时重置确认状态
 // 防止用户上一次关闭弹窗时残留的 confirmAction / dangerError
 // 在下次打开时被错误展示（例如残留「确认删除」状态）。
 watch(() => props.show, (isOpen) => {
@@ -59,7 +59,7 @@ async function confirmDangerous() {
   dangerError.value = null
   try {
     if (action === 'clear') {
-      // Frontend-only: clear in-memory messages; DB rows remain
+      // 仅前端：清空内存中的消息，DB 行保留不变
       messageStore.clearMessages(props.roomId)
     } else if (action === 'delete') {
       await roomStore.deleteRoom(props.roomId)
@@ -86,12 +86,12 @@ async function confirmDangerous() {
         class="fixed inset-0 z-50 flex items-center justify-center px-4"
         @click.self="emit('close')"
       >
-        <!-- Backdrop -->
+        <!-- 背景遮罩 -->
         <div class="rsm-backdrop" @click="emit('close')" />
 
-        <!-- Modal -->
+        <!-- 弹窗主体 -->
         <div class="rsm-modal">
-          <!-- Header (aligned with CreateCharacterModal) -->
+          <!-- 头部（与 CreateCharacterModal 保持一致） -->
           <header class="rsm-header">
             <div>
               <h2 class="rsm-title">房间设置</h2>
@@ -108,16 +108,16 @@ async function confirmDangerous() {
             </button>
           </header>
 
-          <!-- Body -->
+          <!-- 主体 -->
           <div class="rsm-body">
-            <!-- Error -->
+            <!-- 错误提示 -->
             <div v-if="dangerError" class="rsm-error">{{ dangerError }}</div>
 
-            <!-- Danger Zone -->
+            <!-- 危险操作区 -->
             <section class="rsm-danger">
               <h3 class="rsm-danger-title">危险操作</h3>
               <div class="rsm-action-list">
-                <!-- Clear chat history -->
+                <!-- 清空聊天记录 -->
                 <button
                   type="button"
                   class="rsm-action-card"
@@ -135,7 +135,7 @@ async function confirmDangerous() {
                   </div>
                 </button>
 
-                <!-- Delete room (destructive) -->
+                <!-- 删除聊天室（破坏性操作） -->
                 <button
                   type="button"
                   class="rsm-action-card rsm-action-card-danger"
@@ -156,7 +156,7 @@ async function confirmDangerous() {
             </section>
           </div>
 
-          <!-- Confirm danger dialog (overlay inside modal) -->
+          <!-- 危险操作确认弹窗（弹窗内的遮罩层） -->
           <div
             v-if="confirmAction"
             class="confirm-overlay"
@@ -168,7 +168,7 @@ async function confirmDangerous() {
               role="alertdialog"
               :aria-labelledby="`confirm-title-${confirmAction}`"
             >
-              <!-- Header -->
+              <!-- 头部 -->
               <header class="confirm-header">
                 <div class="confirm-icon-wrap">
                   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -185,7 +185,7 @@ async function confirmDangerous() {
                 </h4>
               </header>
 
-              <!-- Body -->
+              <!-- 主体 -->
               <div class="confirm-body">
                 <p class="confirm-message">
                   <template v-if="confirmAction === 'clear'">
@@ -197,7 +197,7 @@ async function confirmDangerous() {
                 </p>
               </div>
 
-              <!-- Footer -->
+              <!-- 底部 -->
               <footer class="confirm-footer">
                 <button
                   type="button"
@@ -220,7 +220,7 @@ async function confirmDangerous() {
             </div>
           </div>
 
-          <!-- Footer -->
+          <!-- 底部 -->
           <footer class="rsm-footer">
             <button
               type="button"

@@ -14,50 +14,49 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * AES-256-GCM encryption helper for sensitive persisted values (currently DeepSeek / provider
- * API keys). GCM was chosen because it is an AEAD mode that gives confidentiality AND integrity
- * in one pass, removing the need to layer a separate MAC.
+ * AES-256-GCM 加密助手，用于敏感持久化值（当前为 DeepSeek / 服务商 API 密钥）。
+ * 选择 GCM 是因为它是一种 AEAD 模式，能够在一次操作中同时提供机密性与完整性，
+ * 无需叠加额外的 MAC。
  *
- * Collaborates with services such as ApiKeyService, which gate writes/reads on
- * {@link #isEncryptionEnabled()} so that missing/malformed ENCRYPTION_KEY never blocks startup.
+ * 与 ApiKeyService 等服务协作，这些服务在写入 / 读取时会通过
+ * {@link #isEncryptionEnabled()} 进行门控，保证 ENCRYPTION_KEY 缺失或格式错误时不会阻塞启动。
  *
- * Backward-compatibility: when ENCRYPTION_KEY is absent, encryption is disabled and callers
- * fall back to plain text storage, allowing legacy data to coexist until a key is provisioned.
+ * 向后兼容：当 ENCRYPTION_KEY 缺失时，加密被禁用，调用方回退到明文存储，
+ * 允许遗留数据与新数据共存，直至密钥被正确配置。
  */
 @Component
 public class EncryptionUtil {
 
     private static final Logger log = LoggerFactory.getLogger(EncryptionUtil.class);
 
-    // AES-GCM with no padding: GCM is a stream-based AEAD mode and does not require block padding,
-    // avoiding the pitfalls of PKCS#5/PKCS#7 padding (padding-oracle attacks, ciphertext expansion).
+    // AES-GCM 不带 padding：GCM 是基于流的 AEAD 模式，不需要块填充，
+    // 从而避免 PKCS#5/PKCS#7 填充带来的陷阱（padding-oracle 攻击、密文膨胀）。
     private static final String ALGORITHM = "AES/GCM/NoPadding";
-    // 96-bit (12-byte) IV is the NIST-recommended size for GCM: it maximizes performance
-    // (no extra hashing) and minimizes collision probability across encryptions.
-    private static final int GCM_IV_LENGTH = 12; // 96 bits recommended for GCM
-    // 128-bit auth tag: the maximum strength supported by GCM, chosen to guarantee
-    // strong integrity/authenticity guarantees alongside confidentiality.
-    private static final int GCM_TAG_LENGTH = 128; // 128 bits authentication tag
-    // 32-byte (256-bit) key matches AES-256 strength; length is validated at startup
-    // so a misconfigured key fails fast instead of silently weakening crypto.
-    private static final int KEY_LENGTH = 32; // 256 bits for AES-256
+    // 96 位（12 字节）的 IV 是 NIST 为 GCM 推荐的尺寸：性能最佳
+    // （无需额外哈希），并能最小化多次加密间的 IV 碰撞概率。
+    private static final int GCM_IV_LENGTH = 12; // 推荐 GCM 使用 96 位 IV
+    // 128 位认证标签：GCM 所支持的最强强度，与机密性一起
+    // 提供强完整性 / 真实性保障。
+    private static final int GCM_TAG_LENGTH = 128; // 128 位认证标签
+    // 32 字节（256 位）密钥与 AES-256 强度匹配；启动期校验长度，
+    // 让配置错误的密钥快速失败而不是悄悄削弱加密强度。
+    private static final int KEY_LENGTH = 32; // 256 位用于 AES-256
 
-    // Lazily built from ENCRYPTION_KEY in init(); held in memory only (never logged/persisted)
-    // because leaking it would defeat the entire purpose of encryption.
+    // 在 init() 中从 ENCRYPTION_KEY 懒加载构建；仅存在于内存（永不记录日志 / 持久化），
+    // 因为一旦泄漏整个加密机制就形同虚设。
     private SecretKeySpec secretKey;
-    // SecureRandom (not java.util.Random) is required for cryptographic IV generation;
-    // reused across calls because instantiation is expensive and seeding it once is sufficient.
+    // 加密 IV 生成必须使用 SecureRandom（而不是 java.util.Random）；
+    // 跨调用复用，因为实例化开销大且只需种子化一次即可。
     private final SecureRandom secureRandom = new SecureRandom();
-    // Tracks whether init() successfully loaded a valid key so callers (e.g. ApiKeyService)
-    // can branch to plaintext storage when running in backward-compatibility mode.
+    // 标记 init() 是否成功加载了有效密钥，调用方（如 ApiKeyService）
+    // 在向后兼容模式下可以走明文存储分支。
     private boolean encryptionEnabled = false;
 
     @PostConstruct
     /**
-     * Loads and validates the AES key from the ENCRYPTION_KEY environment variable once
-     * the Spring context has instantiated this bean. Side effects: builds the SecretKeySpec,
-     * flips encryptionEnabled to true on success, and emits a warning (never throws) on
-     * failure so the application can still boot in plaintext compatibility mode.
+     * 在 Spring 上下文完成该 bean 的实例化后，从环境变量 ENCRYPTION_KEY 加载并校验 AES 密钥。
+     * 副作用：构建 SecretKeySpec；成功时将 encryptionEnabled 置为 true；
+     * 失败时输出警告（绝不抛错），以保证应用仍能以明文兼容模式启动。
      */
     public void init() {
         String encryptionKey = System.getenv("ENCRYPTION_KEY");
@@ -70,10 +69,10 @@ public class EncryptionUtil {
         }
 
         try {
-            // Decode the Base64-encoded key
+            // 解码 Base64 编码的密钥
             byte[] keyBytes = Base64.getDecoder().decode(encryptionKey);
 
-            // Validate key length - must be 32 bytes for AES-256
+            // 校验密钥长度 —— AES-256 必须为 32 字节
             if (keyBytes.length != KEY_LENGTH) {
                 log.warn("ENCRYPTION_KEY must be 32 bytes (256 bits). Current length: {} bytes. " +
                     "API key encryption is disabled. Generate a valid key with: openssl rand -base64 32. " +
@@ -93,27 +92,26 @@ public class EncryptionUtil {
     }
 
     /**
-     * Returns whether encryption is properly configured and enabled.
-     * Called by services (e.g. ApiKeyService before persisting user-provided API keys)
-     * to decide whether to route through encrypt()/decrypt() or store values as plain text.
+     * 返回加密功能是否已正确配置并启用。
+     * 由服务（例如 ApiKeyService 在持久化用户提供的 API key 之前）调用，
+     * 以决定走 encrypt()/decrypt() 还是明文存储。
      *
-     * @return true when init() successfully loaded a valid 256-bit Base64 key, false otherwise
+     * @return 当 init() 成功加载了有效的 256 位 Base64 密钥时返回 true，否则 false
      */
     public boolean isEncryptionEnabled() {
         return encryptionEnabled;
     }
 
     /**
-     * Encrypts plaintext using AES-256-GCM. Each call generates a fresh 96-bit IV so that
-     * encrypting the same plaintext twice yields different ciphertexts (semantic security).
+     * 使用 AES-256-GCM 加密明文。每次调用都会生成全新的 96 位 IV，
+     * 以保证对相同明文两次加密得到不同密文（语义安全）。
      *
-     * Contract: plaintext must be non-null and non-blank; caller is responsible for first
-     * checking isEncryptionEnabled(). Output layout: Base64(IV || ciphertextWithTag), making
-     * the value self-contained for round-trip via decrypt().
+     * 契约：plaintext 必须非 null 且非空白；调用方需先自行检查 isEncryptionEnabled()。
+     * 输出格式：Base64(IV || ciphertextWithTag)，便于通过 decrypt() 完整往返。
      *
-     * @param plaintext the text to encrypt (e.g. a user-supplied DeepSeek API key)
-     * @return Base64-encoded ciphertext (IV prepended) safe for DB/text storage
-     * @throws RuntimeException if encryption fails
+     * @param plaintext 要加密的文本（例如用户提供的 DeepSeek API key）
+     * @return Base64 编码的密文（IV 前置），可安全存入数据库或文本字段
+     * @throws RuntimeException 加密失败时
      */
     public String encrypt(String plaintext) {
         if (plaintext == null || plaintext.isBlank()) {
@@ -121,19 +119,19 @@ public class EncryptionUtil {
         }
 
         try {
-            // Generate random IV
+            // 生成随机 IV
             byte[] iv = new byte[GCM_IV_LENGTH];
             secureRandom.nextBytes(iv);
 
-            // Initialize cipher
+            // 初始化 cipher
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, parameterSpec);
 
-            // Encrypt
+            // 加密
             byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
 
-            // Prepend IV to ciphertext
+            // 将 IV 前置拼接到密文
             ByteBuffer byteBuffer = ByteBuffer.allocate(iv.length + ciphertext.length);
             byteBuffer.put(iv);
             byteBuffer.put(ciphertext);
@@ -145,17 +143,17 @@ public class EncryptionUtil {
     }
 
     /**
-     * Decrypts ciphertext using AES-256-GCM. Reverses encrypt() by extracting the prepended IV
-     * and running AES-256-GCM in decrypt mode. The GCM auth tag is verified during doFinal();
-     * any tampering, truncation, or wrong key causes an AEADBadTagException wrapped here as a
-     * RuntimeException.
+     * 使用 AES-256-GCM 解密密文。流程为提取前置 IV，并以解密模式运行 AES-256-GCM，
+     * 是 encrypt() 的逆过程。GCM 认证标签会在 doFinal() 阶段进行校验；
+     * 任何篡改、截断或密钥错误都会触发 AEADBadTagException，
+     * 在此处被包装为 RuntimeException。
      *
-     * Contract: ciphertext must be non-null, non-blank Base64 produced by this class; caller
-     * should gate on isEncryptionEnabled() when running in compatibility mode.
+     * 契约：ciphertext 必须非 null，且为非空白的、本类产生的 Base64 串；
+     * 在兼容模式下运行时应由调用方通过 isEncryptionEnabled() 进行门控。
      *
-     * @param ciphertext Base64-encoded ciphertext (IV prepended) returned by encrypt()
-     * @return decrypted plaintext
-     * @throws RuntimeException if decryption fails
+     * @param ciphertext encrypt() 返回的 Base64 编码密文（IV 前置）
+     * @return 解密后的明文
+     * @throws RuntimeException 解密失败时
      */
     public String decrypt(String ciphertext) {
         if (ciphertext == null || ciphertext.isBlank()) {
@@ -165,19 +163,19 @@ public class EncryptionUtil {
         try {
             byte[] decoded = Base64.getDecoder().decode(ciphertext);
 
-            // Extract IV from beginning
+            // 从开头提取 IV
             ByteBuffer byteBuffer = ByteBuffer.wrap(decoded);
             byte[] iv = new byte[GCM_IV_LENGTH];
             byteBuffer.get(iv);
             byte[] encryptedBytes = new byte[byteBuffer.remaining()];
             byteBuffer.get(encryptedBytes);
 
-            // Initialize cipher
+            // 初始化 cipher
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
             cipher.init(Cipher.DECRYPT_MODE, secretKey, parameterSpec);
 
-            // Decrypt
+            // 解密
             byte[] plaintext = cipher.doFinal(encryptedBytes);
 
             return new String(plaintext, StandardCharsets.UTF_8);

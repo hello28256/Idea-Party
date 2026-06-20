@@ -61,11 +61,11 @@ public class CharacterService {
     }
 
     /**
-     * Detect if the given text is primarily Chinese.
+     * 判断给定文本是否主要为中文。
      * 阈值 30% 是为了在"中英混杂"的角色名（如"马斯克 Elon Musk"）下也能正确路由到中文 prompt 分支，
      * 避免被少量英文单词稀释导致走英文模板，丢失中文用户体验。
-     * @param text the text to check
-     * @return true if more than 30% of characters are Chinese
+     * @param text 要检测的文本
+     * @return 如果超过 30% 的字符是中文则返回 true
      */
     private boolean isChineseContent(String text) {
         if (text == null || text.isBlank()) {
@@ -78,10 +78,10 @@ public class CharacterService {
     }
 
     /**
-     * Load character prompt generator template from external file.
+     * 从外部文件加载角色 prompt 生成器模板。
      * 模板放在 classpath 而非硬编码：prompt 调优是非开发人员（产品/运营）的高频动作，
      * 改 txt 比改 Java 重新发版更轻量，也避免污染代码历史。
-     * @return the system prompt template
+     * @return 系统 prompt 模板
      */
     private String loadPromptTemplate() {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("prompts/character-prompt-generator.txt")) {
@@ -108,7 +108,7 @@ public class CharacterService {
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        // Generate prompt if not provided
+        // 若未提供 prompt 则生成
         String prompt = request.getPrompt();
         if (prompt == null || prompt.isBlank()) {
             log.info("[DEBUG] No prompt provided, generating from web for: {}", request.getName());
@@ -129,13 +129,13 @@ public class CharacterService {
     }
 
     /**
-     * Generate a character prompt based on name and/or description.
+     * 基于角色名称和/或描述生成角色 prompt。
      * 异常被吞掉并返回兜底 prompt：prompt 生成是"锦上添花"步骤，失败不应阻塞主链路（角色创建/预览），
      * 宁可让角色显得平庸，也不要让用户看到 500。
-     * @param userId the user requesting the generation (to get their API key)
-     * @param name character name (optional, used for web search)
-     * @param description user-provided description (optional, used directly for AI generation)
-     * @return generated prompt text
+     * @param userId 请求生成的用户（用于取其 API key）
+     * @param name 角色名（可选，用于联网检索）
+     * @param description 用户提供的描述（可选，直接用于 AI 生成）
+     * @return 生成的 prompt 文本
      */
     public String generatePrompt(UUID userId, String name, String description) {
         User owner;
@@ -149,7 +149,7 @@ public class CharacterService {
 
         try {
             if (name != null && !name.isBlank()) {
-                // Use LLM directly to generate prompt based on character name
+                // 直接使用 LLM 基于角色名生成 prompt
                 String result = generatePromptWithAIFromName(name, userApiKey);
                 log.info("[DEBUG] generatePrompt success, length: {}", result.length());
                 return result;
@@ -165,12 +165,12 @@ public class CharacterService {
     }
 
     /**
-     * Generate prompt using AI directly from a character name.
+     * 直接使用 AI 基于角色名生成 prompt。
      * 走"纯 LLM 知识"路径而非联网：避免对常见人物（如 Elon Musk）触发 Firecrawl 限流或抓取失败，
      * 也能拿到模型预训练时已经内化的语气/代表作，比"摘要一段维基百科"更像本人。
      * apiKey 为 null/空/dummy 时不携带 Authorization：交给上游 DeepSeek 网关走平台共享额度，
      * 保证没配 key 的用户也能体验 prompt 生成。
-     * Uses the LLM's knowledge about the character without web scraping.
+     * 不进行联网抓取，直接使用 LLM 关于该角色的知识。
      */
     private String generatePromptWithAIFromName(String characterName, String apiKey) {
         RestTemplate restTemplate = new RestTemplate();
@@ -227,7 +227,7 @@ public class CharacterService {
             log.error("[DEBUG] AI prompt generation from name failed: {}", e.getMessage());
         }
 
-        // Fallback if AI fails
+        // AI 失败时的兜底
         if (isChineseContent(characterName)) {
             return String.format(
                 "你是%s。以深度和真实性表达自己的观点和性格，展现独特的个人魅力。",
@@ -242,7 +242,7 @@ public class CharacterService {
     }
 
     /**
-     * Generate prompt using AI directly from a description.
+     * 直接使用 AI 基于描述生成 prompt。
      * description 来自用户自定义输入（非真实人物），不能像 name 那样依赖 LLM 知识生成，
      * 所以这里使用强约束的中英 system prompt（性格/语言习惯/世界观/行为规则/对话示例），
      * 把一段模糊描述"翻译"成稳定可复用的角色卡。中文/英文 prompt 内容互为镜像翻译，
@@ -375,7 +375,7 @@ public class CharacterService {
             log.error("[DEBUG] AI prompt generation from description failed: {}", e.getMessage());
         }
 
-        // Fallback if AI fails
+        // AI 失败时的兜底
         if (isChineseContent(description)) {
             return String.format(
                 "你是一个独特的角色。%s 以深度和真实性表达自己的观点和性格。",
@@ -392,11 +392,11 @@ public class CharacterService {
     private String generatePromptFromWeb(String characterName, String userApiKey) {
         // 三级降级策略：1) Firecrawl 联网抓原文；2) 用模板 + LLM 浓缩成角色卡；3) 直接拼"角色名+前1000字原文"作为兜底，
         // 保证哪怕 AI 全部不可用，用户至少能拿到一份基于真实资料的可用 prompt。
-        // Step 1: Scrape web content about the character
+        // 步骤 1：抓取关于该角色的网络内容
         String scrapedContent = firecrawlService.scrape(characterName);
         log.info("[DEBUG] Scraped content length: {}", scrapedContent.length());
 
-        // Step 2: Try AI generation with raw content and external template
+        // 步骤 2：尝试用原始内容和外部模板进行 AI 生成
         if (userApiKey != null && !userApiKey.isBlank() && !userApiKey.equals("sk-dummy-key-for-testing")) {
             try {
                 String aiGeneratedPrompt = generatePromptWithAIFromWebContent(characterName, scrapedContent, userApiKey);
@@ -409,12 +409,12 @@ public class CharacterService {
             }
         }
 
-        // Step 3: Fallback - use simple prompt with character name
+        // 步骤 3：兜底 - 使用简单的角色名 prompt
         return "You are " + characterName + ". " + scrapedContent.substring(0, Math.min(scrapedContent.length(), 1000));
     }
 
     /**
-     * Generate prompt using AI from web scraped content with external template.
+     * 使用联网抓取内容配合外部模板，经 AI 生成 prompt。
      */
     private String generatePromptWithAIFromWebContent(String characterName, String scrapedContent, String apiKey) {
         RestTemplate restTemplate = new RestTemplate();
@@ -481,7 +481,7 @@ public class CharacterService {
 
         String content = markdown;
 
-        // Skip TOC section - find a better landmark
+        // 跳过目录部分 - 寻找更合适的定位锚点
         int firstHeading = content.indexOf("## ");
         int firstParagraph = content.indexOf("\n\n");
 
@@ -495,7 +495,7 @@ public class CharacterService {
             content = content.substring(skipTo);
         }
 
-        // Remove all markdown artifacts
+        // 移除所有 markdown 残留标记
         content = content
             .replaceAll("!\\[([^\\]]*)\\]\\([^)]*\\)", "")
             .replaceAll("\\[([^\\]]+)\\]\\([^)]+\\)", "$1")
@@ -507,42 +507,42 @@ public class CharacterService {
             .replaceAll("_{2,}", "")
             .replaceAll("\\*{2,}", "")
             .replaceAll("\\\\", "")
-            // Clean up Wikipedia link artifacts
+            // 清理维基百科链接残留
             .replaceAll("\\(\\)\\[^\\[]*\\]", "")
             .replaceAll("\\[\\]", "")
             .replaceAll("\\(\\(([^)]*)\\)", "$1")
             .replaceAll("\\[([^\\]]+)\\]\\[([^\\]]*)\\]", "$1")
-            // Remove remaining citation markers like [1], [edit], etc.
+            // 移除剩余的引用标记，如 [1]、[edit] 等
             .replaceAll("\\[[a-zA-Z0-9]+\\]", "")
-            // Clean up empty parentheses and brackets
+            // 清理空的括号和方括号
             .replaceAll("\\(\\s*\\)", "")
             .replaceAll("\\[\\s*\\]", "")
-            // Clean up Wikipedia link remnants - replace (word) with word when it's a broken link
+            // 清理维基百科链接残留 —— 当 (word) 是断链时，把括号去掉只保留 word
             .replaceAll("\\(([A-Za-z\\u4e00-\\u9fa5]+)\\)", "$1")
-            // Clean up orphaned parentheses - remove any ( that doesn't have a proper closing )
-            // This handles patterns like "(word1(word2" where links were merged
+            // 清理孤儿左括号 —— 移除没有匹配右括号的 (
+            // 用于处理类似 "(word1(word2" 这种链接被合并的形态
             .replaceAll("\\(([^)]+)\\(([^)]+)\\)", "$1 $2")
-            // Clean up leftover parentheses at start of words
+            // 清理单词开头残留的括号
             .replaceAll("([A-Za-z\\u4e00-\\u9fa5])\\(([^)]+)\\)", "$1$2")
-            // Remove unmatched opening parentheses
+            // 移除未匹配的左括号
             .replaceAll("\\(([A-Za-z\\u4e00-\\u9fa5])", "$1")
-            // Remove unmatched closing parentheses
+            // 移除未匹配的右括号
             .replaceAll("([A-Za-z\\u4e00-\\u9fa5])\\)", "$1")
-            // Clean up []: patterns (Wikipedia citation style)
+            // 清理 []: 模式（维基百科引用风格）
             .replaceAll("\\[\\s*\\]\\s*:", "")
             .replaceAll("\\[\\s*\\]\\s*\\n", "\n")
-            // Remove section headers (## Title) more aggressively
+            // 更激进地移除章节标题（## Title）
             .replaceAll("##+\\s*[^\\n]+", "")
-            // Clean up multiple spaces and newlines
+            // 压缩多余空格与换行
             .replaceAll("\\s{2,}", " ")
-            // Remove lines that are mostly brackets or parentheses
+            // 移除以括号/方括号为主的行
             .replaceAll("^[\\s\\(\\)\\[\\]]+$", "")
-            // Remove Wikipedia-specific warning text
+            // 移除维基百科特有的警告文本
             .replaceAll("请勿直接提交机械翻译[，,]?也不要翻译不可靠、低品质内容[。]?", "")
             .replaceAll("Wikipedia[\\s]*does\\s+not\\s+have\\s+an\\s+article.*?(?=[。]|$)", "")
-            // Remove "条目：xxx" patterns
+            // 移除"条目：xxx"模式
             .replaceAll("条目[：:]\\s*[^。]+", "")
-            // Clean up Chinese parentheses and quotes
+            // 清理中文括号与引号
             .replaceAll("（", "(")
             .replaceAll("）", ")")
             .replaceAll("“", "\"")
@@ -550,17 +550,17 @@ public class CharacterService {
             .replaceAll("『", "'")
             .replaceAll("』", "'");
 
-        // Detect if content is primarily Chinese
+        // 检测内容是否主要为中文
         long chineseCharCount = content.chars().filter(c -> c >= 0x4e00 && c <= 0x9fa5).count();
         double chineseRatio = (double) chineseCharCount / Math.max(content.length(), 1);
 
-        // For Chinese content (or mixed), split by both English and Chinese sentence delimiters
+        // 中文（或混合）内容按中英文句子边界切分
         String[] sentences;
         if (chineseRatio > 0.2) {
-            // Chinese or mixed content - split by Chinese 。 or English .!? followed by newline or space
+            // 中文或中英混合内容 —— 按中文 。！？ 或英文 .!? 切分，后跟换行/空格
             sentences = content.split("(?<=[。！？.!?])\\s*(?=\\n|[A-Z\\u4e00-\\u9fa5]|$)");
         } else {
-            // English content - original regex
+            // 英文内容 —— 原始正则
             sentences = content.split("(?<=[.!?])\\s+(?=[A-Z])");
         }
 
@@ -574,20 +574,20 @@ public class CharacterService {
             if (sentence.startsWith("Born ") || sentence.startsWith(" c. ") || sentence.startsWith("Died ")) continue;
             if (sentence.contains("This is a ") || sentence.contains("Wikipedia") || sentence.contains("Jump to")) continue;
             if (sentence.contains("article") && sentence.length() < 100) continue;
-            // Filter out sentences that are mostly brackets
+            // 过滤掉以括号为主的句子
             if (sentence.replaceAll("[^\\[\\]]", "").length() > sentence.length() * 0.3) continue;
-            // Filter out sentences that look like Wikipedia navigation
+            // 过滤掉看起来像维基百科导航的句子
             if (sentence.matches("^\\(?[A-Z][a-z]+(\\[.*\\])?(:|\\|).*")) continue;
-            // Filter out very short sentences that are just links
+            // 过滤掉非常短且只是链接的句子
             if (sentence.length() < 20 && sentence.matches(".*\\[.*\\].*")) continue;
 
-            // For Chinese content, be more lenient on the letter ratio check
+            // 中文内容：对字母占比检查放宽
             if (chineseRatio > 0.2) {
-                // Chinese content - keep if it has meaningful Chinese chars
+                // 中文内容 —— 只要包含有意义的中文字符即保留
                 long sentenceChinese = sentence.chars().filter(c -> c >= 0x4e00 && c <= 0x9fa5).count();
                 if (sentenceChinese < 10) continue;
             } else {
-                // English content - original check
+                // 英文内容 —— 原始检查
                 String letters = sentence.replaceAll("[^a-zA-Z]", "");
                 if (letters.length() < sentence.length() * 0.3) continue;
             }
@@ -693,7 +693,7 @@ public class CharacterService {
      * "You are {{name}}. " 这种半成品——下游 LLM 会原样复读。
      */
     private String convertToPromptFormat(String characterName, String content) {
-        // If content is too short, try to use it directly
+        // 若内容过短，直接使用
         if (content == null || content.trim().length() < 50) {
             return String.format(
                 "You are %s. You are a distinctive individual with unique experiences and perspectives. " +
@@ -702,13 +702,13 @@ public class CharacterService {
             );
         }
 
-        // Extract meaningful sentences from content
+        // 从内容中提取有意义的句子
         String[] sentences = content.split("(?<=[.!?])\\s+");
         StringBuilder keyTraits = new StringBuilder();
 
         for (String sentence : sentences) {
             sentence = sentence.trim();
-            // Be more lenient - accept sentences >= 20 chars
+            // 放宽长度要求 —— 接受 ≥ 20 字的句子
             if (sentence.length() >= 20) {
                 if (keyTraits.length() > 0) keyTraits.append(" ");
                 keyTraits.append(sentence);
@@ -718,7 +718,7 @@ public class CharacterService {
 
         String traits = keyTraits.toString().trim();
 
-        // If we still have very little content, use what we have
+        // 若可用内容仍然很少，则尽量利用已有内容
         if (traits.length() < 100) {
             return String.format(
                 "You are %s. %s Speak about your experiences, knowledge, and beliefs with authenticity and depth.",

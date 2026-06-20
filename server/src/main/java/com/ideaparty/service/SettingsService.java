@@ -29,7 +29,7 @@ public class SettingsService {
     private static final Logger log = LoggerFactory.getLogger(SettingsService.class);
 
     private final UserRepository userRepository;
-    // Optional because encryption is feature-flagged: when the master key env var is absent, the bean is not produced and we fall back to plaintext storage.
+    // Optional 因为加密是功能开关：当主密钥环境变量缺失时，bean 不会被生成，我们回退到明文存储。
     private final Optional<EncryptionUtil> encryptionUtil;
 
     /**
@@ -67,7 +67,7 @@ public class SettingsService {
                 .map(User::getApiKey)
                 .orElse(null);
 
-        // Decrypt if encryption is enabled and we have an encrypted value
+        // 当加密启用且有加密值时进行解密
         if (apiKey != null && encryptionUtil.isPresent() && encryptionUtil.get().isEncryptionEnabled()) {
             try {
                 String decrypted = encryptionUtil.get().decrypt(apiKey);
@@ -99,7 +99,7 @@ public class SettingsService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Encrypt if encryption is enabled
+        // 当加密启用时进行加密
         if (apiKey != null && encryptionUtil.isPresent() && encryptionUtil.get().isEncryptionEnabled()) {
             try {
                 user.setApiKey(encryptionUtil.get().encrypt(apiKey));

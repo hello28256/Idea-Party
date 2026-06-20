@@ -21,7 +21,7 @@ const props = defineProps<{
   // 必填：当前激活房间的 ID，驱动 socket 订阅与 store 数据拉取
   roomId: string
   // 嵌入模式：true 时不渲染独立 header 与侧栏，由父布局统一提供（用于多面板布局）
-  embedded?: boolean // when true, hide header and CharacterSidebar for embedding in larger layout
+  embedded?: boolean // 为 true 时隐藏 header 与 CharacterSidebar，以便嵌入更大的布局
   // embedded 模式下父布局调用：用于切换「我的聊天室」抽屉
   onToggleRoomList?: () => void
   // embedded 模式下父布局调用：用于切换右侧角色面板
@@ -210,10 +210,9 @@ async function loadRoomData() {
     await roomStore.fetchRoomById(props.roomId)
     await characterStore.fetchCharacters()
     await messageStore.loadMessages(props.roomId)
-    // After messages render, jump to the bottom so the user sees the latest
-    // exchange instead of having to scroll past history. Two nextTick hops
-    // because the MessageList's inner scroll container is nested one level
-    // below the ref's host element.
+    // 消息渲染后跳到底部，让用户直接看到最新一轮对话，
+    // 避免需要滚过历史消息。用两次 nextTick 是因为 MessageList 的
+    // 内部滚动容器嵌套在 ref 的 host 元素下面一层。
     await nextTick()
     await nextTick()
     scrollToBottom()
@@ -297,9 +296,9 @@ async function handleCharacterAdded(character: Character) {
 
 <template>
   <div class="chat-panel flex flex-col overflow-hidden">
-    <!-- Room Header -->
+    <!-- 聊天室头部 -->
     <header v-if="!props.embedded" class="header">
-      <!-- Mobile: hamburger menu (hidden when the 我的聊天 drawer is already open) -->
+      <!-- 移动端：汉堡菜单（「我的聊天」抽屉已经打开时隐藏） -->
       <button
         v-if="!sidebarOpen"
         class="lg:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--color-parchment)] text-[var(--color-text-secondary)] transition-colors"
@@ -311,7 +310,7 @@ async function handleCharacterAdded(character: Character) {
         </svg>
       </button>
 
-      <!-- Room name and info -->
+      <!-- 聊天室名称与信息 -->
       <div class="flex-1 flex items-center gap-3 min-w-0">
         <div class="flex items-center gap-2">
           <div class="w-1 h-8 bg-gradient-to-b from-[var(--color-gold-dark)] to-[var(--color-gold)] rounded-full"></div>
@@ -322,7 +321,7 @@ async function handleCharacterAdded(character: Character) {
       </div>
     </header>
 
-    <!-- Embedded Header with Toggle Buttons -->
+    <!-- 内嵌式头部（含切换按钮） -->
     <header v-else class="chat-main-header">
       <div class="chat-header-left">
         <button
@@ -375,15 +374,15 @@ async function handleCharacterAdded(character: Character) {
       </div>
     </header>
 
-    <!-- Character error banner -->
+    <!-- 角色错误提示条 -->
     <div v-if="characterError" class="px-4 py-2 bg-red-50 border-b border-red-200 text-red-600 text-sm">
       {{ characterError }}
       <button @click="characterError = null" class="ml-2 underline">关闭</button>
     </div>
 
-    <!-- Main content area -->
+    <!-- 主内容区 -->
     <div class="flex-1 flex min-h-0">
-      <!-- Character sidebar (hidden when embedded, handled by external panel) -->
+      <!-- 角色侧边栏（内嵌模式下隐藏，由外部面板接管） -->
       <CharacterSidebar
         v-if="!props.embedded"
         :show="sidebarOpen"
@@ -398,16 +397,16 @@ async function handleCharacterAdded(character: Character) {
         @switch-mode="switchMode"
       />
 
-      <!-- Message area -->
+      <!-- 消息区 -->
       <main class="h-full flex-1 flex flex-col min-h-0 min-w-0 bg-[var(--color-cream)] overflow-hidden">
-        <!-- Connection warning -->
+        <!-- 连接提示 -->
         <div v-if="!isConnected" class="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-sm flex items-center gap-2 shrink-0 flex-shrink-0">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           连接中... 消息暂存本地
         </div>
-        <!-- Discussion status indicator -->
+        <!-- 讨论状态指示器 -->
         <div v-if="isDiscussionMode && messageStore.discussionPhase !== 'IDLE'" class="px-4 py-2 bg-[var(--color-parchment)] border-b border-[var(--color-border)] flex items-center justify-center">
           <span :class="['text-sm font-medium flex items-center gap-2', statusClass]">
             <span v-if="messageStore.discussionPhase === 'MODERATING'" class="animate-pulse">🎤</span>
@@ -425,7 +424,7 @@ async function handleCharacterAdded(character: Character) {
           :streaming-messages="messageStore.streamingMessages"
           :current-user-id="authStore.user?.id"
         />
-        <!-- Discussion control bar (only in discussion mode) -->
+        <!-- 讨论控制栏（仅讨论模式） -->
         <div v-if="isDiscussionMode && isDiscussing" class="shrink-0 px-4 py-2 bg-[var(--color-parchment)] border-t border-[var(--color-border)] flex items-center justify-center gap-4">
           <button
             v-if="!messageStore.paused"
@@ -448,7 +447,7 @@ async function handleCharacterAdded(character: Character) {
             </svg>
             继续讨论
           </button>
-          <!-- Show waiting message when in WAITING_FOR_USER phase -->
+          <!-- 处于 WAITING_FOR_USER 阶段时显示等待提示 -->
           <span v-if="messageStore.discussionPhase === 'WAITING_FOR_USER'" class="text-sm text-yellow-600 font-medium">
             🎤 主持人正在等待你的观点...
           </span>
@@ -456,7 +455,7 @@ async function handleCharacterAdded(character: Character) {
             讨论已暂停，发送消息将继续
           </span>
         </div>
-        <!-- Chat input - fixed footer -->
+        <!-- 聊天输入框——固定底部 -->
         <div class="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-ivory)]">
           <ChatInput
             :disabled="false"
@@ -465,28 +464,28 @@ async function handleCharacterAdded(character: Character) {
         </div>
       </main>
 
-      <!-- Character add panel -->
+      <!-- 添加角色面板 -->
       <CharacterAddPanel
         :show="showCharacterPanel"
         @close="showCharacterPanel = false"
         @character-added="handleCharacterAdded"
       />
 
-      <!-- Character detail modal -->
+      <!-- 角色详情弹窗 -->
       <CharacterDetailModal
         :show="showCharacterDetail"
         :character="detailCharacter"
         @close="showCharacterDetail = false"
       />
 
-      <!-- Room settings modal -->
+      <!-- 聊天室设置弹窗 -->
       <RoomSettingsModal
         :show="showRoomSettings"
         :room-id="props.roomId"
         @close="showRoomSettings = false"
       />
 
-      <!-- Connection error / missing API key modal -->
+      <!-- 连接错误 / 缺少 API Key 弹窗 -->
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="connectionError" class="modal-overlay" @click.self="dismissConnectionError">
@@ -524,7 +523,7 @@ async function handleCharacterAdded(character: Character) {
         </Transition>
       </Teleport>
 
-      <!-- Inline API key prompt — bypass full Settings, focus on what's needed -->
+      <!-- 内嵌 API Key 提示——绕过完整设置页，聚焦当前所需 -->
       <Teleport to="body">
         <Transition name="modal">
           <div v-if="showApiKeyPrompt" class="modal-overlay" @click.self="showApiKeyPrompt = false">

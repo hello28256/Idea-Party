@@ -66,11 +66,11 @@ function handleClose() {
 </script>
 
 <template>
-  <!-- Desktop sidebar: always visible at lg+ -->
+  <!-- 桌面侧边栏：lg 及以上始终可见 -->
   <aside
     class="hidden lg:flex flex-col w-64 border-r border-[var(--color-border)] bg-gradient-to-b from-[var(--color-ivory)] to-[var(--color-cream)] h-full"
   >
-    <!-- Header -->
+    <!-- 头部 -->
     <div class="p-4 border-b border-[var(--color-border)]">
       <div class="flex items-center gap-2">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] flex items-center justify-center">
@@ -82,7 +82,7 @@ function handleClose() {
       </div>
     </div>
 
-    <!-- Character list -->
+    <!-- 角色列表 -->
     <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
       <div
         v-for="char in characters"
@@ -121,14 +121,14 @@ function handleClose() {
           </p>
         </div>
 
-        <!-- Thinking indicator -->
+        <!-- 思考指示器 -->
         <div v-if="isThinking && activeCharacterId === char.id" class="flex gap-0.5">
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-100"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-200"></span>
         </div>
 
-        <!-- Info button -->
+        <!-- 详情按钮 -->
         <button
           class="p-1.5 rounded-lg hover:bg-[var(--color-gold)]/10 text-[var(--color-text-muted)] hover:text-[var(--color-gold)] transition-colors opacity-0 group-hover:opacity-100"
           :class="{ 'opacity-100': activeCharacterId === char.id }"
@@ -141,7 +141,7 @@ function handleClose() {
         </button>
       </div>
 
-      <!-- Empty state -->
+      <!-- 空状态 -->
       <div v-if="characters.length === 0" class="text-center py-8 px-4">
         <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--color-parchment)] flex items-center justify-center">
           <svg class="w-8 h-8 text-[var(--color-gold)] opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,7 +157,7 @@ function handleClose() {
         </button>
       </div>
 
-      <!-- Always show add character button -->
+      <!-- 始终展示「添加角色」按钮 -->
       <button
         class="w-full mt-2 py-2 px-3 rounded-lg border border-dashed border-[var(--color-border)] text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-parchment)] hover:border-[var(--color-gold)] transition-colors flex items-center justify-center gap-2"
         @click="$emit('characterSelected', null)"
@@ -168,9 +168,9 @@ function handleClose() {
         添加角色
       </button>
 
-      <!-- Mode toggle -->
+      <!-- 模式切换 -->
       <div class="mt-3 pt-3 border-t border-[var(--color-border)]">
-        <!-- Discussion mode toggle -->
+        <!-- 讨论模式切换 -->
         <button
           class="w-full py-3 px-3 rounded-xl border-2 transition-all mode-toggle-btn"
           :class="isDiscussionMode
@@ -180,7 +180,7 @@ function handleClose() {
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <!-- Discussion icon -->
+              <!-- 讨论模式图标 -->
               <div
                 class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
                 :class="isDiscussionMode ? 'bg-white/20' : 'bg-[var(--color-gold)]/10'"
@@ -199,7 +199,7 @@ function handleClose() {
                 </div>
               </div>
             </div>
-            <!-- Toggle switch -->
+            <!-- 切换开关 -->
             <div
               class="w-12 h-6 rounded-full relative transition-colors"
               :class="isDiscussionMode ? 'bg-white/30' : 'bg-[var(--color-border)]'"
@@ -212,7 +212,7 @@ function handleClose() {
           </div>
         </button>
 
-        <!-- Discussion mode description -->
+        <!-- 讨论模式说明 -->
         <div v-if="isDiscussionMode" class="mt-2 px-2 py-2 rounded-lg bg-[var(--color-navy)]/5 text-[10px] text-[var(--color-text-muted)]">
           <div class="flex items-start gap-1.5">
             <svg class="w-3 h-3 mt-0.5 text-[var(--color-gold)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -225,24 +225,24 @@ function handleClose() {
     </div>
   </aside>
 
-  <!-- Mobile drawer: slide-in from left -->
+  <!-- 移动端抽屉：从左侧滑入 -->
   <Teleport to="body">
     <Transition name="drawer">
       <div
         v-if="show"
         class="fixed inset-y-0 left-0 z-50 lg:hidden"
       >
-        <!-- Backdrop -->
+        <!-- 背景遮罩 -->
         <div
           class="fixed inset-0 bg-black/40 backdrop-blur-sm"
           @click="handleClose"
         ></div>
 
-        <!-- Drawer content -->
+        <!-- 抽屉内容 -->
         <div
           class="relative w-72 h-full bg-gradient-to-b from-[var(--color-ivory)] to-[var(--color-cream)] shadow-2xl flex flex-col"
         >
-          <!-- Header -->
+          <!-- 头部 -->
           <div class="p-4 border-b border-[var(--color-border)] flex items-center justify-between">
             <div class="flex items-center gap-2">
               <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy-light)] flex items-center justify-center">
@@ -263,7 +263,7 @@ function handleClose() {
             </button>
           </div>
 
-          <!-- Character list -->
+          <!-- 角色列表 -->
           <div class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
             <div
               v-for="char in characters"
@@ -302,14 +302,14 @@ function handleClose() {
                 </p>
               </div>
 
-              <!-- Thinking indicator -->
+              <!-- 思考指示器 -->
               <div v-if="isThinking && activeCharacterId === char.id" class="flex gap-0.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse"></span>
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-100"></span>
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-gold)] animate-pulse animation-delay-200"></span>
               </div>
 
-              <!-- Info button -->
+              <!-- 详情按钮 -->
               <button
                 class="p-1.5 rounded-lg hover:bg-[var(--color-gold)]/10 text-[var(--color-text-muted)] hover:text-[var(--color-gold)] transition-colors opacity-0 group-hover:opacity-100"
                 :class="{ 'opacity-100': activeCharacterId === char.id }"
@@ -322,7 +322,7 @@ function handleClose() {
               </button>
             </div>
 
-            <!-- Empty state -->
+            <!-- 空状态 -->
             <div v-if="characters.length === 0" class="text-center py-8 px-4">
               <p class="text-sm text-[var(--color-text-secondary)] mb-3">还没有角色</p>
               <button
@@ -334,7 +334,7 @@ function handleClose() {
             </div>
           </div>
 
-          <!-- Mode toggle for mobile -->
+          <!-- 移动端模式切换 -->
           <div class="p-3 border-t border-[var(--color-border)]">
             <button
               class="w-full py-3 px-3 rounded-xl border-2 transition-all mode-toggle-btn"
@@ -376,7 +376,7 @@ function handleClose() {
             </button>
           </div>
 
-          <!-- Add character button -->
+          <!-- 添加角色按钮 -->
           <div class="p-3 pt-0">
             <button
               class="w-full py-3 px-4 bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy-light)] text-[var(--color-gold)] rounded-xl font-medium text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"

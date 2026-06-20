@@ -20,8 +20,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
- * Chat orchestration service.
- * Handles message persistence and coordinates AI round-robin responses.
+ * 聊天编排服务。
+ * 处理消息持久化并协调 AI 的轮询回复。
  *
  * <p>核心职责：把用户消息落地到 MySQL，并按聊天室中角色的顺序依次调度 AIService
  * 生成回复，最终通过回调（onThinking / onMessage）把事件流推给 WebSocket 层，
@@ -63,7 +63,7 @@ public class ChatService {
     }
 
     /**
-     * Save a user or character message.
+     * 保存用户或角色的消息。
      *
      * <p>通用落库入口：既用于保存用户发言（characterId=null, senderType=USER），
      * 也用于保存 AI 角色回复（characterId 非空, senderType=CHARACTER）。
@@ -102,7 +102,7 @@ public class ChatService {
     }
 
     /**
-     * Get all messages for a room, ordered by creation time.
+     * 获取聊天室中的全部消息，按创建时间排序。
      *
      * <p>只读事务，避免脏读并复用 Hibernate 一级缓存。
      * 由 {@code RoomController} 在用户进入聊天室时调用，充当「历史回放」接口。
@@ -119,45 +119,44 @@ public class ChatService {
     }
 
     /**
-     * Process a user message and trigger round-robin AI responses.
-     * For each character in the room, in order:
-     * 1. Emit "character thinking" event
-     * 2. Wait for AI response
-     * 3. Save and broadcast the response
+     * 处理一条用户消息并触发轮询 AI 回复。
+     * 依次对房间中的每个角色：
+     * 1. 发出 "character thinking" 事件
+     * 2. 等待 AI 回复
+     * 3. 保存并广播回复
      *
-     * @param roomId Room ID
-     * @param content User message content
-     * @param userId User ID of the sender
-     * @param characters List of characters in the room (in display order)
-     * @param onThinking Callback when a character starts thinking: (characterId) -> void
-     * @param onMessage Callback when a message is ready: (MessageDto) -> void
+     * @param roomId      聊天室 ID
+     * @param content     用户消息内容
+     * @param userId      发送者用户 ID
+     * @param characters  聊天室中的角色列表（按展示顺序）
+     * @param onThinking  角色开始思考时的回调：(characterId) -> void
+     * @param onMessage   消息就绪时的回调：(MessageDto) -> void
      */
     public void processUserMessage(UUID roomId, String content, UUID userId, List<Character> characters,
                                    Consumer<String> onThinking, Consumer<MessageDto> onMessage) {
-        // Step 1: Save user message
+        // 步骤 1：保存用户消息
         // 先把用户这条消息入库并通过 onMessage 推送，前端立即可见；失败则整轮回滚（@Transactional）
         MessageDto userMsg = saveMessage(roomId, null, Message.SenderType.USER, content, userId);
         onMessage.accept(userMsg);
 
-        // Step 2: Load conversation history for context
+        // 步骤 2：加载历史对话作为上下文
         // 把当前聊天室所有历史消息拼成 prompt 片段，让 AI 知道上文；包含本条用户消息本身
         String conversationHistory = buildConversationHistory(roomId);
 
-        // Step 3: Round-robin AI responses
+        // 步骤 3：轮询生成 AI 回复
         for (Character character : characters) {
-            // Emit thinking event
+            // 发出 thinking 事件
             // 通知前端「这个角色开始思考」，用于显示 loading/typing 指示器
             onThinking.accept(character.getId().toString());
 
-            // Generate and save AI response using AIService (with history context)
+            // 使用 AIService（带历史上下文）生成并保存 AI 回复
             // 异步调用 AI：避免 DeepSeek 慢响应阻塞主线程；用 ForkJoinPool 公共线程池
             CompletableFuture<String> futureResponse = CompletableFuture.supplyAsync(() ->
                 aiService.generateResponseWithHistory(characterPromptBuilder.build(character, false), content, conversationHistory)
             );
 
-            // Note: In a real implementation, we would wait for each character's
-            // response before moving to the next (sequential round-robin).
-            // For streaming responses, we handle them as they complete.
+            // 注：在真实实现中，应当等待每个角色的回复后再进行下一个（顺序轮询）。
+            // 对于流式回复，我们会在其完成时立即处理。
             // 闭包内要用的可变变量必须 final；提前捕获避免 lambda 中的 effectively-final 报错
             final UUID charId = character.getId();
             final UUID roomUuid = roomId;
@@ -171,8 +170,8 @@ public class ChatService {
     }
 
     /**
-     * Build conversation history string from messages in the room.
-     * Formats as: "User: xxx\nCharacter: yyy\nUser: zzz\nCharacter: ..."
+     * 根据聊天室中的消息构建对话历史字符串。
+     * 格式为："User: xxx\nCharacter: yyy\nUser: zzz\nCharacter: ..."
      *
      * <p>把 DB 里的结构化消息转成 LLM 偏好的纯文本格式，作为 system/user 之外的
      * 上下文片段传入 {@link AIService#generateResponseWithHistory}。

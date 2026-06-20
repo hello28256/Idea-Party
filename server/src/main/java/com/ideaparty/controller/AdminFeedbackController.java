@@ -40,7 +40,7 @@ public class AdminFeedbackController {
     /** 用户表查询：用于读取 User.isAdmin 字段，完成 admin 鉴权快速路径。 */
     private final UserRepository userRepository;
 
-    /** Bootstrap admin whitelist from application.yml. Fallback when User.isAdmin=false. */
+    /** 从 application.yml 解析 bootstrap admin 白名单；当 User.isAdmin=false 时作为兜底。 */
     @Value("${app.admin.user-ids:}")
     private String adminUserIdsConfig;
 
@@ -67,12 +67,12 @@ public class AdminFeedbackController {
      */
     private void requireAdmin(Authentication auth) {
         UUID userId = UUID.fromString(auth.getName());
-        // Fast path: User.isAdmin
+        // 快路径：User.isAdmin
         User user = userRepository.findById(userId).orElse(null);
         if (user != null && Boolean.TRUE.equals(user.getIsAdmin())) {
             return;
         }
-        // Fallback: bootstrap whitelist (does not require DB write)
+        // 兜底：bootstrap 白名单（无需 DB 写入）
         if (adminWhitelist().contains(userId)) {
             log.info("[DEBUG] admin access granted via app.admin.user-ids whitelist for user {}", userId);
             return;

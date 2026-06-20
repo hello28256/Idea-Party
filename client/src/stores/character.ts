@@ -23,7 +23,7 @@ export const useCharacterStore = defineStore('character', () => {
   // 仅暴露用户自建角色，预设角色走 presets，避免在「我的角色」管理界面混入系统角色。
   const userCharacters = computed(() => characters.value.filter(c => !c.isPreset))
 
-  // Check if user already has a character with the same name
+  // 检查用户是否已存在同名角色
   /**
    * 重名校验：同一 ownerId 下不允许出现同名角色（大小写不敏感）。
    * excludeId 用于编辑场景下排除自身，避免「未改名也判重」的假阳性。

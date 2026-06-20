@@ -120,7 +120,7 @@ public class ImageOcrService {
                 input.toAbsolutePath().toString(),
                 outputBase.toAbsolutePath().toString(),
                 "-l", "chi_sim+eng",   // 简体中文 + 英文（混合 JD 通常中英都有）
-                "--psm", "6"            // 6 = 假设是统一的文本块（适合 JD 截图）
+                "--psm", "6"            // 6 = 假设为统一的文本块（适合 JD 截图）
         );
         pb.redirectErrorStream(true);
 
@@ -133,7 +133,7 @@ public class ImageOcrService {
                 stderr.append(line).append('\n');
             }
         } catch (IOException ignored) {
-            // ignore
+            // 忽略
         }
 
         boolean finished;
@@ -187,7 +187,7 @@ public class ImageOcrService {
             case "image/png" -> ".png";
             case "image/gif" -> ".gif";
             case "image/webp" -> ".webp";
-            default -> ".jpg"; // jpeg / jpg 都用 .jpg
+            default -> ".jpg"; // jpeg / jpg 都使用 .jpg
         };
     }
 
@@ -200,7 +200,7 @@ public class ImageOcrService {
         try {
             Files.deleteIfExists(p);
         } catch (IOException ignored) {
-            // ignore
+            // 忽略
         }
     }
 }

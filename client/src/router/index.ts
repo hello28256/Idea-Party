@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Placeholder views - will be implemented in future plans
+// 占位视图 - 将在后续计划中实现
 // 抽出为局部常量而非在每条 route 里直接 import：复用同一份懒加载 chunk，
 // 多个路径（/rooms、/scenarios、/characters 共用 RoomListView）能命中浏览器缓存，
 // 也便于后续把这些入口一次性替换为真实视图。
@@ -133,7 +133,7 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // Admin guard: must be authenticated AND have isAdmin=true on user store
+  // 管理员守卫：必须已登录且 user store 中 isAdmin=true
   if (to.meta.requiresAdmin) {
     const authStore = useAuthStore()
     if (!authStore.user?.isAdmin) {

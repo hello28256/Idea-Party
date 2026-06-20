@@ -24,7 +24,7 @@ public class MockAiService implements DisposableBean {
     // 异步执行器：将每条 mock 回复放到独立线程模拟网络/推理耗时，让 Controller 可以立即返回 Future；缓存线程池避免频繁创建/销毁。
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    // Mock responses organized by archetype for variety
+    // 按人设类型组织的 Mock 回复，丰富多样性
     // 哲学家人设的回复模板库：占位符 %s 在运行时替换为角色名，让 mock 看起来像是"该角色本人在说"。
     private static final String[] PHILOSOPHER_RESPONSES = {
         "从哲学的角度来看，这个问题触及了存在的本质。%s的观点值得我们深思。",

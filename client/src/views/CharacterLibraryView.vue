@@ -36,7 +36,7 @@ onMounted(() => {
   setTimeout(() => { mounted.value = true }, 50)
 })
 
-// Get current user's characters
+// 获取当前用户的角色
 // 仅展示当前用户创建的自定义角色：排除 isPreset 的系统预置角色，
 // 是因为业务上预置角色由系统统一提供，用户不应在"我的角色库"里看到/编辑它们。
 const myCharacters = computed(() => {
@@ -83,7 +83,7 @@ function closeEditModal() {
 }
 
 function handleCharacterUpdated(updatedCharacter: Character) {
-  // Update the character in the list
+  // 更新列表中的角色
   // 直接在 store 数组中原地替换，避免再次请求后端造成的闪烁；
   // 后端已是最新数据来源，UI 与 store 同步即可。
   const index = characterStore.characters.findIndex(c => c.id === updatedCharacter.id)
@@ -122,7 +122,7 @@ function formatDate(dateStr: string): string {
 
 <template>
   <div class="page-layout" :class="{ mounted }">
-    <!-- Left Sidebar -->
+    <!-- 左侧边栏 -->
     <AppSidebar :navItems="ALL_NAV_ITEMS" activeId="characters">
       <template #create>
         <button class="create-btn" @click="openCreateModal">
@@ -134,7 +134,7 @@ function formatDate(dateStr: string): string {
       </template>
     </AppSidebar>
 
-    <!-- Main Content -->
+    <!-- 主内容 -->
     <main class="main-content">
       <header class="content-header">
         <h1 class="page-title">我的角色库</h1>
@@ -146,7 +146,7 @@ function formatDate(dateStr: string): string {
         </button>
       </header>
 
-      <!-- Empty State -->
+      <!-- 空状态 -->
       <div v-if="myCharacters.length === 0" class="empty-state">
         <div class="empty-icon">📚</div>
         <h2 class="empty-title">还没有创建角色</h2>
@@ -159,7 +159,7 @@ function formatDate(dateStr: string): string {
         </button>
       </div>
 
-      <!-- Character Grid -->
+      <!-- 角色卡片网格 -->
       <div v-else class="character-grid">
         <div
           v-for="character in myCharacters"
@@ -199,14 +199,14 @@ function formatDate(dateStr: string): string {
       </div>
     </main>
 
-    <!-- Create Character Modal -->
+    <!-- 创建角色弹窗 -->
     <CreateCharacterModal
       :show="showCreateModal"
       @close="closeCreateModal"
       @created="handleCharacterCreated"
     />
 
-    <!-- Edit Character Modal -->
+    <!-- 编辑角色弹窗 -->
     <CreateCharacterModal
       v-if="showEditModal"
       :show="showEditModal"

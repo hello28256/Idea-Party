@@ -86,7 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
         return JSON.parse(stored)
       }
     } catch {
-      // ignore parse errors
+      // 忽略解析错误
     }
     return null
   }
@@ -282,7 +282,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Helper: generate username from display name
+  // 辅助函数：根据 displayName 生成 username
   function generateUsername(displayName: string): string {
     return displayName
       .toLowerCase()
@@ -291,7 +291,7 @@ export const useAuthStore = defineStore('auth', () => {
       .substring(0, 20)
   }
 
-  // Helper: check if identifier looks like an email
+  // 辅助函数：判断 identifier 是否像邮箱
   function isEmailFormat(identifier: string): boolean {
     return identifier.includes('@')
   }

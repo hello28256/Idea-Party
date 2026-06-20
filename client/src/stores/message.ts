@@ -87,8 +87,8 @@ export const useMessageStore = defineStore('message', () => {
       delete streamingMessages.value[msg.characterId]
     }
 
-    // Deduplication: if this message has a real id and there's a matching temp message,
-    // replace the temp message instead of adding a new one
+    // 去重：若本消息带真实 id 且存在匹配的临时消息，
+    // 则替换临时消息而不是新增
     if (msg.id && !msg.id.startsWith('temp-')) {
       const tempIndex = messages.value.findIndex(
         m => m.id.startsWith('temp-') &&
@@ -111,7 +111,7 @@ export const useMessageStore = defineStore('message', () => {
       saveToLocal(currentRoomId.value, messages.value)
     }
 
-    // Clear thinking indicator when a message arrives from that character
+    // 当该角色的消息到达时，清除思考指示器
     if (thinkingCharacterId.value === msg.characterId) {
       thinkingCharacterId.value = null
     }

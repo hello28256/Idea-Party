@@ -79,7 +79,7 @@ public class MessageService {
             try {
                 observationService.onAiMessagePersisted(saved);
             } catch (Exception e) {
-                // Observation is best-effort; never fail the message write because of it.
+                // 观测尽力而为；绝不让观测链路抖动阻塞消息主写入。
                 org.slf4j.LoggerFactory.getLogger(MessageService.class)
                     .warn("[MessageService] observation seed failed: {}", e.getMessage());
             }

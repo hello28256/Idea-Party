@@ -75,7 +75,7 @@ const showDeleteConfirm = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-// Tab state for room context
+// 聊天室内上下文中的 tab 状态
 const activeTab = ref<'create' | 'library'>('create')
 
 // 弹窗每次重新显示时重置表单：避免上次编辑残留。
@@ -134,7 +134,6 @@ async function handleSubmit() {
 
     if (isEditMode.value && props.character) {
       // 编辑路径：传更新后的字段到 store，由 store 负责同步本地列表与服务端调用。
-      // Update existing character
       result = await characterStore.updateCharacter(props.character.id, {
         name: form.value.name.trim(),
         description: form.value.description.trim(),
@@ -149,7 +148,6 @@ async function handleSubmit() {
       }
     } else {
       // 创建路径：ownerId 必须从 authStore 取，不能让前端伪造；这是后端做权限校验的关键依据。
-      // Create new character
       if (!authStore.user) {
         error.value = '请先登录'
         return
@@ -262,14 +260,14 @@ async function handleAvatarFileChange(event: Event) {
   const file = target.files?.[0]
   if (!file) return
 
-  // Validate file type
+  // 校验文件类型
   const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
   if (!allowedTypes.includes(file.type)) {
     error.value = '只支持 JPEG、PNG、GIF、WebP 格式的图片'
     return
   }
 
-  // Validate file size (5MB)
+  // 校验文件大小（5MB）
   if (file.size > 5 * 1024 * 1024) {
     error.value = '图片大小不能超过 5MB'
     return
@@ -303,9 +301,9 @@ async function handleAvatarFileChange(event: Event) {
         class="character-modal-overlay"
         @click.self="handleClose"
       >
-        <!-- Modal Container -->
+        <!-- 弹窗容器 -->
         <div class="character-modal">
-          <!-- Header -->
+          <!-- 头部 -->
           <header class="character-modal-header">
             <div>
               <h2 class="character-modal-title">
@@ -322,7 +320,7 @@ async function handleAvatarFileChange(event: Event) {
             </button>
           </header>
 
-          <!-- Tabs (only in room context) -->
+          <!-- 切换标签（仅聊天室上下文） -->
           <div v-if="context === 'room' && !isEditMode" class="modal-tabs">
             <button
               class="modal-tab"
@@ -340,11 +338,11 @@ async function handleAvatarFileChange(event: Event) {
             </button>
           </div>
 
-          <!-- Body -->
+          <!-- 主体 -->
           <div class="character-modal-body">
-            <!-- Create Tab / Edit Mode -->
+            <!-- 创建 tab / 编辑模式 -->
             <div v-if="activeTab === 'create' || isEditMode" class="character-form">
-              <!-- Hidden file input -->
+              <!-- 隐藏的文件输入 -->
               <input
                 ref="fileInputRef"
                 type="file"
@@ -353,7 +351,7 @@ async function handleAvatarFileChange(event: Event) {
                 @change="handleAvatarFileChange"
               />
 
-              <!-- Name -->
+              <!-- 名称 -->
               <div class="form-group">
                 <label class="form-label">
                   角色名称 <span class="required">*</span>
@@ -366,7 +364,7 @@ async function handleAvatarFileChange(event: Event) {
                 />
               </div>
 
-              <!-- Description -->
+              <!-- 描述 -->
               <div class="form-group">
                 <label class="form-label">角色描述</label>
                 <textarea
@@ -377,7 +375,7 @@ async function handleAvatarFileChange(event: Event) {
                 ></textarea>
               </div>
 
-              <!-- Avatar Upload -->
+              <!-- 头像上传 -->
               <div class="form-group">
                 <label class="form-label">角色头像</label>
                 <div class="avatar-upload-row">
@@ -413,7 +411,7 @@ async function handleAvatarFileChange(event: Event) {
                 </div>
               </div>
 
-              <!-- Prompt -->
+              <!-- 角色设定 Prompt -->
               <div class="form-group">
                 <label class="form-label">角色设定 (Prompt)</label>
                 <textarea
@@ -438,11 +436,11 @@ async function handleAvatarFileChange(event: Event) {
                 <p class="form-hint">根据角色名称联网生成，或根据描述内容智能生成</p>
               </div>
 
-              <!-- Error -->
+              <!-- 错误提示 -->
               <p v-if="error" class="form-error">{{ error }}</p>
             </div>
 
-            <!-- Library Tab (for room context) -->
+            <!-- 角色库 tab（用于聊天室上下文） -->
             <div v-if="context === 'room' && activeTab === 'library' && !isEditMode" class="character-library">
               <p class="library-hint">选择一个已有角色添加到聊天室：</p>
               <div class="library-list">
@@ -466,7 +464,7 @@ async function handleAvatarFileChange(event: Event) {
             </div>
           </div>
 
-          <!-- Footer -->
+          <!-- 底部 -->
           <footer v-if="activeTab === 'create' || isEditMode" class="character-modal-footer">
             <div class="footer-left">
               <button

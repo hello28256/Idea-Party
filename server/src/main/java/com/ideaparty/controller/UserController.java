@@ -84,7 +84,7 @@ public class UserController {
             @RequestParam("file") MultipartFile file) {
         UUID userId = extractUserIdFromToken(authHeader);
 
-        // Validate file
+        // 校验文件
         if (file.isEmpty()) {
             throw new IllegalArgumentException("头像文件不能为空");
         }
@@ -99,24 +99,24 @@ public class UserController {
         }
 
         try {
-            // Create upload directory if not exists
+            // 如不存在则创建上传目录
             Path uploadPath = Paths.get(UPLOAD_DIR);
             if (!Files.exists(uploadPath)) {
                 Files.createDirectories(uploadPath);
             }
 
-            // Generate unique filename
+            // 生成唯一文件名
             String originalFilename = file.getOriginalFilename();
             String extension = originalFilename != null && originalFilename.contains(".")
                     ? originalFilename.substring(originalFilename.lastIndexOf("."))
                     : ".png";
             String filename = "avatar_" + userId.toString() + "_" + System.currentTimeMillis() + extension;
 
-            // Save file
+            // 保存文件
             Path filePath = uploadPath.resolve(filename);
             Files.copy(file.getInputStream(), filePath);
 
-            // Update user avatar URL
+            // 更新用户头像 URL
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
             String avatarUrl = "/uploads/avatars/" + filename;
@@ -149,7 +149,7 @@ public class UserController {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
 
-        // Validate theme mode
+        // 校验主题模式
         String themeMode = request.getThemeMode();
         if (themeMode == null || (!themeMode.equals("system") && !themeMode.equals("light") && !themeMode.equals("dark"))) {
             throw new IllegalArgumentException("无效的主题模式");

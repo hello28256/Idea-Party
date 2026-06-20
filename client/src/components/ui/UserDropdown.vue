@@ -97,10 +97,10 @@ onUnmounted(() => {
 
 <template>
   <div class="user-dropdown" ref="dropdownRef">
-    <!-- Floating Popover Menu -->
+    <!-- 浮动弹出菜单 -->
     <Transition name="popover">
       <div v-if="isOpen" class="popover-menu" ref="menuRef">
-        <!-- Menu Items -->
+        <!-- 菜单项 -->
         <button
           v-for="item in menuItems"
           :key="item.id"
@@ -113,10 +113,10 @@ onUnmounted(() => {
           <span v-if="item.disabled" class="item-soon">soon</span>
         </button>
 
-        <!-- Divider -->
+        <!-- 分隔线 -->
         <div class="menu-divider"></div>
 
-        <!-- Admin (only for admins) -->
+        <!-- 管理后台（仅管理员可见） -->
         <button
           v-if="authStore.user?.isAdmin"
           class="menu-item"
@@ -126,7 +126,7 @@ onUnmounted(() => {
           <span class="item-label">管理后台</span>
         </button>
 
-        <!-- Logout -->
+        <!-- 退出登录 -->
         <button class="logout-item" @click="handleLogoutClick">
           <span class="item-emoji">🚪</span>
           <span class="item-label">退出登录</span>
@@ -134,7 +134,7 @@ onUnmounted(() => {
       </div>
     </Transition>
 
-    <!-- User Card - Minimal -->
+    <!-- 用户卡片（精简版） -->
     <button class="user-card" ref="cardRef" @click="toggleMenu">
       <div class="user-avatar">
         <img
@@ -159,7 +159,7 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <!-- Logout Confirm Modal -->
+    <!-- 退出登录确认弹窗 -->
     <ConfirmLogoutModal
       :show="showLogoutModal"
       @close="showLogoutModal = false"

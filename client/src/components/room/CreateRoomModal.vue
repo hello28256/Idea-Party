@@ -42,7 +42,7 @@ const selectedCharacterIds = ref<Set<string>>(new Set())
 // Single mode: 'select' (选择角色) or 'create' (创建角色)
 const singleTab = ref<'select' | 'create'>('select')
 
-// Selected character for single mode
+// 单人模式下当前选中的角色
 const selectedCharacter = ref<Character | null>(null)
 
 // Duplicate-room confirmation dialog (replaces ugly browser confirm())
@@ -122,7 +122,7 @@ const myCharacters = computed(() => {
 // 每次 show 切换时同步状态：false 时重置所有表单字段，防止残留上次填写；true 时若角色未加载则拉取
 watch(() => props.show, (newShow) => {
   if (!newShow) {
-    // Reset to default state
+    // 重置为默认状态
     dialogMode.value = 'single'
     singleTab.value = 'select'
     name.value = ''
@@ -133,7 +133,7 @@ watch(() => props.show, (newShow) => {
     avatarPreview.value = null
     error.value = null
   } else {
-    // Load characters
+    // 加载角色列表
     if (characterStore.characters.length === 0) {
       characterStore.fetchCharacters()
     }
@@ -252,11 +252,11 @@ async function handleCreateCharacter() {
     })
 
     if (character) {
-      // Select the newly created character
+      // 选中刚创建的角色
       selectedCharacter.value = character
-      // Switch to select tab to show the selected character
+      // 切回「选择角色」tab 以显示选中的角色
       singleTab.value = 'select'
-      // Reset create form
+      // 重置创建表单
       createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
       avatarPreview.value = null
     } else {
@@ -360,13 +360,13 @@ function handleClose() {
         class="room-modal-overlay"
         @click.self="handleClose"
       >
-        <!-- Modal Container -->
+        <!-- 弹窗容器 -->
         <div class="room-modal">
-          <!-- Header -->
+          <!-- 头部 -->
           <header class="room-modal-header">
             <div class="header-content">
               <h2 class="room-modal-title">创建对话</h2>
-              <!-- Mode Tabs -->
+              <!-- 模式切换 -->
               <div class="mode-tabs">
                 <button
                   class="mode-tab"
@@ -391,13 +391,13 @@ function handleClose() {
             </button>
           </header>
 
-          <!-- Body -->
+          <!-- 主体 -->
           <div class="room-modal-body">
-            <!-- Single Mode Form (单人对话) -->
+            <!-- 单人模式表单（单人对话） -->
             <div v-if="dialogMode === 'single'" class="room-form">
               <p class="form-description">选择一个角色，发起一对一交流</p>
 
-              <!-- Single Mode: Select/Create Tabs -->
+              <!-- 单人模式：选择/创建 切换 -->
               <div class="single-tabs">
                 <button
                   class="single-tab"
@@ -415,9 +415,9 @@ function handleClose() {
                 </button>
               </div>
 
-              <!-- Select Tab -->
+              <!-- 选择 tab -->
               <div v-if="singleTab === 'select'" class="select-section">
-                <!-- Character List -->
+                <!-- 角色列表 -->
                 <div class="character-list">
                   <div
                     v-for="character in myCharacters"
@@ -446,9 +446,9 @@ function handleClose() {
                 </div>
               </div>
 
-              <!-- Create Tab -->
+              <!-- 创建 tab -->
               <div v-if="singleTab === 'create'" class="create-section">
-                <!-- Avatar Upload -->
+                <!-- 头像上传 -->
                 <div class="form-group">
                   <label class="form-label">头像</label>
                   <input
@@ -483,7 +483,7 @@ function handleClose() {
                   </div>
                 </div>
 
-                <!-- Name -->
+                <!-- 名称 -->
                 <div class="form-group">
                   <label class="form-label">
                     角色名称 <span class="required">*</span>
@@ -496,7 +496,7 @@ function handleClose() {
                   />
                 </div>
 
-                <!-- Description -->
+                <!-- 描述 -->
                 <div class="form-group">
                   <label class="form-label">角色描述</label>
                   <textarea
@@ -507,7 +507,7 @@ function handleClose() {
                   ></textarea>
                 </div>
 
-                <!-- Prompt -->
+                <!-- 角色设定 Prompt -->
                 <div class="form-group">
                   <label class="form-label">角色设定 (Prompt)</label>
                   <textarea
@@ -530,7 +530,7 @@ function handleClose() {
                   </button>
                 </div>
 
-                <!-- Create Character Button -->
+                <!-- 创建角色按钮 -->
                 <button
                   type="button"
                   class="create-character-btn"
@@ -541,15 +541,15 @@ function handleClose() {
                 </button>
               </div>
 
-              <!-- Error -->
+              <!-- 错误提示 -->
               <p v-if="error" class="form-error">{{ error }}</p>
             </div>
 
-            <!-- Group Mode Form (多人对话) -->
+            <!-- 群聊模式表单（多人对话） -->
             <div v-else class="room-form">
               <p class="form-description">设置聊天室名称和主题，选择多个角色发起讨论</p>
 
-              <!-- Name -->
+              <!-- 名称 -->
               <div class="form-group">
                 <label class="form-label">
                   聊天室名称 <span class="required">*</span>
@@ -562,7 +562,7 @@ function handleClose() {
                 />
               </div>
 
-              <!-- Topic -->
+              <!-- 主题 -->
               <div class="form-group">
                 <label class="form-label">主题（可选）</label>
                 <textarea
@@ -573,7 +573,7 @@ function handleClose() {
                 ></textarea>
               </div>
 
-              <!-- Character multi-select -->
+              <!-- 角色多选 -->
               <div class="form-group">
                 <label class="form-label">
                   选择角色 <span class="required">*</span>
@@ -606,12 +606,12 @@ function handleClose() {
                 </div>
               </div>
 
-              <!-- Error -->
+              <!-- 错误提示 -->
               <p v-if="error" class="form-error">{{ error }}</p>
             </div>
           </div>
 
-          <!-- Footer -->
+          <!-- 底部 -->
           <footer class="room-modal-footer">
             <div class="footer-actions">
               <button
@@ -636,11 +636,11 @@ function handleClose() {
       </div>
     </Transition>
 
-    <!-- Duplicate-room confirmation dialog (project-styled, replaces native confirm) -->
+    <!-- 重复创建聊天室确认弹窗（项目风格，替代浏览器原生 confirm） -->
     <Transition name="modal">
       <div v-if="dupDialog" class="modal-overlay" @click.self="closeDupDialog">
         <div class="modal-container" role="alertdialog" aria-modal="true" aria-labelledby="dup-title">
-          <!-- Close Button -->
+          <!-- 关闭按钮 -->
           <button class="close-btn" @click="closeDupDialog" :disabled="dupDialogLoading">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
@@ -648,21 +648,21 @@ function handleClose() {
             </svg>
           </button>
 
-          <!-- Icon -->
+          <!-- 图标 -->
           <div class="modal-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
           </div>
 
-          <!-- Content -->
+          <!-- 内容 -->
           <h2 id="dup-title" class="modal-title">已存在该对话</h2>
           <p class="modal-desc">
             你已经和「{{ dupDialog.characterName }}」有过对话。<br />
             要进入现有对话，还是发起一个新的？
           </p>
 
-          <!-- Actions -->
+          <!-- 操作按钮 -->
           <div class="modal-actions">
             <button class="btn-cancel" @click="closeDupDialog" :disabled="dupDialogLoading">
               取消

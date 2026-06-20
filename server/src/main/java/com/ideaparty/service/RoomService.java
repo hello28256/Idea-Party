@@ -73,8 +73,8 @@ public class RoomService {
 
         Room saved = roomRepository.save(room);
 
-        // Add characters (group mode). Mirrors the findById + add pattern from addCharacterToRoom.
-        // No ownership/visibility check here because the existing addCharacterToRoom does not perform one either.
+        // 添加角色（群组模式）。与 addCharacterToRoom 中的 findById + add 模式保持一致。
+        // 这里不做所有权/可见性校验，因为现有的 addCharacterToRoom 也没做。
         // 选择"在创建时直接绑定角色"而非事务结束再追加，避免出现"已建空房间但角色未挂上"的中间态，
         // 同时复用 Room.characters 的级联保存，省一次显式事务。
         if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
@@ -86,7 +86,7 @@ public class RoomService {
             saved = roomRepository.save(saved);
         }
 
-        // Add owner as a member
+        // 将房主添加为成员
         RoomMember ownerMember = RoomMember.builder()
                 .room(saved)
                 .user(owner)
@@ -160,13 +160,13 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        // Check if user is a member
+        // 检查用户是否是成员
         if (!roomMemberRepository.isMember(roomId, userId)) {
             log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
             throw new AccessDeniedException("You are not a member of this room");
         }
 
-        // Single rooms are 1-on-1 and immutable in membership.
+        // 单人房间是一对一的，成员关系不可变。
         if ("single".equalsIgnoreCase(room.getMode())) {
             log.warn("[DEBUG] User {} tried to add character to single-mode room {}", userId, roomId);
             throw new AccessDeniedException("Single-mode rooms cannot accept additional characters");
@@ -213,7 +213,7 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        // Check if user is a member
+        // 检查用户是否是成员
         if (!roomMemberRepository.isMember(roomId, userId)) {
             log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
             throw new AccessDeniedException("You are not a member of this room");
@@ -243,7 +243,7 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
 
-        // Check if user is a member
+        // 检查用户是否是成员
         if (!roomMemberRepository.isMember(roomId, userId)) {
             log.warn("[DEBUG] User {} is not a member of room {}", userId, roomId);
             throw new AccessDeniedException("You are not a member of this room");
@@ -263,10 +263,9 @@ public class RoomService {
     }
 
     /**
-     * Normalize the requested room mode.
-     * Accepts "single" or "group" (case-insensitive). Anything else falls back
-     * to "group" so legacy clients (and the existing "starts-chat-with-character"
-     * flow) still work.
+     * 规范化请求的房间模式。
+     * 接受 "single" 或 "group"（大小写不敏感）。其它任意值回退为 "group"，
+     * 以保证遗留客户端（以及现有的"以角色开始对话"流程）仍可正常工作。
      */
     private static String normalizeMode(String requested) {
         if (requested == null) return "group";

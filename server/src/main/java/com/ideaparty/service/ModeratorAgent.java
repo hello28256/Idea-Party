@@ -35,25 +35,23 @@ import dev.langchain4j.model.chat.ChatLanguageModel;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Moderator Agent for multi-round group discussion orchestration.
+ * 主持代理（Moderator Agent）：多轮群组讨论编排器。
  *
- * Discussion flow:
- * 1. Round 1: All characters respond to the user's question in PARALLEL
- * 2. Round 2+: Characters comment on each other's responses, forming a debate
- * 3. After MAX_ROUNDS, discussion ends
+ * 讨论流程：
+ * 1. 第 1 轮：所有角色并行回答用户的问题
+ * 2. 第 2 轮及之后：角色之间互相评论对方的回答，形成辩论
+ * 3. 达到 MAX_ROUNDS 后讨论结束
  *
  * 为什么存在：本类把"多角色群聊"从一组孤立调用升级为有状态的多轮编排——既负责挑选本轮发言者（Moderator LLM），
  * 又负责驱动多轮对话、暂停/恢复、用户中途插入、线程归属跟踪，并通过 ChatSocketHandler 把进度推给前端。
  * 与 AIService、CharacterPromptBuilder、SettingsService、ChatSocketHandler 协作；DisposableBean 用于关闭时清理执行器。
- */
-/**
+ *
  * 字段说明：
  * - executor：自定义线程池，必须继承 Spring SecurityContext；否则子线程拿不到认证，AI 调用会失败。
  * - roomFutures：按 roomId 跟踪运行中的 CompletableFuture，用于在 cancelRoom / destroy 时取消仍在飞的 LLM 调用，避免资源泄漏。
  * - roomDiscussionState：每个房间的会话级可变状态，多线程访问因此用 ConcurrentHashMap 包裹。
  * - objectMapper：仅用于把 ModeratorMessage / DiscussionStateEvent / 错误事件序列化进 Socket.IO 帧，前缀 42[...] 即 Socket.IO MESSAGE 帧格式。
- */
-/**
+ *
  * 常量说明：
  * - MAX_ROUNDS：硬编码 3 轮上限，避免无终止地递归辩论造成 token 浪费；调用方可在 processMessage 通过 maxRounds 覆盖。
  * - ROUND_DELAY_MS：轮间间隔，让前端先把上一轮内容渲染完再开始下一轮；用户触发时会被忽略以保证响应即时性。
@@ -83,22 +81,22 @@ public class ModeratorAgent implements DisposableBean {
     // Socket.IO 帧需要 JSON 字符串；线程局部 ThreadLocal 没必要，独立实例即可。
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Maximum discussion rounds
+    // 最大讨论轮数
     private static final int MAX_ROUNDS = 3;
 
-    // Delay between rounds (milliseconds) to let responses propagate
+    // 轮间延迟（毫秒），让回复有时间传递
     private static final long ROUND_DELAY_MS = 1500;
 
-    // Executor for async operations - propagates SecurityContext to child threads
+    // 异步操作执行器 —— 向子线程传递 SecurityContext
     private final ExecutorService executor;
 
-    // Room-level futures tracking for cancellation
+    // 房间级 future 跟踪，用于取消
     private final ConcurrentHashMap<String, List<CompletableFuture<?>>> roomFutures = new ConcurrentHashMap<>();
 
-    // Room-level current discussion state
+    // 房间级当前讨论状态
     private final ConcurrentHashMap<String, DiscussionState> roomDiscussionState = new ConcurrentHashMap<>();
 
-    // Discussion state class
+    // 讨论状态内部类
     private static class DiscussionState {
         // 讨论是否在进行中；cancelRoom/stopDiscussion 把它置 false 让 while 循环自然退出。
         volatile boolean isRunning = false;
@@ -121,7 +119,7 @@ public class ModeratorAgent implements DisposableBean {
         // 用户在轮间等待时发来消息，置 true 让等待循环立刻跳出以保证响应即时性。
         AtomicBoolean userTriggered = new AtomicBoolean(false);
 
-        // New fields for state machine
+        // 状态机新增字段
         // 状态机当前阶段；前端依据它渲染"选人中 / 发言中 / 等你参与"等 UI。
         volatile DiscussionPhase phase = DiscussionPhase.IDLE;
         // 用户在讨论中途发送新消息时置位，触发新一轮 Moderator 选人。
@@ -143,20 +141,20 @@ public class ModeratorAgent implements DisposableBean {
         // 业务关键字段：用于 settingsService.getApiKeyById 拉取该用户专属 API Key。
         String userId = "";
         // 滚动窗口：保留最近 10 条用户消息，给 Moderator 选人时作为上下文。
-        List<String> userMessageHistory = new CopyOnWriteArrayList<>();  // Last 10 user messages
+        List<String> userMessageHistory = new CopyOnWriteArrayList<>();  // 最近 10 条用户消息
 
         // 线程归属跟踪：当前用户"正在和谁对话"的判断依据；用于延续性短句的路由。
-        // Character name who owns the current thread
+        // 当前线程归属角色的姓名
         volatile String activeThreadOwner = null;
         // 上次活跃时间；超过 2 分钟就认为旧线已结束，不再强制续线。
-        // Timestamp of last thread update
+        // 最近线程更新时间戳
         volatile long lastThreadUpdateTime = 0;
         // 最近讨论话题；保留字段用于将来"话题切换检测"，目前未被强引用。
-        // Current discussion topic for continuity check
+        // 当前讨论话题（用于连续性检查）
         volatile String lastTopic = "";
     }
 
-    // ========== State Machine Methods ==========
+    // ========== 状态机相关方法 ==========
 
     // 写入新阶段 + 广播"discussion-state"事件，让前端 UI 同步（思考/说话/邀请等）。
     private void transitionTo(DiscussionState state, DiscussionPhase newPhase) {
@@ -203,34 +201,34 @@ public class ModeratorAgent implements DisposableBean {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null) return;
 
-        // 1. Set interrupt flag immediately
+        // 1. 立即设置中断标志位
         state.userInterjected = true;
 
-        // 2. Clear pending queue
+        // 2. 清空待发队列
         state.pendingQueue.clear();
 
-        // 3. Reset AI message count
+        // 3. 重置 AI 消息计数
         state.aiMessageCount = 0;
 
-        // 4. Add to user message history (keep last 10)
+        // 4. 添加到用户消息历史（仅保留最近 10 条）
         state.userMessageHistory.add(userMessage);
         if (state.userMessageHistory.size() > 10) {
             state.userMessageHistory.remove(0);
         }
 
-        // 5. Transition to MODERATING
+        // 5. 切换到 MODERATING 阶段
         transitionTo(state, DiscussionPhase.MODERATING);
         state.currentUserMessage = userMessage;
-        state.userMessage = userMessage;  // Also set userMessage for generateCharacterResponse
+        state.userMessage = userMessage;  // 同时设置 userMessage 供 generateCharacterResponse 使用
         state.userId = userId;
 
-        // 6. Immediately start new Moderator analysis
+        // 6. 立即启动新一轮 Moderator 分析
         processModeratorAnalysis(roomId, userMessage);
     }
 
     /**
-     * Update the active thread owner after a character responds.
-     * This maintains conversation continuity by tracking who the user is currently talking to.
+     * 在角色回复后更新活跃线程归属者。
+     * 通过追踪用户当前正在与谁对话来保持会话连续性。
      */
     private void updateActiveThread(String roomId, DiscussionState state, String characterName) {
         if (state == null || characterName == null) return;
@@ -244,25 +242,25 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Check if the current user message is likely continuing the same thread.
-     * Returns true if the message should be routed to the active thread owner.
+     * 判断当前用户消息是否在延续同一线程。
+     * 如果应路由到活跃线程归属者，则返回 true。
      */
     private boolean isContinuingThread(DiscussionState state, String userMessage, String selectedAgentName) {
         if (state == null || state.activeThreadOwner == null) {
             return false;
         }
 
-        // If user explicitly mentioned a different agent, don't force thread continuity
+        // 如果用户明确提到了别的 agent，不要强制保持线程连续性
         if (selectedAgentName != null && !selectedAgentName.equals(state.activeThreadOwner)) {
             return false;
         }
 
-        // Short contextual messages strongly suggest thread continuation
+        // 短小的上下文衔接类消息强烈暗示线程延续
         if (isShortContextualMessage(userMessage)) {
             return true;
         }
 
-        // If message is very short and thread was recently active (within 2 minutes)
+        // 消息非常短且线程最近活跃（在 2 分钟内）
         long twoMinutesAgo = System.currentTimeMillis() - 120000;
         if (userMessage.trim().length() < 20 && state.lastThreadUpdateTime > twoMinutesAgo) {
             return true;
@@ -300,19 +298,19 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Call LLM to select characters (with user message history context)
+        // 调用 LLM 选人（附带用户消息历史上下文）
         String selection = callModeratorForSelection(state.userId, userMessage, state.userMessageHistory, availableCharacters);
         log.info("[Moderator] LLM selection result: {}", selection);
 
-        // Parse JSON format response
+        // 解析 JSON 格式的回复
         List<Character> selected = parseModeratorResponse(selection, availableCharacters);
 
-        // Fallback if no characters matched
+        // 兜底：若没有匹配到任何角色
         if (selected.isEmpty()) {
             selected = availableCharacters.subList(0, Math.min(1, availableCharacters.size()));
         }
 
-        // Thread continuity check: if message is likely continuing same thread, prefer active thread owner
+        // 线程连续性检查：若消息大概率延续同一线程，优先使用活跃线程归属者
         if (selected.size() == 1 && isContinuingThread(state, userMessage, selected.get(0).getName())) {
             String activeOwner = state.activeThreadOwner;
             if (activeOwner != null) {
@@ -331,26 +329,26 @@ public class ModeratorAgent implements DisposableBean {
         state.selectedCharacters = new ArrayList<>(selected);
         state.pendingQueue = new ArrayList<>(selected);
 
-        // Broadcast selection
+        // 广播选人结果
         String selectMsg = "正在邀请: " + selected.stream().map(Character::getName).collect(Collectors.joining(", "));
         state.moderatorMessage = selectMsg;
         broadcastModeratorMessage(roomId, selectMsg, "SELECT");
 
-        // Transition to SPEAKING
+        // 切换到 SPEAKING 阶段
         transitionTo(state, DiscussionPhase.SPEAKING);
 
-        // Start speaking process
+        // 启动发言流程
         processNextInQueue(roomId);
     }
 
     /**
-     * Parse moderator LLM response in JSON format.
+     * 以 JSON 格式解析 Moderator LLM 的回复。
      */
     // 解析 Moderator LLM 的回复：优先 JSON 解析（message_type + target_agents）；失败再回退到 [SELECT:...] 正则；最终兜底交给 caller。
     private List<Character> parseModeratorResponse(String response, List<Character> availableCharacters) {
         List<Character> selected = new ArrayList<>();
         try {
-            // Try to parse as JSON
+            // 尝试按 JSON 解析
             Map<String, Object> json = objectMapper.readValue(response, Map.class);
             String messageType = (String) json.get("message_type");
             List<String> targetAgents = (List<String>) json.get("target_agents");
@@ -359,20 +357,20 @@ public class ModeratorAgent implements DisposableBean {
             log.info("[Moderator] Parsed JSON - type: {}, confidence: {}, targets: {}",
                 messageType, confidence, targetAgents);
 
-            // Handle broadcast - all characters speak
+            // 处理 broadcast —— 所有角色都发言
             if ("broadcast".equals(messageType)) {
                 log.info("[Moderator] Broadcast requested - all characters will speak");
                 selected.addAll(availableCharacters);
                 return selected;
             }
 
-            // Handle invite - no characters selected, will be handled as INVITE
+            // 处理 invite —— 没有选中任何角色，会作为 INVITE 处理
             if ("invite".equals(messageType)) {
                 log.info("[Moderator] INVITE requested - no character selection");
                 return selected;
             }
 
-            // Handle direct_reply or multi_target_reply
+            // 处理 direct_reply 或 multi_target_reply
             if (targetAgents != null) {
                 for (String agentName : targetAgents) {
                     final String trimmedName = agentName.trim();
@@ -387,7 +385,7 @@ public class ModeratorAgent implements DisposableBean {
             }
         } catch (Exception e) {
             log.warn("[Moderator] Failed to parse JSON response, trying regex fallback: {}", e.getMessage());
-            // Fallback to old [SELECT:xxx] format
+            // 兜底使用旧的 [SELECT:xxx] 格式
             Pattern pattern = Pattern.compile("\\[SELECT:([^\\]]+)\\]");
             Matcher matcher = pattern.matcher(response);
             if (matcher.find()) {
@@ -412,13 +410,13 @@ public class ModeratorAgent implements DisposableBean {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state == null || !state.isRunning) return;
 
-        // Check if should wait for user
+        // 检查是否需要等待用户输入
         if (shouldWaitForUser(state)) {
             waitForUserInput(roomId);
             return;
         }
 
-        // Get next character from queue - synchronized for thread safety
+        // 从队列取出下一个角色 —— 同步块保证线程安全
         synchronized (state.pendingQueue) {
             if (!state.pendingQueue.isEmpty()) {
                 Character character = state.pendingQueue.remove(0);
@@ -496,17 +494,17 @@ public class ModeratorAgent implements DisposableBean {
         this.characterRepository = characterRepository;
         this.roomRepository = roomRepository;
         this.userRepository = userRepository;
-        // Wrap executor so SecurityContext is inherited by async threads
+        // 包装 executor，使 SecurityContext 能被异步线程继承
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
-            // Inherit SecurityContext from the thread that submits the task
+            // 从提交任务的线程继承 SecurityContext
             SecurityContext ctx = SecurityContextHolder.getContext();
             t.setContextClassLoader(null);
             return new Thread(ctx != null ? new SecurityContextAwareThread(ctx, t) : t);
         });
     }
 
-    // Wraps a Thread to set SecurityContext before run()
+    // 包装 Thread，在 run() 前设置 SecurityContext
     // 在 run() 前把"提交任务时的 SecurityContext"重新安装到当前线程，使 LLM 调用方等链路能继续以用户身份访问受保护资源。
     private static class SecurityContextAwareThread extends Thread {
         // 被捕获的父线程 SecurityContext；构造时固化，避免异步任务跑到一半上下文被其他线程覆盖。
@@ -530,17 +528,17 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Process a user message and orchestrate AI character discussion.
+     * 处理用户消息并编排 AI 角色讨论。
      *
-     * @param roomId The room ID
-     * @param userId The user ID (passed explicitly to avoid SecurityContext threading issues)
-     * @param userMessage The user's message
-     * @param characters List of characters in the room
-     * @param isContinuous If true, run multiple rounds (discussion mode); if false, single round (dialogue mode)
-     * @param maxRounds Maximum rounds for continuous mode
-     * @param onThinking Callback for "thinking" state
-     * @param onChunk Callback for streaming chunks (called as content is generated)
-     * @param onResponse Callback for each character's complete response
+     * @param roomId 房间 ID
+     * @param userId 用户 ID（显式传入，避免 SecurityContext 线程传递问题）
+     * @param userMessage 用户消息
+     * @param characters 房间内角色列表
+     * @param isContinuous true 表示多轮讨论模式；false 表示单轮对话模式
+     * @param maxRounds 多轮模式下的最大轮数
+     * @param onThinking "思考中"状态的回调
+     * @param onChunk 流式块的回调（每生成一段内容就会触发）
+     * @param onResponse 每个角色完成回复时的回调
      */
     /**
      * WebSocket / 控制器层入口。根据 isContinuous 路由到"联合多轮讨论"或"单轮对话"两条路径。
@@ -556,9 +554,9 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Pre-check API key so we can notify the user instead of silently doing nothing.
-        // Both dialogue and discussion modes ultimately call runJointSingleRound which
-        // would otherwise return without telling the frontend why nothing happened.
+        // 预先校验 API key，这样可以在不发声的情况下主动通知用户。
+        // 对话和讨论模式最终都会调用 runJointSingleRound，
+        // 否则它会在不告知前端"为什么什么也没发生"的情况下直接返回。
         String userApiKey = settingsService.getApiKeyById(userId);
         if (userApiKey == null || userApiKey.isBlank()) {
             log.warn("[Moderator] processMessage - no API key for userId: {}", userId);
@@ -574,22 +572,22 @@ public class ModeratorAgent implements DisposableBean {
         log.info("[Moderator] processMessage - roomId: {}, userId: {}, charCount: {}, isContinuous: {}",
             roomId, userId, characters.size(), isContinuous);
 
-        // Build initial context with user message
+        // 用用户消息构建初始上下文
         String initialContext = buildInitialContext(userMessage);
 
-        // Track responses for each round
+        // 按轮次跟踪回复
         Map<Integer, List<ResponseFragment>> roundResponses = new ConcurrentHashMap<>();
 
         try {
             if (isContinuous) {
-                // Discussion mode: sequential turn-based discussion
-                // Each round uses ONE joint LLM call so all characters in a round
-                // come from the same inference (cheaper, smarter cross-character context).
+                // 讨论模式：基于轮次的顺序讨论
+                // 每一轮使用一次联合 LLM 调用，使得同轮的所有角色
+                // 都来自同一次推理（更省 token、跨角色上下文更连贯）。
                 runJointDiscussion(roomId, userId, userMessage, characters, maxRounds,
                     initialContext, onThinking, onChunk, onResponse);
             } else {
-                // Dialogue mode: a single joint round — moderator picks 1..N speakers
-                // and we stream each speaker's reply in order from one inference.
+                // 对话模式：单次联合推理 —— moderator 选出 1..N 个发言者，
+                // 我们从同一次推理中按顺序流式输出每位发言者的回复。
                 runJointSingleRound(roomId, userId, userMessage, initialContext, characters,
                     onChunk, onResponse);
             }
@@ -604,7 +602,7 @@ public class ModeratorAgent implements DisposableBean {
         }
     }
 
-    /** Structured error passed to the WebSocket layer so the frontend can react. */
+    /** 传递给 WebSocket 层的结构化错误，供前端做出反应。 */
     public static class ModeratorError {
         // 错误分类枚举：MISSING_API_KEY 提示用户去设置页；LLM_ERROR 表示上游调用失败。
         public enum Code { MISSING_API_KEY, LLM_ERROR }
@@ -625,7 +623,7 @@ public class ModeratorAgent implements DisposableBean {
         public String getMessage() { return message; }
     }
 
-    // ================== JOINT (single-LLM-call) FLOW ==================
+    // ================== 联合（单次 LLM 调用）流程 ==================
 
     /**
      * 联合推理：把整轮（多角色依次发言）打包成一次 LLM 调用，让所有角色从同一个上下文中生成。
@@ -645,7 +643,7 @@ public class ModeratorAgent implements DisposableBean {
             return;
         }
 
-        // Load last 10 messages for the prompt
+        // 为 prompt 加载最近 10 条消息
         String conversationHistory = loadRecentHistory(roomId, 100);
         String prompt = buildJointPrompt(userMessage, conversationHistory, context, characters);
         log.info("[Moderator] runJointSingleRound - prompt length: {}", prompt.length());
@@ -733,13 +731,13 @@ public class ModeratorAgent implements DisposableBean {
         CompletableFuture<Void> discussionFuture = CompletableFuture.runAsync(() -> {
             try {
                 while (state.isRunning && state.currentRound <= state.maxRounds) {
-                    // Wait for pause
+                    // 等待暂停解除
                     while (state.paused && state.isRunning) {
                         Thread.sleep(500);
                     }
                     if (!state.isRunning) break;
 
-                    // Inter-round delay 1.5s
+                    // 轮间延迟 1.5s
                     for (int i = 0; i < 3; i++) {
                         if (!state.isRunning) break;
                         if (state.userTriggered.get()) {
@@ -752,23 +750,23 @@ public class ModeratorAgent implements DisposableBean {
 
                     log.info("[Moderator] [Joint Round {}/{}] starting", state.currentRound, state.maxRounds);
 
-                    // Build the round context that includes prior round responses
+                    // 构建包含上一轮回复的轮次上下文
                     String roundContext = buildRoundContext(
                         state.context, state.responses, state.currentRound - 1);
 
-                    // Wrap onResponse so each completed speaker block is captured into
-                    // state.responses — the next round's buildRoundContext needs this
-                    // to feed the previous round's output back to the LLM. Without
-                    // this, round 2+ have no idea what round 1 said and just ramble.
+                    // 包装 onResponse，将每个完成的发言块捕获到
+                    // state.responses —— 下一轮的 buildRoundContext 需要用它
+                    // 把上一轮的输出回喂给 LLM。没有这层包装，
+                    // 第 2 轮及之后根本不知道第 1 轮说了什么，只能自说自话。
                     final int roundBeingRun = state.currentRound;
                     Consumer<ResponseFragment> capturingOnResponse = fragment -> {
-                        // Capture for next round's context, then forward to caller.
+                        // 捕获到下一轮的上下文，然后转发给上层调用方。
                         state.responses.add(fragment);
                         onResponse.accept(fragment);
                     };
 
-                    // For round > 1, clear stale responses from the prior round so the
-                    // context section only shows what we want the LLM to react to.
+                    // 第 2 轮起，清空上一轮残留的回复，确保
+                    // 上下文段只展示我们希望 LLM 回应的那部分内容。
                     if (state.currentRound > 1) {
                         state.responses.clear();
                     }
@@ -776,7 +774,7 @@ public class ModeratorAgent implements DisposableBean {
                     runJointSingleRound(roomId, userId, userMessage, roundContext, characters,
                         onChunk, capturingOnResponse);
 
-                    // Snapshot this round's responses for the next iteration
+                    // 快照本轮回复，供下一轮迭代使用
                     List<ResponseFragment> thisRound = new ArrayList<>(state.responses);
 
                     state.currentRound++;
@@ -809,8 +807,8 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Build the joint prompt by loading the moderator-joint-prompt.txt template and
-     * filling in character roster, recent history, and user message.
+     * 通过加载 moderator-joint-prompt.txt 模板并填入
+     * 角色名单、最近历史和用户消息来构建联合 prompt。
      */
     // 加载联合推理 prompt 模板，把角色花名册 + 最近历史 + 用户消息三段拼好后注入占位符。
     // 角色 prompt 仅截前 800 字作为"风味片段"，避免模板过长导致 token 爆掉。
@@ -830,7 +828,7 @@ public class ModeratorAgent implements DisposableBean {
                     charactersList.append("  专长：").append(String.join("、", c.getExpertise())).append("\n");
                 }
                 if (c.getPrompt() != null && !c.getPrompt().isBlank()) {
-                    // Include the first 800 chars of the character prompt as flavor
+                    // 取角色 prompt 的前 800 字符作为"风味片段"
                     String snippet = c.getPrompt();
                     if (snippet.length() > 800) snippet = snippet.substring(0, 800) + "...";
                     charactersList.append("  设定摘录：").append(snippet).append("\n");
@@ -853,12 +851,6 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Load recent N messages from the room as a formatted history string.
-     * Avoids lazy Character access by pre-fetching character names in a single
-     * findAllById round-trip. Self-invocation from runJointSingleRound would
-     * otherwise bypass the @Transactional proxy, so we do not rely on it here.
-     */
-    /**
      * 预取最近 N 条消息的角色名：一次性 findAllById 解决懒加载代理问题，避免在序列化时触发 LazyInitializationException。
      * 不通过 this 内部调用同名 @Transactional 方法——会绕过 Spring 代理导致事务失效。
      */
@@ -868,7 +860,7 @@ public class ModeratorAgent implements DisposableBean {
             List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomUuid);
             if (messages.isEmpty()) return "";
 
-            // Collect all character ids referenced by CHARACTER messages
+            // 收集所有 CHARACTER 类型消息引用的角色 ID
             Set<UUID> charIds = new HashSet<>();
             for (Message m : messages) {
                 if (m.getCharacter() != null) {
@@ -876,7 +868,7 @@ public class ModeratorAgent implements DisposableBean {
                 }
             }
 
-            // Resolve names in one round-trip (eager load — no lazy proxy issues)
+            // 一次往返查询解析出名字（预先加载 —— 没有懒加载代理问题）
             Map<UUID, String> nameById = new HashMap<>();
             if (!charIds.isEmpty()) {
                 for (Character c : characterRepository.findAllById(charIds)) {
@@ -906,18 +898,18 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Incremental parser for the joint LLM stream. Output protocol from the LLM:
+     * 联合 LLM 流的增量解析器。LLM 的输出协议：
      *
      *   [角色名]: 台词内容（可换行）
      *   <<<END>>>
      *   [另一角色]: ...
      *   <<<END>>>
      *
-     * For each complete block:
-     *  - onChunk(fragment, isComplete=false) is called with the full content
-     *    (so the frontend sees the speaker's text appear when the turn ends)
-     *  - onResponse(fragment, isComplete=true) is called so the orchestrator
-     *    can persist and broadcast
+     * 对于每个完整的发言块：
+     *  - 以完整内容调用 onChunk(fragment, isComplete=false)
+     *    （这样前端在该轮发言结束时能看到发言者的文字）
+     *  - 以 isComplete=true 调用 onResponse(fragment, isComplete=true)，
+     *    让编排层持久化并广播
      */
     private static class JointStreamParser {
         // LLM 输出里"一段发言结束"的固定标记，必须与 prompt 模板里写的字符串保持一致。
@@ -964,12 +956,12 @@ public class ModeratorAgent implements DisposableBean {
 
         // 流式结束时调用：补齐 buffer、解析剩余块，并对"未闭合的尾段"做警告日志。
         void flush(String finalText) {
-            // Make sure the buffer contains whatever the LLM produced in full
+            // 确保 buffer 包含 LLM 产生的全部内容
             if (buffer.length() < finalText.length()) {
                 buffer.append(finalText.substring(buffer.length()));
             }
             parseNewBlocks();
-            // Anything left that looks like an unfinished block — drop with a warning
+            // 任何残留的看起来像未完成块的内容 —— 丢弃并打警告
             if (consumed < buffer.length()) {
                 String leftover = buffer.substring(consumed).trim();
                 if (!leftover.isEmpty()) {
@@ -994,7 +986,7 @@ public class ModeratorAgent implements DisposableBean {
                     continue;
                 }
                 if (emittedSpeakers.contains(c.getId().toString())) {
-                    // Same speaker appears twice in one joint response — keep the first
+                    // 同一发言者在同一次联合回复中重复出现 —— 保留第一个
                     log.warn("[Moderator] joint stream repeated speaker '{}' — keeping first block", rawName);
                     consumed = m.end();
                     continue;
@@ -1003,7 +995,7 @@ public class ModeratorAgent implements DisposableBean {
                 emittedSpeakers.add(c.getId().toString());
                 consumed = m.end();
             }
-            // Trim consumed prefix periodically to keep the buffer small
+            // 周期性地裁剪已消费前缀，让 buffer 保持较小
             if (consumed > 4096) {
                 buffer.delete(0, consumed);
                 consumed = 0;
@@ -1017,22 +1009,17 @@ public class ModeratorAgent implements DisposableBean {
                 return;
             }
             String charId = c.getId().toString();
-            // Stream chunk: the user sees the text appear as the turn ends
+            // 流式块：用户在发言结束时看到文字出现
             onChunk.accept(new ResponseFragment(
                 charId, c.getName(), content, false, c.getAvatarUrl()));
-            // Complete: orchestrator persists + broadcasts
+            // 完成：编排层持久化 + 广播
             onResponse.accept(new ResponseFragment(
                 charId, c.getName(), content, true, c.getAvatarUrl()));
         }
     }
 
     /**
-     * Run sequential turn-based discussion mode.
-     * Characters take turns speaking one by one with random delays between turns.
-     * Supports pause/resume and user message triggering.
-     */
-    /**
-     * 顺序讨论（每角色单独调一次 LLM 的旧路径，目前主要保留作 fallback）。
+     * 顺序讨论模式（每角色单独调一次 LLM 的旧路径，目前主要保留作 fallback）。
      * 与 runJointDiscussion 的关键差异：每个角色独立 prompt，无法看到彼此视角，代价更高但隔离性更好；
      * 由随机 1-3s 间隔模拟"真人发言节奏"，同时 userTriggered 允许用户中途插队。
      */
@@ -1041,13 +1028,13 @@ public class ModeratorAgent implements DisposableBean {
         log.info("[Moderator] runSequentialDiscussion START - roomId: {}, chars: {}, rounds: {}",
             roomId, state.characters.size(), state.maxRounds);
 
-        // Start the discussion loop in a background thread
+        // 在后台线程启动讨论循环
         CompletableFuture.runAsync(() -> {
             try {
                 while (state.isRunning && state.currentRound <= state.maxRounds) {
                     Character character = state.characters.get(state.currentCharacterIndex);
 
-                    // Wait for pause - check every 500ms
+                    // 等待暂停解除 —— 每 500ms 检查一次
                     while (state.paused && state.isRunning) {
                         log.info("[Moderator] Discussion paused, waiting...");
                         Thread.sleep(500);
@@ -1055,7 +1042,7 @@ public class ModeratorAgent implements DisposableBean {
 
                     if (!state.isRunning) break;
 
-                    // Random delay 1-3 seconds before this character speaks
+                    // 角色发言前随机延迟 1-3 秒
                     int delaySeconds = 1 + (int) (Math.random() * 2);
                     log.info("[Moderator] [Round {}] Waiting {}s before {} speaks",
                         state.currentRound, delaySeconds, character.getName());
@@ -1072,14 +1059,14 @@ public class ModeratorAgent implements DisposableBean {
 
                     if (!state.isRunning) break;
 
-                    // Character speaks (blocking stream)
+                    // 角色发言（阻塞式流式）
                     log.info("[Moderator] [Round {}] {} is now speaking", state.currentRound, character.getName());
                     generateCharacterResponse(roomId, character, state, state.userId, state.userMessage, state.context);
 
-                    // Move to next character
+                    // 移动到下一个角色
                     state.currentCharacterIndex++;
 
-                    // If all characters have spoken this round
+                    // 若本轮所有角色都已发言
                     if (state.currentCharacterIndex >= state.characters.size()) {
                         state.currentCharacterIndex = 0;
                         state.currentRound++;
@@ -1107,12 +1094,6 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Generate response for a single character with streaming.
-     * Merged overload: internally fetches API key, broadcasts canonical events
-     * (message stream / chat message / error) directly, and persists the
-     * complete message via messageRepository.save.
-     */
-    /**
      * 单角色阻塞式生成 + 直接广播/落库（合并重载）。上层调用方不再需要自己处理 Socket 推送和持久化。
      * 关键并发守卫：settled AtomicBoolean 防止 latch 超时与 onComplete/onError 回调同时触发，导致消息被广播两次、落库两次。
      * context 已由调用方嵌入用户问题；这里不再追加，避免与 discussion 路径重复。
@@ -1127,21 +1108,19 @@ public class ModeratorAgent implements DisposableBean {
 
         try {
             String characterPrompt = characterPromptBuilder.build(character, true);
-            // Note: in discussion mode, `context` already contains the user's question
-            // (see buildInitialContext L976 which embeds "The user has asked: ...").
-            // In dialogue mode (runSingleRound), `context` is the raw conversation history
-            // and does not embed the question. We only need the trailing line when context
-            // does not already include it — but to keep both paths simple, the caller is
-            // expected to embed the question in context. So we don't append it here.
+            // 注意：discussion 模式下 `context` 已经包含用户的问题
+            // （见 buildInitialContext，它内嵌了 "The user has asked: ..."）。
+            // dialogue 模式（runSingleRound）下，`context` 是原始对话历史，
+            // 不会内嵌用户问题。我们仅在 context 不包含问题时追加尾行 —— 但为了
+            // 两条路径都简单，约定由调用方在 context 里嵌入问题，故此处不再追加。
             String fullPrompt = characterPrompt + "\n\n" + context;
 
             log.info("[Moderator] [{}] Prompt length: {}", character.getName(), fullPrompt.length());
 
             StringBuilder fullResponse = new StringBuilder();
             CountDownLatch latch = new CountDownLatch(1);
-            // Guard against the race where latch.await times out but the AI stream
-            // completes shortly after — without this, the same response would be
-            // persisted to DB twice and broadcast to the frontend twice.
+            // 防止 latch.await 超时但 AI 流稍后完成的竞态
+            // —— 没有这道护栏，同一回复会被持久化两次并向前端广播两次。
             AtomicBoolean settled = new AtomicBoolean(false);
 
             aiService.generateResponseStream(
@@ -1151,7 +1130,7 @@ public class ModeratorAgent implements DisposableBean {
                 chunk -> {
                     fullResponse.append(chunk);
                     try {
-                        // Stream chunk to frontend via canonical 'message stream' event
+                        // 通过规范的 'message stream' 事件向前端流式推送
                         Map<String, Object> chunkData = new java.util.HashMap<>();
                         chunkData.put("content", chunk);
                         chunkData.put("senderType", "CHARACTER");
@@ -1175,7 +1154,7 @@ public class ModeratorAgent implements DisposableBean {
                     }
                     String responseText = fullResponse.toString();
 
-                    // Persist message to DB
+                    // 持久化消息到数据库
                     try {
                         Message savedMessage = persistCharacterMessage(roomId, character, userId, responseText);
                         state.responses.add(new ResponseFragment(
@@ -1188,7 +1167,7 @@ public class ModeratorAgent implements DisposableBean {
                         log.info("[Moderator] [{}] Complete - length: {}, saved id: {}",
                             character.getName(), responseText.length(), savedMessage.getId());
 
-                        // Broadcast complete response via canonical 'chat message' event
+                        // 通过规范的 'chat message' 事件广播完整回复
                         Map<String, Object> responseData = new java.util.HashMap<>();
                         responseData.put("content", responseText);
                         responseData.put("senderType", "CHARACTER");
@@ -1221,7 +1200,7 @@ public class ModeratorAgent implements DisposableBean {
                         true,
                         character.getAvatarUrl()
                     ));
-                    // Broadcast error to frontend
+                    // 向前端广播错误
                     try {
                         String errorEvent = "42[\"error\","
                             + objectMapper.writeValueAsString(Map.of("message", error.getMessage()))
@@ -1238,7 +1217,7 @@ public class ModeratorAgent implements DisposableBean {
             if (!completed) {
                 log.warn("[Moderator] [{}] Timeout", character.getName());
                 if (!settled.compareAndSet(false, true)) {
-                    // onComplete or onError already won the race while we were waiting
+                    // onComplete 或 onError 已在等待期间抢先执行
                 } else {
                     String responseText = fullResponse.length() > 0 ? fullResponse.toString() : "Error: Response timed out (90s)";
                     try {
@@ -1270,7 +1249,7 @@ public class ModeratorAgent implements DisposableBean {
                 }
             }
 
-            // State machine: after completion, process next in queue
+            // 状态机：完成后，处理队列中的下一个
             state.aiMessageCount++;
             synchronized (state.pendingQueue) {
                 if (shouldWaitForUser(state)) {
@@ -1286,8 +1265,8 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Persist a CHARACTER message to the DB. Looks up Character/Room/User entities
-     * by id, populates the Message, and returns the saved entity (with id).
+     * 将 CHARACTER 消息持久化到数据库。按 id 查询 Character/Room/User 实体，
+     * 填充 Message 后返回已保存的实体（带 id）。
      */
     // 落库角色消息：按 id 反查三个外键实体后组装 Message 并 save；返回带 id 的实体供广播事件使用。
     // 找不到 entity 时直接复用调用方传入的"轻量引用"，避免缺数据时整轮讨论崩溃。
@@ -1310,7 +1289,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Pause discussion for a room.
+     * 暂停某个房间的讨论。
      */
     // 暂停：仅翻 paused 位，由讨论循环下次醒来时（500ms 间隔）自行停止下一角色生成。
     public void pauseDiscussion(String roomId) {
@@ -1322,7 +1301,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Resume discussion for a room.
+     * 恢复某个房间的讨论。
      */
     /**
      * 恢复 + 触发即时继续：通过 userTriggered=true 让轮间循环立刻跳出等待，不必等满 ROUND_DELAY_MS。
@@ -1332,20 +1311,20 @@ public class ModeratorAgent implements DisposableBean {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state != null) {
             state.paused = false;
-            state.userTriggered.set(true); // Trigger immediate continuation
+            state.userTriggered.set(true); // 触发立即继续
             log.info("[Moderator] Discussion resumed for room: {}", roomId);
         }
     }
 
     /**
-     * Trigger discussion to continue when user sends a message.
+     * 当用户发送消息时触发讨论继续。
      */
     // 用户发言触发器：跳过轮间等待；如果当前暂停则顺手恢复。供 socket 层在收到用户新消息时调用。
     public void triggerUserMessage(String roomId) {
         DiscussionState state = roomDiscussionState.get(roomId);
         if (state != null && state.isRunning) {
             state.userTriggered.set(true);
-            // Also resume if paused
+            // 若当前处于暂停状态，一并恢复
             if (state.paused) {
                 state.paused = false;
             }
@@ -1354,7 +1333,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Stop discussion for a room.
+     * 停止某个房间的讨论。
      */
     // 彻底停止讨论：从全局 map 移除 state 并翻 isRunning=false；常被 cancelRoom 调用做"先停调度"的前置动作。
     public void stopDiscussion(String roomId) {
@@ -1366,7 +1345,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Check if a discussion is currently running for a room.
+     * 检查某房间当前是否正在进行讨论。
      */
     // 查询接口：给 socket 层/前端判断房间是否还在跑讨论；无 state 也算"未运行"。
     public boolean isDiscussionRunning(String roomId) {
@@ -1374,9 +1353,6 @@ public class ModeratorAgent implements DisposableBean {
         return state != null && state.isRunning;
     }
 
-    /**
-     * Run a single dialogue round (dialogue mode).
-     */
     /**
      * 单角色顺序对话模式（非联合推理的旧路径）。同步阻塞等 latch，角色之间随机 1-3s 间隔。
      * 适用场景：联合推理暂不可用或用户偏好"逐个出场"的体验；runJointSingleRound 是当前主路径，本方法保留作兼容。
@@ -1390,7 +1366,7 @@ public class ModeratorAgent implements DisposableBean {
         log.info("[Moderator] runSingleRound - roomId: {}, userId: {}, characters: {}, isContinuous: false",
             roomId, userId, characters.size());
 
-        // Get API key in main thread before async tasks (avoids SecurityContext threading issues)
+        // 在主线程获取 API key 再进入异步任务（避免 SecurityContext 线程传递问题）
         String userApiKey = null;
         try {
             userApiKey = settingsService.getApiKeyById(userId);
@@ -1400,7 +1376,7 @@ public class ModeratorAgent implements DisposableBean {
         }
         final String userApiKeyFinal = userApiKey;
 
-        // Notify thinking for all characters first
+        // 先通知所有角色进入思考态
         for (Character character : characters) {
             log.info("[Moderator] Notifying thinking for character: {} ({})", character.getName(), character.getId());
             onThinking.accept(character.getId().toString());
@@ -1409,13 +1385,13 @@ public class ModeratorAgent implements DisposableBean {
         List<ResponseFragment> thisRoundResponses = Collections.synchronizedList(new ArrayList<>());
         roundResponses.put(1, thisRoundResponses);
 
-        // Process characters sequentially with random delay between them
+        // 按顺序处理角色，每位之间加入随机延迟
         for (int i = 0; i < characters.size(); i++) {
             Character character = characters.get(i);
 
-            // Random delay between 1-3 seconds before each character starts
+            // 每位角色发言前随机延迟 1-3 秒
             if (i > 0) {
-                int delayMs = 1000 + (int) (Math.random() * 2000); // 1-3 seconds
+                int delayMs = 1000 + (int) (Math.random() * 2000); // 1-3 秒
                 log.info("[Moderator] [{}] Waiting {}ms before starting (character {})",
                     character.getName(), delayMs, i + 1);
                 try {
@@ -1428,7 +1404,7 @@ public class ModeratorAgent implements DisposableBean {
 
             log.info("[Moderator] [{}] Starting AI generation", character.getName());
 
-            // Build character prompt and generate response synchronously (blocking)
+            // 构建角色 prompt 并同步（阻塞）生成回复
             try {
                 String characterPrompt = characterPromptBuilder.build(character, true);
                 String fullPrompt = characterPrompt + "\n\n" + context;
@@ -1445,7 +1421,7 @@ public class ModeratorAgent implements DisposableBean {
                     userApiKeyFinal,
                     chunk -> {
                         fullResponse.append(chunk);
-                        // Stream chunk directly to frontend (not delta)
+                        // 直接把流式块推给前端（非 delta）
                         try {
                             String charId = character.getId().toString();
                             log.info("[Moderator] [{}] onChunk - chunkLen={}, totalLen={}",
@@ -1509,7 +1485,7 @@ public class ModeratorAgent implements DisposableBean {
                     log.info("[Moderator] [{}] AI response completed", character.getName());
                 }
 
-                // Send final complete response
+                // 发送最终的完整回复
                 ResponseFragment finalFragment = thisRoundResponses.get(thisRoundResponses.size() - 1);
                 try {
                     onResponse.accept(finalFragment);
@@ -1534,7 +1510,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Build initial context with user message and system prompt.
+     * 用用户消息和系统提示构建初始上下文。
      */
     private String buildInitialContext(String userMessage) {
         return "The user has asked: \"" + userMessage + "\"\n\n" +
@@ -1544,7 +1520,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Build context for subsequent rounds with previous responses.
+     * 为后续轮次构建包含上一轮回复的上下文。
      *
      * 把上一轮所有角色的发言拼接到 prompt 中，并显式要求本轮"互相引用/反驳"——解决"各说各话"问题。
      * 模板里强约束：禁止把用户消息当主语、禁止绕回原始问题、必须直接点名或引用上一轮某句话。
@@ -1572,14 +1548,14 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Build the system prompt for Moderator to select characters.
+     * 为 Moderator 构建选人的系统提示。
      */
     private String buildModeratorPrompt(String userMessage, List<String> userMessageHistory, List<Character> characters) {
         try {
             Resource resource = resourceLoader.getResource("classpath:prompts/moderator-prompt.txt");
             String template = resource.getContentAsString(StandardCharsets.UTF_8);
 
-            // Build characters list
+            // 构建角色清单
             StringBuilder charactersList = new StringBuilder();
             for (Character c : characters) {
                 charactersList.append("- ").append(c.getName())
@@ -1587,7 +1563,7 @@ public class ModeratorAgent implements DisposableBean {
                     .append(" - ").append(c.getPersona() != null ? c.getPersona() : "").append("\n");
             }
 
-            // Build user message history (last 10)
+            // 构建用户消息历史（最近 10 条）
             StringBuilder historyBuilder = new StringBuilder();
             if (userMessageHistory != null && !userMessageHistory.isEmpty()) {
                 int index = 1;
@@ -1599,19 +1575,19 @@ public class ModeratorAgent implements DisposableBean {
                 historyBuilder.append("(暂无历史对话)\n");
             }
 
-            // Replace placeholders
+            // 替换占位符
             return template.replace("{characters}", charactersList.toString())
                           .replace("{userMessage}", userMessage)
                           .replace("{conversationHistory}", historyBuilder.toString());
         } catch (Exception e) {
             log.error("[Moderator] Failed to load moderator prompt template: {}", e.getMessage());
-            // Fallback to empty prompt
+            // 兜底返回空 prompt
             return "";
         }
     }
 
     /**
-     * Call LLM to select characters for the discussion.
+     * 调用 LLM 为讨论选择角色。
      */
     private String callModeratorForSelection(String userId, String userMessage, List<String> userMessageHistory, List<Character> characters) {
         String userApiKey = settingsService.getApiKeyById(userId);
@@ -1635,12 +1611,12 @@ public class ModeratorAgent implements DisposableBean {
     // Spring 容器关闭钩子：cancel 所有还在飞的房间讨论，再优雅关闭线程池；超时兜底用 shutdownNow 强停。
     @Override
     public void destroy() throws Exception {
-        // Cancel all ongoing room discussions
+        // 取消所有仍在进行的房间讨论
         roomFutures.keySet().forEach(this::cancelRoom);
         roomFutures.clear();
 
         executor.shutdown();
-        // Wait up to 60 seconds for tasks to complete
+        // 等待任务完成，最多 60 秒
         if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
             executor.shutdownNow();
             if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
@@ -1651,17 +1627,17 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Cancel all ongoing AI processing for a room.
-     * This method cancels all tracked CompletableFutures associated with the room.
+     * 取消某房间所有正在进行的 AI 处理。
+     * 此方法会取消该房间关联的所有已跟踪 CompletableFuture。
      *
-     * @param roomId The room ID to cancel
+     * @param roomId 要取消的房间 ID
      */
     /**
      * 取消房间时先 stopDiscussion 把 isRunning 置位 false，再 cancel 所有跟踪的 future；
      * 顺序很重要——先停调度再中断任务，避免生成中回调看到不一致状态。
      */
     public void cancelRoom(String roomId) {
-        // Stop discussion state if running
+        // 若讨论在运行，先停止其状态
         stopDiscussion(roomId);
 
         List<CompletableFuture<?>> futures = roomFutures.remove(roomId);
@@ -1673,7 +1649,7 @@ public class ModeratorAgent implements DisposableBean {
     }
 
     /**
-     * Response fragment from a character.
+     * 来自某个角色的回复片段。
      */
     public static class ResponseFragment {
         // 发言角色 UUID；下游落库和前端按角色路由都靠它。

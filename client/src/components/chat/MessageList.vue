@@ -71,7 +71,7 @@ const messageGroups = computed<MessageGroup[]>(() => {
   return result
 })
 
-// Compute streaming message bubbles
+// 计算流式消息气泡
 // 把 socket 推来的"按角色累加的字符串"包装成虚拟的 ChatMessage，
 // 这样就能复用 MessageBubble 的渲染管线（同一组件、同样的样式/分组逻辑）。
 // 注意 id 用 `streaming-${characterId}` 作为临时键，等真正的消息落库后再由后端返回的最终消息替换掉这段。

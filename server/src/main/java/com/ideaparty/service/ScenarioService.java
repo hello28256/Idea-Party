@@ -154,7 +154,7 @@ public class ScenarioService {
             log.error("[DEBUG] AI interview prompt generation failed: {}", e.getMessage());
         }
 
-        // Fallback：AI 失败时返回一份简单但可用的 prompt
+        // 兜底：AI 失败时返回一份简单但可用的 prompt
         return buildFallbackPrompt(req);
     }
 

@@ -50,7 +50,7 @@ const dislikeTitle = computed(() => {
 // 点赞 = 一次性原子动作：再点一次 = 取消；切到点踩时由父组件的 'open-modal' 路径接管
 function handleLike() {
   if (currentType.value === 'LIKE') {
-    // 取消
+    // 取消点赞
     emit('change', null)
   } else {
     emit('change', {

@@ -21,22 +21,22 @@ const remember = useRememberCredentials()
 
 // === ALL REF DECLARATIONS FIRST (before any usage) ===
 
-// Form mode: true = register, false = login
+// 表单模式：true = 注册，false = 登录
 const isRegisterMode = ref(false)
 
-// Animation state
+// 动画状态
 const isVisible = ref(false)
 
-// Form fields - login
+// 表单字段 - 登录
 const identifier = ref('')
 const password = ref('')
 
-// Form fields - register
+// 表单字段 - 注册
 const username = ref('')
 const email = ref('')
 const confirmPassword = ref('')
 
-// UI state
+// UI 状态
 const loading = ref(false)
 const error = ref('')
 const usernameError = ref('')
@@ -72,15 +72,15 @@ async function tryUnlockStoredCreds(passphrase: string): Promise<boolean> {
   return true
 }
 
-// Toggle between login and register
+// 在登录与注册模式之间切换
 // 切换时不仅切 URL，还要 reset 表单：登录态的 identifier 和注册态的 username
 // 是不同字段，混在一起会让用户感到「刚才填的东西去哪了」。
 function toggleMode() {
   const newMode = !isRegisterMode.value
   isRegisterMode.value = newMode
-  // Reset all form fields including sensitive data
+  // 重置所有表单字段（包括敏感数据）
   resetForm()
-  // Update URL to reflect mode
+  // 更新 URL 以反映当前模式
   if (newMode) {
     router.push('/login?mode=register')
   } else {
@@ -97,7 +97,7 @@ async function handleSubmit() {
   error.value = ''
 
   if (isRegisterMode.value) {
-    // Register validation
+    // 注册校验
     if (!username.value) {
       error.value = '请输入用户名'
       return
@@ -115,7 +115,7 @@ async function handleSubmit() {
       return
     }
   } else {
-    // Login validation
+    // 登录校验
     if (!identifier.value) {
       error.value = '请输入用户名或邮箱'
       return
@@ -130,9 +130,9 @@ async function handleSubmit() {
 
   try {
     if (isRegisterMode.value) {
-      // Call register API directly without saving auth state
+      // 直接调用注册接口，不写入 auth state
       await register({ username: username.value, email: email.value, password: password.value })
-      // Redirect to login page with username pre-filled
+      // 跳转登录页并预填用户名
       router.push({
         path: '/login',
         query: { username: username.value }
@@ -153,7 +153,7 @@ async function handleSubmit() {
 }
 
 // === COMPUTED AFTER FUNCTIONS ===
-// Computed button text
+// 提交按钮文案
 const submitButtonText = computed(() => {
   if (loading.value) return isRegisterMode.value ? '创建中...' : '登录中...'
   return isRegisterMode.value ? '创建账号' : '登录'
@@ -166,10 +166,10 @@ const submitButtonText = computed(() => {
 // query.username 优先级高于「记住我」，因为它代表用户刚走完的注册流程。
 watch(() => route.fullPath, () => {
   if (route.path === '/login') {
-    // Only clear password, preserve identifier if already set
+    // 只清空密码，保留已经填写的 identifier
     password.value = ''
     confirmPassword.value = ''
-    // Pre-fill identifier from query params if present
+    // 如果 query 里带 username 则预填 identifier
     if (route.query.username) {
       identifier.value = route.query.username as string
     } else if (remember.enabled.value && remember.identifier.value && !identifier.value) {
@@ -178,27 +178,27 @@ watch(() => route.fullPath, () => {
   }
 }, { immediate: true })
 
-// Watch route query changes to sync isRegisterMode
+// 监听路由 query 变化以同步 isRegisterMode
 watch(() => route.query.mode, (newMode) => {
   isRegisterMode.value = newMode === 'register'
   error.value = ''
 })
 
-// Check URL params on mount to set initial mode
+// 在挂载时检查 URL 参数以设置初始模式
 // 初始化顺序很关键：先 resetForm 防止上一会话残留，再按优先级回填 identifier：
 //   1) 注册跳转带的 username query（最确定的用户意图）；
 //   2) 已加密的本地凭据 → 弹解锁框（不解密拿不到密码）；
 //   3) 旧版明文 identifier（迁移期兼容，后续会淘汰）。
 // 50ms 延后打开 isVisible 是为了让 CSS 过渡动画能触发。
 onMounted(async () => {
-  // Save username if present before reset
+  // 重置前先保存 username
   const savedUsername = route.query.username as string || ''
-  // Reset form but preserve identifier if it matches the query username
+  // 重置表单，如果 identifier 等于 query 中的 username 则保留
   resetForm()
   if (route.query.mode === 'register') {
     isRegisterMode.value = true
   }
-  // Pre-fill identifier from query params (e.g., after successful registration)
+  // 从 query 参数预填 identifier（例如刚完成注册）
   // query param 优先级高于"记住我"
   if (savedUsername) {
     identifier.value = savedUsername
@@ -240,10 +240,10 @@ async function handleUnlock() {
 <template>
   <!-- 根容器 - 无 flex 干扰布局 -->
   <div class="login-page-root">
-    <!-- Header -->
+    <!-- 头部 -->
     <header class="login-header">
       <div class="header-inner">
-        <!-- Logo -->
+        <!-- 品牌 Logo -->
         <div class="brand-logo">
           <img src="/image.png" alt="logo" class="brand-logo-img" />
           <h1
@@ -254,9 +254,9 @@ async function handleUnlock() {
           </h1>
         </div>
 
-        <!-- Right buttons -->
+        <!-- 右侧按钮 -->
         <div class="flex items-center gap-3">
-          <!-- Theme Toggle Button -->
+          <!-- 主题切换按钮 -->
           <button
             @click="themeStore.toggle"
             class="theme-toggle-btn"
@@ -282,7 +282,7 @@ async function handleUnlock() {
       </div>
     </header>
 
-    <!-- Main Content -->
+    <!-- 主内容 -->
     <main class="login-main">
       <section class="login-section">
         <!-- 右侧大图 - 使用 inline style 确保 calc 生效 -->
@@ -297,7 +297,7 @@ async function handleUnlock() {
         <!-- 左侧登录卡片 -->
         <div class="login-card-wrapper">
           <div class="login-card">
-            <!-- Card Header -->
+            <!-- 卡片头部 -->
             <div class="card-header">
               <h1 class="card-title" v-if="!isRegisterMode">
                 <span class="title-line1">有些对话</span>
@@ -309,9 +309,9 @@ async function handleUnlock() {
               </p>
             </div>
 
-            <!-- Auth Form -->
+            <!-- 认证表单 -->
             <form @submit.prevent="handleSubmit" class="auth-form">
-              <!-- Login: Identifier -->
+              <!-- 登录：用户名或邮箱 -->
               <div v-if="!isRegisterMode">
                 <input
                   v-model="identifier"
@@ -324,7 +324,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Register: Username -->
+              <!-- 注册：用户名 -->
               <div v-if="isRegisterMode" class="username-field">
                 <input
                   v-model="username"
@@ -338,7 +338,7 @@ async function handleUnlock() {
                 </p>
               </div>
 
-              <!-- Email (Register only, optional) -->
+              <!-- 邮箱（仅注册，可选） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="email"
@@ -349,7 +349,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Password (login) -->
+              <!-- 密码（登录） -->
               <div v-if="!isRegisterMode">
                 <input
                   v-model="password"
@@ -364,7 +364,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Password (register) -->
+              <!-- 密码（注册） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="password"
@@ -375,7 +375,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Confirm Password (Register only) -->
+              <!-- 确认密码（仅注册） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="confirmPassword"
@@ -386,14 +386,14 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Error Message -->
+              <!-- 错误提示 -->
               <Transition name="fade">
                 <div v-if="error" class="text-sm text-red-500 text-center py-2">
                   {{ error }}
                 </div>
               </Transition>
 
-              <!-- Remember me (login only) -->
+              <!-- 记住我（仅登录） -->
               <label
                 v-if="!isRegisterMode"
                 class="remember-me"
@@ -408,7 +408,7 @@ async function handleUnlock() {
                 <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
               </label>
 
-              <!-- Submit Button -->
+              <!-- 提交按钮 -->
               <button
                 type="submit"
                 :disabled="loading"
@@ -418,7 +418,7 @@ async function handleUnlock() {
               </button>
             </form>
 
-            <!-- Toggle Mode -->
+            <!-- 切换登录/注册模式 -->
             <div class="mt-8 flex items-center justify-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
               <span>{{ isRegisterMode ? '已有账号？' : '还没有账号？' }}</span>
 
@@ -441,7 +441,7 @@ async function handleUnlock() {
               </button>
             </div>
 
-            <!-- Terms -->
+            <!-- 服务条款 -->
             <p v-if="isRegisterMode" class="text-center text-xs text-zinc-400 mt-6">
               注册即表示您同意我们的
               <router-link to="/terms" class="underline hover:text-zinc-600 transition-colors">服务条款</router-link>
@@ -475,9 +475,9 @@ async function handleUnlock() {
               </p>
             </div>
 
-            <!-- Auth Form -->
+            <!-- 认证表单 -->
             <form @submit.prevent="handleSubmit" class="mobile-auth-form">
-              <!-- Login: Identifier -->
+              <!-- 登录：用户名或邮箱 -->
               <div v-if="!isRegisterMode">
                 <input
                   v-model="identifier"
@@ -490,7 +490,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Register: Username -->
+              <!-- 注册：用户名 -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="username"
@@ -501,7 +501,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Email (Register only, optional) -->
+              <!-- 邮箱（仅注册，可选） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="email"
@@ -512,7 +512,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Password (login) -->
+              <!-- 密码（登录） -->
               <div v-if="!isRegisterMode">
                 <input
                   v-model="password"
@@ -527,7 +527,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Password (register) -->
+              <!-- 密码（注册） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="password"
@@ -538,7 +538,7 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Confirm Password (Register only) -->
+              <!-- 确认密码（仅注册） -->
               <div v-if="isRegisterMode">
                 <input
                   v-model="confirmPassword"
@@ -549,14 +549,14 @@ async function handleUnlock() {
                 />
               </div>
 
-              <!-- Error Message -->
+              <!-- 错误提示 -->
               <Transition name="fade">
                 <div v-if="error" class="text-sm text-red-500 text-center py-2">
                   {{ error }}
                 </div>
               </Transition>
 
-              <!-- Remember me (login only) -->
+              <!-- 记住我（仅登录） -->
               <label
                 v-if="!isRegisterMode"
                 class="mobile-remember-me"
@@ -571,7 +571,7 @@ async function handleUnlock() {
                 <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
               </label>
 
-              <!-- Submit Button -->
+              <!-- 提交按钮 -->
               <button
                 type="submit"
                 :disabled="loading"
@@ -581,7 +581,7 @@ async function handleUnlock() {
               </button>
             </form>
 
-            <!-- Toggle Mode -->
+            <!-- 切换登录/注册模式 -->
             <div class="mt-8 flex items-center justify-center gap-2 text-sm" :style="{ color: themeStore.isDark ? '#A1A1AA' : '#71717A' }">
               <span>{{ isRegisterMode ? '已有账号？' : '还没有账号？' }}</span>
 
@@ -595,7 +595,7 @@ async function handleUnlock() {
               </button>
             </div>
 
-            <!-- Terms -->
+            <!-- 服务条款 -->
             <p v-if="isRegisterMode" class="text-center text-xs text-zinc-400 dark:text-zinc-500 mt-4">
               注册即表示您同意我们的
               <router-link to="/terms" class="underline hover:text-zinc-600 transition-colors dark:hover:text-zinc-300">服务条款</router-link>
@@ -607,7 +607,7 @@ async function handleUnlock() {
       </section>
     </main>
 
-    <!-- Unlock Dialog: 解锁「记住我」保存的加密凭据 -->
+    <!-- 解锁弹窗：解锁「记住我」保存的加密凭据 -->
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="unlockDialogOpen" class="unlock-overlay" @click.self="unlockDialogOpen = false">

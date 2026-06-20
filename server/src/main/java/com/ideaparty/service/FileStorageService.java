@@ -42,7 +42,7 @@ public class FileStorageService {
      * 副作用：可能创建 uploads/avatars 目录。
      */
     public FileStorageService() {
-        // Store in server/uploads/avatars/
+        // 存储到 server/uploads/avatars/
         this.uploadDir = Paths.get("uploads", "avatars").toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.uploadDir);
@@ -53,12 +53,12 @@ public class FileStorageService {
     }
 
     /**
-     * Store a file and return the generated filename.
-     * Uses UUID-based filename to prevent collisions and hide original names.
+     * 保存文件并返回生成的文件名。
+     * 使用基于 UUID 的文件名以避免冲突并隐藏原始文件名。
      *
-     * @param file The multipart file to store
-     * @return The stored filename (UUID-based)
-     * @throws IllegalArgumentException if file is invalid
+     * @param file 要保存的 multipart 文件
+     * @return 已保存的文件名（UUID 形式）
+     * @throws IllegalArgumentException 当文件无效时
      */
     /**
      * 把前端上传的文件校验后落盘，返回新的 UUID 文件名。
@@ -78,7 +78,7 @@ public class FileStorageService {
             throw new IllegalArgumentException("File size exceeds 5MB limit");
         }
 
-        // Generate UUID-based filename preserving extension
+        // 生成保留扩展名的 UUID 文件名
         String originalFilename = file.getOriginalFilename();
         String extension = "";
         if (originalFilename != null && originalFilename.contains(".")) {
@@ -98,11 +98,11 @@ public class FileStorageService {
     }
 
     /**
-     * Load a file as a Resource for serving.
+     * 将文件加载为 Resource 以供返回。
      *
-     * @param filename The filename to load
-     * @return Resource pointing to the file
-     * @throws RuntimeException if file cannot be loaded
+     * @param filename 要加载的文件名
+     * @return 指向该文件的 Resource
+     * @throws RuntimeException 文件无法加载时
      */
     /**
      * 按文件名读取并包装成 Spring 的 Resource，供下载/预览接口流式返回。
@@ -127,9 +127,9 @@ public class FileStorageService {
     }
 
     /**
-     * Delete a file from storage.
+     * 从存储中删除一个文件。
      *
-     * @param filename The filename to delete
+     * @param filename 要删除的文件名
      */
     /**
      * 按文件名删除磁盘文件，失败仅记录 warn 而不抛异常，避免清理逻辑打断主流程。
@@ -146,10 +146,10 @@ public class FileStorageService {
     }
 
     /**
-     * Check if a content type is allowed.
+     * 检查某个 content type 是否被允许。
      *
-     * @param contentType The content type to check
-     * @return true if allowed
+     * @param contentType 要检查的 content type
+     * @return 允许则返回 true
      */
     /**
      * 提供给 Controller 在接收 multipart 之前做预校验，避免无效请求走到完整 store 流程。
@@ -160,9 +160,9 @@ public class FileStorageService {
     }
 
     /**
-     * Get the upload directory path.
+     * 获取上传目录的路径。
      *
-     * @return The upload directory path
+     * @return 上传目录的路径
      */
     /**
      * 暴露给静态资源映射或调试日志使用的根目录路径，方便查看文件真实落盘位置。

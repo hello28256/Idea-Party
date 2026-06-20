@@ -9,20 +9,20 @@ import { messageEventsApi, type EventType } from '@/api/messageEvents'
 // （长文/短回复）需要不同的「读完」判定阈值，由调用方决定更合理。
 interface TrackOptions {
   messageId: string
-  /** ms of dwell after which a READ_COMPLETE event is fired. Default 3000. */
+  /** 用户停留多少毫秒后触发 READ_COMPLETE 事件，默认 3000。 */
   readCompleteThresholdMs?: number
 }
 
 /**
- * Per-message implicit signal tracker.
+ * 单条消息的隐式信号追踪器。
  *
- * Fires (at most once per session per signal):
- * - COPY      → when the user selects/copies text inside the bubble
- * - READ_COMPLETE → when the bubble is visible for >= threshold
- * - FOCUS     → not auto-fired (reserved for future hover integration)
+ * （同一会话内每种信号最多触发一次）
+ * - COPY      → 用户在气泡内选中/复制文本时触发
+ * - READ_COMPLETE → 气泡在视口内停留达到阈值时触发
+ * - FOCUS     → 暂未自动触发（为未来 hover 集成预留）
  *
- * Events are best-effort: failures are swallowed to avoid noisy UI errors
- * since these are observability, not user-facing actions.
+ * 事件为 best-effort：上报失败会被吞掉，避免噪声 UI 错误，
+ * 因为它们只是观测数据，不是用户主动行为。
  *
  * 资源清理：document 级 copy 监听、定时器、IntersectionObserver 都在 onUnmounted 中释放，
  * 调用方无需手动 destroy。
@@ -46,7 +46,7 @@ export function useMessageEvents(opts: TrackOptions) {
       dwellMs: extra.dwellMs,
       metadata: extra.metadata
     }).catch((e) => {
-      // Observability only — log and move on.
+      // 仅用于观测 —— 记日志后继续。
       console.debug('[Events] record failed', e?.message)
     })
   }
@@ -54,7 +54,7 @@ export function useMessageEvents(opts: TrackOptions) {
   // 监听的是 document 级 capture 阶段，所以需要在事件回调里再判断来源是否落在本气泡内，
   // 否则同一个 copy 事件会被每条消息各记一次，造成重复上报。
   function onCopy(e: ClipboardEvent) {
-    // Only count copies that originated inside this message bubble.
+    // 仅统计源自本消息气泡内的 copy 事件。
     const target = e.target as HTMLElement | null
     if (target && target.closest(`[data-message-id="${opts.messageId}"]`)) {
       fire('COPY', { metadata: truncate(target.innerText, 200) })
@@ -114,11 +114,11 @@ export function useMessageEvents(opts: TrackOptions) {
   })
 
   return {
-    /** Call from the parent when the message bubble element is mounted. */
+    /** 当消息气泡元素挂载后由父组件调用。 */
     setupObserver,
-    /** Manually fire REWRITE when the user requests a regeneration. */
+    /** 用户请求重新生成时手动触发 REWRITE。 */
     fireRewrite: () => fire('REWRITE'),
-    /** Total mount time, useful if you want to fire a different READ signal. */
+    /** 总挂载时间，若想发出不同 READ 信号可使用。 */
     get mountedAt() { return mountedAt }
   }
 }

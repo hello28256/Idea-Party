@@ -14,7 +14,7 @@ import java.util.HashMap;
  * 之所以独立成 Service：一是为了把 API Key 隔离在后端（CLAUDE.md 安全约束）；
  * 二是把多策略（搜索消歧 → 直链 Wikipedia → 本地 fallback）集中在一处，便于上层 CharacterService 复用。
  *
- * <p>原 Javadoc: "Firecrawl web scraping service for character information. Uses Firecrawl API to scrape web content about characters."
+ * <p>原 Javadoc: "用于角色信息的 Firecrawl 网页抓取服务。使用 Firecrawl API 抓取与角色相关的网页内容。"
  */
 @Service
 @Slf4j
@@ -35,7 +35,7 @@ public class FirecrawlService {
     // 缺失 Key 时仅警告不抛错，保证未配置时仍可降级运行
     public FirecrawlService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-        // Check both system property and environment variable (system property takes precedence)
+        // 同时检查系统属性和环境变量（系统属性优先级更高）
         String propKey = System.getProperty("FIRECRAWL_API_KEY");
         String envKey = System.getenv("FIRECRAWL_API_KEY");
         this.apiKey = propKey != null ? propKey : envKey;
@@ -49,8 +49,8 @@ public class FirecrawlService {
     }
 
     /**
-     * Scrape web content for a character name.
-     * Returns scraped markdown content about the character.
+     * 抓取与某角色名相关的网页内容。
+     * 返回关于该角色的 markdown 内容。
      *
      * <p>对上层（CharacterService）的契约：
      * 入参为用户原始输入的角色名（任意语言、可能含歧义）；
@@ -65,7 +65,7 @@ public class FirecrawlService {
         }
 
         try {
-            // First, search for the correct URL to handle ambiguous names like "Messi"
+            // 先搜索正确的 URL，以处理像 "Messi" 这类有歧义的名字
             // 优先用搜索消歧：对"Messi"这种多义词，先解析出真正的人物页面 URL，避免抓到消歧义页
             String correctUrl = searchForCharacter(characterName);
             if (correctUrl != null) {
@@ -77,13 +77,13 @@ public class FirecrawlService {
                 // 即便 URL 来自搜索，仍要二次校验正文不是消歧义页
                 log.warn("[DEBUG] Search returned no-article page, trying direct scrape");
             }
-            // Fallback to direct Wikipedia URL
+            // 退回到直接抓取 Wikipedia URL
             // 搜索失败或搜到的是消歧义页时，退回到按 Wikipedia 直链抓取（中英文自动分流）
             String directResult = scrapeFromFirecrawl(characterName);
             if (directResult != null && !isNoArticlePage(directResult)) {
                 return directResult;
             }
-            // If direct Wikipedia also returns no-article page, use fallback
+            // 如果直接抓取 Wikipedia 也返回无条目页，则使用兜底内容
             // 兜底兜底：Wikipedia 也没收录该角色时，使用内置人设文本，保证前端仍有内容可用
             log.warn("[DEBUG] Direct Wikipedia scrape returned no-article page, using fallback");
             return getFallbackContent(characterName);
@@ -109,8 +109,8 @@ public class FirecrawlService {
     }
 
     /**
-     * Search for a character's Wikipedia page URL.
-     * Handles ambiguous names like "Messi" by finding the most relevant page.
+     * 搜索某角色的 Wikipedia 页面 URL。
+     * 通过找到最相关的页面来处理像 "Messi" 这类有歧义的名字。
      *
      * <p>返回值：找到则返回首个 wikipedia.org URL，否则返回 null；纯工具方法，不抛异常。
      */
@@ -121,13 +121,13 @@ public class FirecrawlService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + apiKey);
 
-        // Determine search query based on character name language
+        // 根据角色名语种决定搜索查询策略
         // 按名字是否纯中文分流查询策略：英文名走通用补全，中文名需要更强的上下文（如"足球"）才能命中人物页
         boolean isChinese = characterName.matches("[\\u4e00-\\u9fa5]+");
 
         String[] searchQueries;
         if (isChinese) {
-            // For Chinese names, try multiple disambiguation queries
+            // 对中文名尝试多条消歧查询
             // 中文名仅靠原名搜索大概率命中古籍/成语，所以加上领域关键词与 Wikipedia 兜底
             searchQueries = new String[]{
                 characterName + " footballer",
@@ -135,8 +135,7 @@ public class FirecrawlService {
                 characterName + " Wikipedia"
             };
         } else {
-            // For English names, try basic + disambiguation
-            // 英文先按原名搜一次，再追加"footballer"领域词处理"Messi"这类重名
+            // 对英文名先按原名搜索，再追加"footballer"领域词处理"Messi"这类重名
             searchQueries = new String[]{
                 characterName,
                 characterName + " footballer"
@@ -186,7 +185,7 @@ public class FirecrawlService {
     }
 
     /**
-     * Scrape a specific URL.
+     * 抓取指定 URL。
      *
      * <p>入参为已知的完整 URL（通常是 Wikipedia 链接）；
      * 返回正文 markdown；两个端点都失败时抛 RestClientException，由 scrape() 兜底。
@@ -199,7 +198,7 @@ public class FirecrawlService {
         headers.set("Authorization", "Bearer " + apiKey);
 
         try {
-            // Try v2 endpoint
+            // 先尝试 v2 端点
             // v2 用顶层 onlyMainContent 字段（Firecrawl 新协议），优先尝试
             Map<String, Object> bodyV2 = new HashMap<>();
             bodyV2.put("url", url);
@@ -221,7 +220,7 @@ public class FirecrawlService {
             log.warn("[DEBUG] V2 scrape failed for URL {}: {}", url, e.getMessage());
         }
 
-        // Fallback to v1
+        // 回退到 v1
         try {
             // v1 旧协议用 pageOptions 嵌套结构，部分账号/区域仍只能走 v1 才能拿到内容
             Map<String, Object> bodyV1 = new HashMap<>();
@@ -257,7 +256,7 @@ public class FirecrawlService {
     // 在搜索接口未命中时，直接按 Wikipedia 命名规则拼 URL 抓取，避免依赖第三方搜索质量；
     // 仍保持 v2 优先 / v1 兜底策略，与 scrapeUrl() 一致以便上层统一处理
     private String scrapeFromFirecrawl(String characterName) {
-        // Determine if name is Chinese and use appropriate Wikipedia
+        // 判断名字是否为中文，以便使用对应的 Wikipedia
         // 根据角色名语种分流到中英文 Wikipedia：中文角色直接抓 zh.wikipedia 通常正文更全
         boolean isChinese = characterName.matches("[\\u4e00-\\u9fa5]+");
         String wikipediaBase = isChinese ? "https://zh.wikipedia.org/wiki/" : "https://en.wikipedia.org/wiki/";
@@ -271,7 +270,7 @@ public class FirecrawlService {
         log.info("[DEBUG] Scraping Wikipedia for: {}", characterName);
 
         try {
-            // Try v2 endpoint first (new API format)
+            // 先尝试 v2 端点（新 API 格式）
             Map<String, Object> bodyV2 = new HashMap<>();
             bodyV2.put("url", url);
             bodyV2.put("onlyMainContent", true);
@@ -291,7 +290,7 @@ public class FirecrawlService {
             log.warn("[DEBUG] V2 endpoint failed: {}", e.getMessage());
         }
 
-        // Fallback to v1 endpoint
+        // 回退到 v1 端点
         try {
             Map<String, Object> bodyV1 = new HashMap<>();
             bodyV1.put("url", url);

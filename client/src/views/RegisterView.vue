@@ -48,12 +48,12 @@ async function handleSubmit() {
   error.value = ''
 
   try {
-    // Call register API directly without saving auth state
+    // 直接调用注册接口，不写入 auth state
     await register({ username: username.value, email: email.value, password: password.value })
-    // Clear password fields after successful registration
+    // 注册成功后清空密码字段
     password.value = ''
     confirmPassword.value = ''
-    // Redirect to login page with username pre-filled
+    // 跳转登录页并预填用户名
     router.push({
       path: '/login',
       query: { username: username.value }
@@ -78,16 +78,16 @@ function handleAppleLogin() {
 
 <template>
   <div class="min-h-screen bg-[#f7f7f8] flex flex-col">
-    <!-- Header -->
+    <!-- 头部 -->
     <header class="h-[88px] border-b border-gray-200 bg-white">
       <div class="h-full px-10 flex items-center justify-between">
-        <!-- Logo -->
+        <!-- 品牌 Logo -->
         <div class="flex items-center gap-3">
           <img src="/image.png" alt="Idea Party" class="w-9 h-9" />
           <span class="text-xl font-bold text-gray-900">Idea Party</span>
         </div>
 
-        <!-- Right buttons -->
+        <!-- 右侧按钮 -->
         <div class="flex items-center gap-3">
           <router-link to="/register">
             <button class="px-5 py-2.5 text-base font-medium bg-gray-900 text-white rounded-full hover:bg-gray-800 transition-colors">
@@ -103,10 +103,10 @@ function handleAppleLogin() {
       </div>
     </header>
 
-    <!-- Main Content -->
+    <!-- 主内容 -->
     <main class="flex-1 flex items-center justify-center pt-[72px] pb-12 px-6">
       <div class="relative w-full" style="max-width: min(1180px, 76vw);">
-        <!-- Background Image Container -->
+        <!-- 背景图容器 -->
         <div class="relative h-[520px] overflow-hidden rounded-[28px]">
           <img
             src="/login-bg.png"
@@ -115,18 +115,18 @@ function handleAppleLogin() {
           />
         </div>
 
-        <!-- Left Register Card - Overlaid -->
+        <!-- 左侧注册卡片（浮层） -->
         <div class="absolute left-6 top-1/2 -translate-y-1/2 w-[420px] bg-white rounded-3xl shadow-xl p-8">
-          <!-- Card Header -->
+          <!-- 卡片头部 -->
           <div class="mb-8">
             <h2 class="text-3xl font-bold text-gray-900 mb-1">可访问</h2>
             <p class="text-4xl font-bold text-gray-900 mb-1">超 1000 万个角色</p>
             <p class="text-base text-gray-500 mt-4">十秒就能完成注册</p>
           </div>
 
-          <!-- Register Buttons -->
+          <!-- 注册按钮组 -->
           <div class="space-y-3">
-            <!-- Google Button -->
+            <!-- Google 登录按钮 -->
             <button
               @click="handleGoogleLogin"
               class="w-full h-[52px] flex items-center justify-center gap-3 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors"
@@ -140,7 +140,7 @@ function handleAppleLogin() {
               使用 Google 继续
             </button>
 
-            <!-- Apple Button -->
+            <!-- Apple 登录按钮 -->
             <button
               @click="handleAppleLogin"
               class="w-full h-[52px] flex items-center justify-center gap-3 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors"
@@ -151,14 +151,14 @@ function handleAppleLogin() {
               使用 Apple 继续
             </button>
 
-            <!-- Divider -->
+            <!-- 分隔线 -->
             <div class="flex items-center gap-4 py-2">
               <div class="flex-1 h-px bg-gray-200"></div>
               <span class="text-sm text-gray-500">或者</span>
               <div class="flex-1 h-px bg-gray-200"></div>
             </div>
 
-            <!-- Email Register Form -->
+            <!-- 邮箱注册表单 -->
             <form @submit.prevent="handleSubmit" class="space-y-4">
               <div>
                 <input
@@ -215,7 +215,7 @@ function handleAppleLogin() {
             </form>
           </div>
 
-          <!-- Footer Agreement -->
+          <!-- 底部协议 -->
           <p class="text-center text-xs text-gray-400 mt-6">
             若要继续，您需要同意
             <router-link to="/terms" class="font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-300 dark:hover:text-sky-200">服务条款</router-link>

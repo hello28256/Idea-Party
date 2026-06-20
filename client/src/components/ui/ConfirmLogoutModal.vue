@@ -40,7 +40,7 @@ function handleClose() {
 
 async function handleConfirm() {
   isLoading.value = true
-  // Simulate a brief delay for better UX
+  // 模拟短暂延迟以获得更好的体验
   // 人为延迟：登出接口通常极快（本地清 token），加 ~300ms 让 spinner 至少被看到，
   // 避免「点了没反应」的体感，掩盖网络/状态切换的瞬时空白。
   await new Promise(resolve => setTimeout(resolve, 300))
@@ -53,7 +53,7 @@ async function handleConfirm() {
     <Transition name="modal">
       <div v-if="show" class="modal-overlay" @click.self="handleClose">
         <div class="modal-container">
-          <!-- Close Button -->
+          <!-- 关闭按钮 -->
           <button class="close-btn" @click="handleClose" :disabled="isLoading">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
@@ -61,7 +61,7 @@ async function handleConfirm() {
             </svg>
           </button>
 
-          <!-- Icon -->
+          <!-- 图标 -->
           <div class="modal-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
@@ -70,11 +70,11 @@ async function handleConfirm() {
             </svg>
           </div>
 
-          <!-- Content -->
+          <!-- 内容 -->
           <h2 class="modal-title">确认退出登录？</h2>
           <p class="modal-desc">退出后需要重新登录才能继续参与聊天室。</p>
 
-          <!-- Actions -->
+          <!-- 操作按钮 -->
           <div class="modal-actions">
             <button class="btn-cancel" @click="handleClose" :disabled="isLoading">
               取消

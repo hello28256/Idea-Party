@@ -181,7 +181,7 @@ public class SecurityConfig {
                 } catch (Exception e) {
                     log.warn("JWT authentication failed: {}", e.getMessage());
                     SecurityContextHolder.clearContext();
-                    // Token was provided but invalid — return 401 instead of letting it become a 403
+                    // 已提供 Token 但不合法 —— 直接返回 401 而非让其变成 403
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     response.setContentType("application/json");
                     response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Invalid or expired token\"}");

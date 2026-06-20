@@ -257,7 +257,7 @@ export const useRoomStore = defineStore('room', () => {
   async function recordEnter(roomId: string) {
     try {
       await roomsApi.recordEnter(roomId)
-      // Update the lastEnterTime locally for immediate UI feedback
+      // 在本地更新 lastEnterTime 以立刻获得 UI 反馈
       const room = myRooms.value.find(r => r.id === roomId)
       if (room) {
         room.lastEnterTime = new Date().toISOString()

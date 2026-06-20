@@ -35,7 +35,7 @@ public class IdeaPartyApplication {
         // .env 加载必须在 SpringApplication.run 之前完成：通过 System.setProperty 注入，
         // 才能让后续的 @Value / application.yml 占位符解析到本地密钥（DeepSeek、JWT 等）。
         // ignoreIfMissing + try-catch 保证生产环境用真实环境变量时不会因无 .env 而启动失败。
-        // Load .env file from project root
+        // 从项目根目录加载 .env 文件
         try {
             // 指向 ../ 是因为运行时 cwd 是 server/，需要回到仓库根目录找 .env（与 client/ 共享同一份密钥）。
             // ignoreIfMissing()：缺失 .env 时不抛异常，让 try-catch 统一用 warn 处理；

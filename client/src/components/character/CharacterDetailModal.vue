@@ -43,16 +43,16 @@ function handleClose() {
           @click="handleClose"
         ></div>
 
-        <!-- Modal content -->
+        <!-- 弹窗内容 -->
         <div
           class="relative w-full max-w-lg bg-gradient-to-b from-[var(--color-ivory)] to-[var(--color-cream)] rounded-2xl shadow-2xl overflow-hidden"
         >
-          <!-- Header with avatar -->
+          <!-- 带头像的头部 -->
           <div class="relative p-6 pb-0">
-            <!-- Decorative top bar -->
+            <!-- 顶部装饰条 -->
             <div class="absolute top-0 left-0 right-0 h-24 bg-gradient-to-br from-[var(--color-navy)] via-[var(--color-navy-light)] to-[var(--color-gold-dark)] opacity-90"></div>
 
-            <!-- Close button -->
+            <!-- 关闭按钮 -->
             <button
               @click="handleClose"
               class="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
@@ -62,7 +62,7 @@ function handleClose() {
               </svg>
             </button>
 
-            <!-- Avatar and name -->
+            <!-- 头像与名称 -->
             <div class="relative flex flex-col items-center pt-4">
               <Avatar
                 :src="character.avatarUrl"
@@ -84,7 +84,7 @@ function handleClose() {
             </div>
           </div>
 
-          <!-- Description -->
+          <!-- 简介 -->
           <div v-if="character.description" class="px-6 pt-4">
             <h3 class="text-sm font-medium text-[var(--color-text-muted)] mb-1">简介</h3>
             <p class="text-sm text-[var(--color-navy)] leading-relaxed">
@@ -104,7 +104,7 @@ function handleClose() {
             </div>
           </div>
 
-          <!-- Footer -->
+          <!-- 底部 -->
           <div class="px-6 pb-6 flex justify-center">
             <button
               @click="handleClose"

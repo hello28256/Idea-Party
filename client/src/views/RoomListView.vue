@@ -40,7 +40,7 @@ const showCreateDropdown = ref(false)
 const showEditCharacterModal = ref(false)
 const editingCharacter = ref<any>(null)
 
-// Create character in room context state
+// 在聊天室内创建角色的上下文状态
 const createCharacterRoomId = ref<string | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
@@ -133,7 +133,7 @@ function onRoomMenuOutsideClick(e: MouseEvent) {
   if (!inBtn && !inMenu) closeRoomMenu()
 }
 
-// Resolve avatar URL for member avatars
+// 解析成员头像 URL
 // 后端返回的头像地址已经是可直接使用的相对路径或绝对 URL，
 // 这里保留作为扩展点：如果未来接入 CDN 或外部图床，按前缀规则改写即可。
 function resolveAvatarUrl(url: string | null | undefined): string {
@@ -145,7 +145,7 @@ function resolveAvatarUrl(url: string | null | undefined): string {
   return url
 }
 
-// Load saved collapse state from localStorage
+// 从 localStorage 加载折叠状态
 // 解析失败时静默回退到默认值：避免一次坏数据导致整个页面布局异常。
 function loadLayoutState() {
   try {
@@ -161,7 +161,7 @@ function loadLayoutState() {
   }
 }
 
-// Save collapse state to localStorage
+// 将折叠状态保存到 localStorage
 // 写入失败（隐私模式 / 配额耗尽）只 log，不打扰用户：布局状态本身是体验优化，非核心。
 function saveLayoutState() {
   try {
@@ -178,7 +178,7 @@ function saveLayoutState() {
   }
 }
 
-// Watch for collapse state changes
+// 监听折叠状态变化
 watch(
   [isGlobalSidebarCollapsed, isRoomListCollapsed, isRolePanelCollapsed],
   () => {
@@ -215,7 +215,7 @@ const availableCharactersForRoom = computed(() => {
   return characterStore.characters.filter((c: any) => !inRoom.has(c.id))
 })
 
-// Current room chat mode
+// 当前聊天室的对话模式
 // 'dialogue' = 多角色并行响应；'discussion' = 轮流讨论。由后端决定编排逻辑，前端只展示与切换。
 const currentChatMode = computed(() => {
   if (!selectedRoomId.value) return 'dialogue'
@@ -226,7 +226,7 @@ const currentChatMode = computed(() => {
   return room?.chatMode || 'dialogue'
 })
 
-// Switch between dialogue and discussion mode
+// 在对话模式与讨论模式之间切换
 // 同模式重复点击直接返回，避免无意义的 PUT 请求。
 // 失败时仍用 alert（暂未迁移到 toast）：遗留行为，后续可统一改为 toast。
 async function switchMode(mode: 'dialogue' | 'discussion') {
@@ -256,7 +256,7 @@ async function switchMode(mode: 'dialogue' | 'discussion') {
   }
 }
 
-// Sync selectedRoomId with URL query
+// 将 selectedRoomId 与 URL query 保持同步
 // URL 上的 'null'/'undefined' 视为缺失：兼容 router.replace 时显式传 undefined 被序列化成字符串的情况。
 watch(
   () => route.query.roomId as string | undefined,
@@ -291,7 +291,7 @@ const navItems = [
   { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
 ]
 
-// Active nav item based on current route
+// 根据当前路由决定激活的导航项
 // 优先级：query.tab > 路径前缀。'/chat/*' 仍归为 discover：因为新版三栏布局已替代独立聊天路由。
 const activeNavId = computed(() => {
   const path = route.path
@@ -305,17 +305,17 @@ const activeNavId = computed(() => {
   return 'discover'
 })
 
-// Whether to show characters library content
+// 是否显示角色库内容
 const isCharactersView = computed(() => {
   return route.path.startsWith('/characters') && !route.path.includes('/create')
 })
 
-// Whether to show my rooms content
+// 是否显示「我的聊天」内容
 const isMyRoomsView = computed(() => {
   return activeNavId.value === 'my-rooms' || activeNavId.value === 'recent'
 })
 
-// Whether to show the scenarios grid
+// 是否显示场景卡片网格
 const isScenariosView = computed(() => {
   return activeNavId.value === 'scenarios'
 })
@@ -650,7 +650,7 @@ async function finalizeScenario() {
   }
 }
 
-// Watch for tab changes to fetch my rooms
+// 监听 tab 变化以拉取我的聊天列表
 watch(
   () => route.query.tab as string | undefined,
   (tab) => {
@@ -683,7 +683,7 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString('zh-CN')
 }
 
-// Edit character modal functions
+// 编辑角色弹窗相关函数
 function openEditCharacterModal(character: any) {
   editingCharacter.value = { ...character }
   showEditCharacterModal.value = true
@@ -695,12 +695,12 @@ function closeEditCharacterModal() {
 }
 
 function handleCharacterUpdated(updatedCharacter: any) {
-  // Update the character in the store
+  // 更新 store 中的角色信息
   const index = characterStore.characters.findIndex((c: any) => c.id === updatedCharacter.id)
   if (index !== -1) {
     characterStore.characters[index] = updatedCharacter
   }
-  // Refresh room data if in a chat room
+  // 如果当前在聊天室内则刷新房间数据
   if (selectedRoomId.value) {
     roomStore.fetchRoomById(selectedRoomId.value)
   }
@@ -713,7 +713,7 @@ async function startChat(character: any) {
   try {
     console.log('[DEBUG] startChat called with character:', character)
 
-    // Refresh myRooms to get the latest data
+    // 刷新 myRooms 以获取最新数据
     await roomStore.fetchMyRooms()
 
     console.log('[DEBUG] myRooms after fetch:', JSON.stringify(roomStore.myRooms.map(r => ({
@@ -731,7 +731,7 @@ async function startChat(character: any) {
     console.log('[DEBUG] existingRoom:', existingRoom)
 
     if (existingRoom) {
-      // Navigate to existing room
+      // 跳转到已有房间
       router.replace({
         path: '/rooms',
         query: {
@@ -741,7 +741,7 @@ async function startChat(character: any) {
         }
       })
     } else {
-      // Create new room for this character
+      // 为该角色创建一个新房间
       const room = await roomStore.createRoom(character.name)
       await roomStore.addCharacterToRoom(room.id, character.id)
       // Navigate to my-rooms tab with the room selected
@@ -936,11 +936,11 @@ onMounted(() => {
   fetchFeaturedCharacters()
   setTimeout(() => { mounted.value = true }, 50)
 
-  // Close dropdown when clicking outside
+  // 点击外部时关闭下拉菜单
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('click', onRoomMenuOutsideClick)
 
-  // Load saved collapse state
+  // 加载已保存的折叠状态
   loadLayoutState()
 })
 
@@ -1013,7 +1013,7 @@ function handleCreateCharacter() {
 // 解决后端在某些路径下不返回新资源导致的列表不刷新问题。
 async function handleCharacterCreated(character: any) {
   showCreateCharacterModal.value = false
-  // First fetch to sync with server
+  // 先拉取一次以与服务端同步
   await characterStore.fetchCharacters()
   // Ensure the newly created character is in the store (in case API response doesn't include it yet)
   if (character && !characterStore.characters.find(c => c.id === character.id)) {
@@ -1036,7 +1036,7 @@ function handleCreateRoom() {
 // 无需再处理"列表里要不要插入"，重点是把这个新角色立即加入当前房间。
 async function handleAddedToRoom(character: any) {
   showCreateCharacterModal.value = false
-  // Refresh characters list from API
+  // 通过 API 刷新角色列表
   await characterStore.fetchCharacters()
   if (selectedRoomId.value && character) {
     await roomStore.addCharacterToRoom(selectedRoomId.value, character.id)
@@ -1082,9 +1082,9 @@ async function handleInviteMember() {
       '--role-panel-width': isRolePanelCollapsed ? '0px' : '280px'
     }"
   >
-    <!-- Left Sidebar -->
+    <!-- 左侧边栏 -->
     <aside class="sidebar">
-      <!-- Collapse Button -->
+      <!-- 折叠按钮 -->
       <button
         class="sidebar-collapse-btn"
         @click="isGlobalSidebarCollapsed = !isGlobalSidebarCollapsed"
@@ -1098,13 +1098,13 @@ async function handleInviteMember() {
         </svg>
       </button>
 
-      <!-- Logo -->
+      <!-- 品牌 Logo -->
       <div class="sidebar-brand">
         <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
         <span class="logo-text">Idea Party</span>
       </div>
 
-      <!-- Create Button with Dropdown -->
+      <!-- 创建按钮（下拉菜单） -->
       <div
         class="create-dropdown-wrapper"
         ref="dropdownRef"
@@ -1116,7 +1116,7 @@ async function handleInviteMember() {
           <span>创建</span>
         </button>
 
-        <!-- Dropdown Menu -->
+        <!-- 下拉菜单 -->
         <Transition name="dropdown">
           <div
             v-if="showCreateDropdown"
@@ -1135,7 +1135,7 @@ async function handleInviteMember() {
         </Transition>
       </div>
 
-      <!-- Navigation -->
+      <!-- 导航 -->
       <nav class="nav-menu">
         <a
           v-for="item in navItems"
@@ -1150,7 +1150,7 @@ async function handleInviteMember() {
         </a>
       </nav>
 
-      <!-- Recent Chats -->
+      <!-- 最近聊天 -->
       <div class="recent-chats">
         <div class="section-header">
           <span class="section-title">最近聊天</span>
@@ -1175,13 +1175,13 @@ async function handleInviteMember() {
         </div>
       </div>
 
-      <!-- User Profile -->
+      <!-- 用户头像 -->
       <UserDropdown />
     </aside>
 
-    <!-- Main Content -->
+    <!-- 主内容 -->
     <main class="main-content">
-      <!-- Scenarios View -->
+      <!-- 场景视图 -->
       <template v-if="isScenariosView">
         <header class="content-header">
           <h1 class="page-title">场景</h1>
@@ -1203,7 +1203,7 @@ async function handleInviteMember() {
           </button>
         </div>
 
-        <!-- Inline template-preview modal (Teleport to body) -->
+        <!-- 内嵌模板预览弹窗（Teleport 到 body） -->
         <Teleport to="body">
           <Transition name="fade">
             <div v-if="activeScenario" class="scenario-modal-overlay" @click.self="closeScenario">
@@ -1395,7 +1395,7 @@ async function handleInviteMember() {
         </Teleport>
       </template>
 
-      <!-- Characters Library View -->
+      <!-- 角色库视图 -->
       <template v-else-if="isCharactersView">
         <header class="content-header">
           <h1 class="page-title">角色库</h1>
@@ -1407,7 +1407,7 @@ async function handleInviteMember() {
           </button>
         </header>
 
-        <!-- Empty State -->
+        <!-- 空状态 -->
         <div v-if="myCharacters.length === 0" class="empty-state">
           <div class="empty-icon">📚</div>
           <h2 class="empty-title">还没有创建角色</h2>
@@ -1420,7 +1420,7 @@ async function handleInviteMember() {
           </button>
         </div>
 
-        <!-- Character Grid -->
+        <!-- 角色卡片网格 -->
         <div v-else class="character-grid">
           <div
             v-for="character in myCharacters"
@@ -1458,12 +1458,12 @@ async function handleInviteMember() {
         </div>
       </template>
 
-      <!-- My Rooms View - Three Column Layout -->
+      <!-- 我的聊天视图——三栏布局 -->
       <template v-else-if="isMyRoomsView">
         <div class="rooms-chat-shell">
-          <!-- Left: Room List Panel -->
+          <!-- 左侧：聊天室列表面板 -->
           <aside class="rooms-list-panel">
-            <!-- Collapse handle when room list is collapsed AND a room is selected -->
+            <!-- 聊天室列表已收起且已选中某个聊天室时的展开按钮 -->
             <button
               v-if="isRoomListCollapsed && selectedRoomId"
               class="room-list-toggle-btn"
@@ -1498,18 +1498,18 @@ async function handleInviteMember() {
               </div>
             </div>
 
-            <!-- Search -->
+            <!-- 搜索 -->
             <div class="rooms-search">
               <input v-model="searchQuery" type="text" placeholder="搜索聊天室..." />
             </div>
 
-            <!-- Loading -->
+            <!-- 加载中 -->
             <div v-if="roomStore.myRoomsLoading" class="rooms-loading">
               <div class="loading-spinner"></div>
               <span>加载中...</span>
             </div>
 
-            <!-- Empty State -->
+            <!-- 空状态 -->
             <div v-else-if="roomStore.sortedMyRooms.length === 0" class="rooms-empty">
               <div class="empty-icon">💬</div>
               <h3>还没有聊天室</h3>
@@ -1522,7 +1522,7 @@ async function handleInviteMember() {
               </button>
             </div>
 
-            <!-- Room List -->
+            <!-- 聊天室列表 -->
             <div v-else class="rooms-list-scroll">
               <div
                 v-for="room in roomStore.sortedMyRooms"
@@ -1577,7 +1577,7 @@ async function handleInviteMember() {
             </div>
           </aside>
 
-          <!-- Center: Chat Panel -->
+          <!-- 中间：聊天面板 -->
           <main class="chat-main-panel">
             <template v-if="selectedRoomId">
               <ChatRoomPanel
@@ -1598,9 +1598,9 @@ async function handleInviteMember() {
             </div>
           </main>
 
-          <!-- Right: Characters Panel -->
+          <!-- 右侧：角色面板 -->
           <aside class="room-characters-panel">
-            <!-- Single Chat Mode: Just show character info without tabs -->
+            <!-- 单聊模式：只展示角色信息，不显示 tab -->
             <template v-if="currentRoomMode === 'single'">
               <div class="panel-tabs-wrapper">
                 <button
@@ -1636,9 +1636,9 @@ async function handleInviteMember() {
               </div>
             </template>
 
-            <!-- Group Chat Mode: Show tabs for roles and members -->
+            <!-- 群聊模式：显示角色与成员两个 tab -->
             <template v-else>
-              <!-- Tab Switcher with Collapse Button -->
+              <!-- 带折叠按钮的 tab 切换器 -->
               <div class="panel-tabs-wrapper">
                 <button
                   class="icon-close-role-panel-button"
@@ -1667,7 +1667,7 @@ async function handleInviteMember() {
                 </div>
               </div>
 
-              <!-- Characters Tab -->
+              <!-- 角色 tab -->
               <template v-if="!showMembersTab">
                 <div class="characters-panel-header">
                   <div>
@@ -1696,7 +1696,7 @@ async function handleInviteMember() {
                 </div>
               </template>
 
-            <!-- Members Tab -->
+            <!-- 成员 tab -->
             <template v-if="showMembersTab">
               <div class="members-panel-content">
                 <div class="members-panel-header">
@@ -1758,9 +1758,9 @@ async function handleInviteMember() {
         </div>
       </template>
 
-      <!-- Discover View -->
+      <!-- 发现视图 -->
       <template v-else>
-        <!-- Header -->
+        <!-- 头部 -->
         <header class="content-header">
           <h1 class="page-title">发现</h1>
           <div class="search-bar">
@@ -1776,7 +1776,7 @@ async function handleInviteMember() {
           </div>
         </header>
 
-        <!-- Featured Characters -->
+        <!-- 推荐角色 -->
         <section class="featured-section">
           <div class="section-header">
             <h2 class="section-title">推荐角色</h2>
@@ -1806,7 +1806,7 @@ async function handleInviteMember() {
           </div>
         </section>
 
-        <!-- Category Tabs -->
+        <!-- 分类标签 -->
         <section class="category-tabs">
           <button
             v-for="cat in categories"
@@ -1821,7 +1821,7 @@ async function handleInviteMember() {
           </button>
         </section>
 
-        <!-- Hot Rooms -->
+        <!-- 热门聊天室 -->
         <section class="rooms-section">
           <div class="section-header">
             <h2 class="section-title">
@@ -1831,7 +1831,7 @@ async function handleInviteMember() {
             <span class="room-count">{{ roomCardsData.length }} 个房间</span>
           </div>
 
-          <!-- Room Grid -->
+          <!-- 聊天室卡片网格 -->
           <div class="room-grid">
             <div
               v-for="room in roomCardsData"
@@ -1839,18 +1839,18 @@ async function handleInviteMember() {
               class="room-card"
               @click="enterRoom(room.id)"
             >
-              <!-- Cover Image -->
+              <!-- 封面图 -->
               <div class="room-cover">
                 <img :src="room.cover" :alt="room.title" class="cover-img" />
                 <div v-if="room.isHot" class="hot-tag">🔥 热门</div>
                 <div class="cover-overlay"></div>
               </div>
 
-              <!-- Room Info -->
+              <!-- 聊天室信息 -->
               <div class="room-body">
                 <h3 class="room-title">{{ room.title }}</h3>
 
-                <!-- Participants -->
+                <!-- 参与者 -->
                 <div class="room-participants">
                   <div class="avatar-stack">
                     <img
@@ -1865,13 +1865,13 @@ async function handleInviteMember() {
                   <span class="participant-names">{{ room.participants.slice(0, 3).join('、') }}</span>
                 </div>
 
-                <!-- Latest Message -->
+                <!-- 最新消息 -->
                 <div class="latest-message">
                   <span class="message-sender">{{ room.latestMessage.sender }}:</span>
                   <span class="message-text">{{ room.latestMessage.text }}</span>
                 </div>
 
-                <!-- Stats -->
+                <!-- 统计数据 -->
                 <div class="room-stats">
                   <span class="stat">
                     <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1894,14 +1894,14 @@ async function handleInviteMember() {
     </main>
 
 
-    <!-- Create Room Modal -->
+    <!-- 创建聊天室弹窗 -->
     <CreateRoomModal
       :show="showCreateModal"
       @close="showCreateModal = false"
       @created="handleRoomCreated"
     />
 
-    <!-- Create Character Modal -->
+    <!-- 创建角色弹窗 -->
     <CreateCharacterModal
       :show="showCreateCharacterModal"
       :context="createCharacterRoomId ? 'room' : 'character-library'"
@@ -1911,7 +1911,7 @@ async function handleInviteMember() {
       @added-to-room="handleAddedToRoom"
     />
 
-    <!-- Edit Character Modal -->
+    <!-- 编辑角色弹窗 -->
     <CreateCharacterModal
       v-if="showEditCharacterModal"
       :show="showEditCharacterModal"
@@ -1921,7 +1921,7 @@ async function handleInviteMember() {
       @updated="handleCharacterUpdated"
     />
 
-    <!-- Invite Member Modal -->
+    <!-- 邀请成员弹窗 -->
     <Teleport to="body">
       <Transition name="modal">
         <div v-if="showInviteModal" class="invite-modal-overlay" @click.self="showInviteModal = false">

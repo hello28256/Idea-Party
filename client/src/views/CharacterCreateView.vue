@@ -43,7 +43,7 @@ const form = ref({
 onMounted(async () => {
   setTimeout(() => { mounted.value = true }, 50)
 
-  // Load existing character if in edit mode
+  // 编辑模式下加载已存在角色
   if (isEditMode.value && editingCharacterId.value) {
     const character = characterStore.getCharacterById(editingCharacterId.value)
     if (character) {
@@ -73,7 +73,7 @@ async function handleSubmit() {
     return
   }
 
-  // Check for duplicate name (only in create mode)
+  // 检查重名（仅在创建模式下）
   if (!isEditMode.value && characterStore.hasDuplicateName(authStore.user.id, form.value.name.trim())) {
     error.value = '你已经创建过这个角色了'
     return
@@ -86,7 +86,7 @@ async function handleSubmit() {
     let result = null
 
     if (isEditMode.value && editingCharacterId.value) {
-      // Update existing character
+      // 更新已有角色
       result = await characterStore.updateCharacter(editingCharacterId.value, {
         name: form.value.name.trim(),
         description: form.value.description.trim(),
@@ -94,7 +94,7 @@ async function handleSubmit() {
         prompt: form.value.prompt.trim()
       })
     } else {
-      // Create new character
+      // 创建新角色
       result = await characterStore.createCharacter({
         name: form.value.name.trim(),
         description: form.value.description.trim(),
@@ -191,15 +191,15 @@ async function handleAvatarFileChange(event: Event) {
 
 <template>
   <div class="page-layout" :class="{ mounted }">
-    <!-- Left Sidebar -->
+    <!-- 左侧侧边栏 -->
     <aside class="sidebar">
-      <!-- Logo -->
+      <!-- 品牌 Logo -->
       <div class="sidebar-brand">
         <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
         <span class="logo-text">Idea Party</span>
       </div>
 
-      <!-- Create Button -->
+      <!-- 创建按钮 -->
       <button class="create-btn" disabled>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -207,7 +207,7 @@ async function handleAvatarFileChange(event: Event) {
         <span>创建角色</span>
       </button>
 
-      <!-- Navigation -->
+      <!-- 导航 -->
       <nav class="nav-menu">
         <a
           href="#"
@@ -235,7 +235,7 @@ async function handleAvatarFileChange(event: Event) {
       </nav>
     </aside>
 
-    <!-- Main Content -->
+    <!-- 主内容 -->
     <main class="main-content">
       <div class="form-container">
         <header class="form-header">
@@ -248,7 +248,7 @@ async function handleAvatarFileChange(event: Event) {
         </header>
 
         <form @submit.prevent="handleSubmit" class="character-form">
-          <!-- Avatar Upload -->
+          <!-- 头像上传 -->
           <div class="form-section">
             <label class="form-label">角色头像</label>
             <input
@@ -283,7 +283,7 @@ async function handleAvatarFileChange(event: Event) {
             </div>
           </div>
 
-          <!-- Name -->
+          <!-- 名称 -->
           <div class="form-section">
             <label class="form-label">
               角色名称 <span class="required">*</span>
@@ -297,7 +297,7 @@ async function handleAvatarFileChange(event: Event) {
             />
           </div>
 
-          <!-- Description -->
+          <!-- 描述 -->
           <div class="form-section">
             <label class="form-label">角色描述</label>
             <textarea
@@ -309,7 +309,7 @@ async function handleAvatarFileChange(event: Event) {
             ></textarea>
           </div>
 
-          <!-- Prompt -->
+          <!-- 提示词 -->
           <div class="form-section">
             <label class="form-label">角色设定 (Prompt)</label>
             <textarea
@@ -333,10 +333,10 @@ async function handleAvatarFileChange(event: Event) {
             <p class="input-hint">根据角色名称联网生成，或根据描述内容智能生成</p>
           </div>
 
-          <!-- Error -->
+          <!-- 错误提示 -->
           <p v-if="error" class="error-message">{{ error }}</p>
 
-          <!-- Actions -->
+          <!-- 操作按钮 -->
           <div class="form-actions">
             <button type="button" class="cancel-btn" @click="handleCancel">
               取消

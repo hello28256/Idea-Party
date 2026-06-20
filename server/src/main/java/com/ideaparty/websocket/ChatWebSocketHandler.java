@@ -25,16 +25,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * WebSocket handler for real-time chat with Socket.IO protocol compatibility.
- * Handles events:
- * - 'join room' { roomId } - user joins room
- * - 'chat message' { roomId, content } - user sends message, triggers ChatService
- * - 'leave room' { roomId } - user leaves room
+ * 实时聊天 WebSocket 处理器，兼容 Socket.IO 协议。
+ * 处理事件：
+ * - 'join room' { roomId } - 用户加入房间
+ * - 'chat message' { roomId, content } - 用户发送消息，触发 ChatService
+ * - 'leave room' { roomId } - 用户离开房间
  *
- * Emits events:
- * - 'message' { MessageDto } - new message
- * - 'character thinking' { characterId } - character started thinking
- * - 'message stream' { characterId, chunk } - streaming response chunk (simulated)
+ * 发出事件：
+ * - 'message' { MessageDto } - 新消息
+ * - 'character thinking' { characterId } - 角色开始思考
+ * - 'message stream' { characterId, chunk } - 流式响应片段（模拟）
  */
 @Slf4j
 // NOTE: 不再标注 @Component。当前运行时由 SocketConfig + ChatSocketHandler 接管 /ws 端点，
@@ -43,13 +43,13 @@ import java.util.stream.Collectors;
 // 并确认不会与 ChatSocketHandler 在同一路径产生两个 handler 冲突。
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
-    // Maps roomId -> set of sessions
+    // 将 roomId 映射到该房间的 session 集合
     // 用于按房间维度向所有在线 session 广播消息，房间无 session 时会随 join/leave 自动清理
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
-    // Maps sessionId -> roomId
+    // 将 sessionId 映射到 roomId
     // 记录每个 session 当前所在的房间，断连时据此自动 leave，避免脏数据
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
-    // Maps sessionId -> userId
+    // 将 sessionId 映射到 userId
     // join room 时若前端传 token 则解析写入，供后续 chat message 关联到具体发言用户
     private final ConcurrentHashMap<String, UUID> sessionUsers = new ConcurrentHashMap<>();
     // 复用单例 ObjectMapper 解析 Socket.IO "42[event, data]" 帧，避免每次创建开销
@@ -84,7 +84,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        // Socket.IO client sends "40" (connect packet) initially
+        // Socket.IO 客户端在初始时发送 "40"（连接包）
         // 不在此处主动推送，业务握手交由客户端的 "40" 帧触发，避免重复响应
     }
 
@@ -94,15 +94,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
 
-        // Socket.IO protocol: "42" prefix means MESSAGE with event name
-        // Format: 42["event_name", data]
+        // Socket.IO 协议："42" 前缀表示带事件名的 MESSAGE
+        // 格式：42["event_name", data]
         if (payload.startsWith("42")) {
             handleSocketIOMessage(session, payload.substring(2));
         } else if (payload.equals("2")) {
-            // "2" is a ping, respond with "3" (pong)
+            // "2" 是 ping，回复 "3"（pong）
             session.sendMessage(new TextMessage("3"));
         } else if (payload.startsWith("40")) {
-            // "40" is a connect packet, respond with "40" (connection acknowledged)
+            // "40" 是 connect 包，回复 "40"（连接确认）
             session.sendMessage(new TextMessage("40"));
         }
     }
@@ -126,7 +126,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     handleChatMessage(session, eventData);
                     break;
                 default:
-                    // Unknown event - log for debugging
+                    // 未知事件 —— 调试时记录日志
                     // 静默忽略未知事件，避免日志噪声；后续如需排查可加 log.debug
                     break;
             }
@@ -139,7 +139,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         joinRoom(roomId, session);
 
-        // Extract and validate user from token if provided
+        // 提取并校验 token 中的用户（如提供）
         // token 可选：未登录用户也能加入房间听广播，仅在发言时退化为匿名
         if (data.has("token") && !data.get("token").isNull()) {
             try {
@@ -169,10 +169,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         String content = data.get("content").asText();
 
-        // Get userId from session
+        // 从 session 中获取 userId
         UUID userId = sessionUsers.get(session.getId());
 
-        // Check moderation
+        // 内容审核
         ModerationService.ModerationResult result = moderationService.moderate(content);
         if (!result.isAllowed()) {
             String errorMessage = "42[\"error\","
@@ -182,7 +182,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Get room with characters
+        // 获取房间及其角色
         Room room = roomRepository.findById(UUID.fromString(roomId)).orElse(null);
         if (room == null) {
             String errorMessage = "42[\"error\","
@@ -201,13 +201,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Use ChatService for round-robin processing
+        // 使用 ChatService 进行轮询处理
         chatService.processUserMessage(
             java.util.UUID.fromString(roomId),
             content,
             userId,
             characters,
-            // onThinking callback
+            // onThinking 回调
             (characterId) -> {
                 try {
                     String thinkingEvent = "42[\"character thinking\","
@@ -218,7 +218,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     log.warn("[WS] Failed to send thinking event: {}", e.getMessage());
                 }
             },
-            // onMessage callback
+            // onMessage 回调
             (messageDto) -> {
                 try {
                     String msgEvent = "42[\"chat message\","

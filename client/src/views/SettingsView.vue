@@ -10,9 +10,8 @@ import { useSettingsStore } from '@/stores/settings'
 const router = useRouter()
 const settingsStore = useSettingsStore()
 
-// When the /settings route is entered, open the floating modal and
-// bounce back to the previous page so the user sees the modal over
-// their original content (instead of a full-page route replacement).
+// 当进入 /settings 路由时，打开浮层弹窗并回退到上一页，
+// 让用户看到弹窗覆盖在原本内容之上（而不是用路由替换整个页面）。
 onMounted(() => {
   settingsStore.openSettings()
   // replace 而不是 push：避免在历史栈里留下 /settings 占位，
@@ -23,8 +22,8 @@ onMounted(() => {
 
 <template>
   <div class="settings-page-shell">
-    <!-- Page intentionally empty: the floating SettingsModal is
-         rendered by App.vue and overlays whatever the user was on. -->
+    <!-- 页面刻意留空：浮层 SettingsModal 由 App.vue 渲染，
+         覆盖在用户原本浏览的页面之上。 -->
   </div>
 </template>
 

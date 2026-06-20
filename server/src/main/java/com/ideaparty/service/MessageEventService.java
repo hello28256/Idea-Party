@@ -51,15 +51,14 @@ public class MessageEventService {
                 .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
 
         if (message.getSenderType() != Message.SenderType.CHARACTER) {
-            // Silently ignore: client may attach events to a slot that was later replaced
-            // with a user message. Not a user-facing error.
+            // 静默忽略：客户端可能把事件挂在了随后被替换为用户消息的槽位上。不是面向用户的错误。
             log.debug("[Event] ignoring non-character message {}", messageId);
             return;
         }
 
         UUID roomId = message.getRoom().getId();
         if (!roomMemberRepository.isMember(roomId, userId)) {
-            // Same: ignore cross-room noise rather than 403-ing the client. 这种"静默拒绝"
+            // 同理：忽略跨房间的噪声事件，而不是给客户端返回 403。这种"静默拒绝"
             // 比抛 AccessDeniedException 更好——攻击者无法通过响应差异枚举房间成员关系。
             // 但仍升级到 warn 级别便于安全监控发现异常事件流。
             log.warn("[Event] ignoring event from non-member {} for room {} (message {})",

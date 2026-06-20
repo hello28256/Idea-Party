@@ -106,7 +106,7 @@ public class Character {
     /** @param avatarUrl 头像外链 URL；写入前业务层应做 URL 合法性校验。 */
     public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
 
-    // Alias for DataLoader compatibility
+    // 兼容 DataLoader 的别名
     /** DataLoader 约定的别名 setter，与 {@link #setAvatarUrl} 等价，仅为兼容旧调用链。 */
     public void setAvatar(String avatarUrl) { this.avatarUrl = avatarUrl; }
     /** DataLoader 约定的别名 getter，与 {@link #getAvatarUrl} 等价。 */

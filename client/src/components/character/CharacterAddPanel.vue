@@ -202,14 +202,14 @@ async function handleAvatarFileChange(event: Event) {
   const file = target.files?.[0]
   if (!file) return
 
-  // Validate file type
+  // 校验文件类型
   const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
   if (!allowedTypes.includes(file.type)) {
     error.value = '只支持 JPEG、PNG、GIF、WebP 格式的图片'
     return
   }
 
-  // Validate file size (5MB)
+  // 校验文件大小（5MB）
   if (file.size > 5 * 1024 * 1024) {
     error.value = '图片大小不能超过 5MB'
     return
@@ -228,7 +228,7 @@ async function handleAvatarFileChange(event: Event) {
     }
   } finally {
     uploadingAvatar.value = false
-    // Reset file input
+    // 重置 file input
     if (fileInputRef.value) {
       fileInputRef.value.value = ''
     }
@@ -243,7 +243,7 @@ async function handleAvatarFileChange(event: Event) {
         v-if="show"
         class="fixed inset-y-0 right-0 w-80 bg-gradient-to-b from-[var(--color-ivory)] to-[var(--color-cream)] shadow-2xl z-50 flex flex-col"
       >
-        <!-- Header -->
+        <!-- 头部 -->
         <div class="flex items-center justify-between p-5 border-b border-[var(--color-border)]">
           <h2 class="text-lg font-semibold text-[var(--color-navy)] font-['Playfair_Display']">
             {{ mode === 'create' ? '创建角色' : '编辑角色' }}
@@ -258,7 +258,7 @@ async function handleAvatarFileChange(event: Event) {
           </button>
         </div>
 
-        <!-- Tabs -->
+        <!-- 切换标签 -->
         <div class="flex border-b border-[var(--color-border)]">
           <button
             class="flex-1 py-3 text-sm font-medium text-[var(--color-gold)] border-b-2 border-[var(--color-gold)] bg-[var(--color-parchment)]/50"
@@ -272,9 +272,9 @@ async function handleAvatarFileChange(event: Event) {
           </button>
         </div>
 
-        <!-- Content -->
+        <!-- 内容 -->
         <div class="flex-1 overflow-y-auto p-5">
-          <!-- Create Tab -->
+          <!-- 创建 tab -->
           <div class="space-y-5">
             <div>
               <label class="block text-sm font-medium text-[var(--color-navy)] mb-2">
@@ -379,7 +379,7 @@ async function handleAvatarFileChange(event: Event) {
             </p>
           </div>
 
-          <!-- Library Tab (Preset Characters) -->
+          <!-- 角色库 tab（预设角色） -->
           <div v-if="characterStore.presets.length > 0" class="space-y-3 mt-6">
             <p class="text-sm text-[var(--color-text-secondary)] mb-3">点击选择预设角色：</p>
             <CharacterCard
@@ -391,7 +391,7 @@ async function handleAvatarFileChange(event: Event) {
           </div>
         </div>
 
-        <!-- Footer -->
+        <!-- 底部 -->
         <div class="p-5 border-t border-[var(--color-border)]">
           <div class="flex items-center justify-between">
             <button
@@ -424,7 +424,7 @@ async function handleAvatarFileChange(event: Event) {
       </div>
     </Transition>
 
-    <!-- Backdrop -->
+    <!-- 背景遮罩 -->
     <Transition name="fade">
       <div
         v-if="show"

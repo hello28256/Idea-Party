@@ -24,7 +24,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
-    // Set JSON content-type for non-FormData requests that have data
+    // 为带 data 但不是 FormData 的请求设置 JSON 的 Content-Type
     if (config.data && !(config.data instanceof FormData)) {
       config.headers['Content-Type'] = 'application/json'
     }
@@ -46,7 +46,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('accessToken')
-      // Only redirect if not already on login page
+      // 仅在尚未处于登录页时才跳转
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login'
       }
@@ -111,5 +111,5 @@ export const updateProfile = (data: UpdateProfileRequest) =>
 export const changePassword = (data: ChangePasswordRequest) =>
   api.patch('/auth/change-password', data)
 
-// Export the configured axios instance for use in stores
+// 导出已配置的 axios 实例供各 store 使用
 export { api }

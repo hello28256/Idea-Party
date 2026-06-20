@@ -233,7 +233,7 @@ function handleClose() {
   <Teleport to="body">
     <div v-if="settingsStore.settingsModalOpen" class="settings-overlay" @click.self="handleClose">
       <div class="settings-modal">
-        <!-- Left Sidebar -->
+        <!-- 左侧边栏 -->
         <aside class="settings-sidebar">
           <div class="sidebar-header">
             <h1 class="sidebar-brand">Idea Party</h1>
@@ -268,9 +268,9 @@ function handleClose() {
           </nav>
         </aside>
 
-        <!-- Right Content -->
+        <!-- 右侧内容 -->
         <main class="settings-content">
-          <!-- Header -->
+          <!-- 头部 -->
           <header class="content-header">
             <div class="header-text">
               <h2 class="header-title">{{ tabTitles[activeTab].title }}</h2>
@@ -283,14 +283,14 @@ function handleClose() {
             </button>
           </header>
 
-          <!-- Scrollable Content -->
+          <!-- 可滚动内容区 -->
           <div class="content-body">
-            <!-- Account Settings -->
+            <!-- 账号设置 -->
             <div v-if="activeTab === 'account'" class="settings-section">
               <div class="section-card">
                 <h3 class="card-title">个人资料</h3>
 
-                <!-- Avatar -->
+                <!-- 头像 -->
                 <div class="avatar-section">
                   <div class="avatar-wrapper">
                     <img
@@ -311,7 +311,7 @@ function handleClose() {
                   </div>
                 </div>
 
-                <!-- Username -->
+                <!-- 用户名 -->
                 <div class="field-group">
                   <label class="field-label">用户名</label>
                   <input
@@ -325,7 +325,7 @@ function handleClose() {
                   </p>
                 </div>
 
-                <!-- Display Name -->
+                <!-- 显示名 -->
                 <div class="field-group">
                   <label class="field-label">显示名</label>
                   <input
@@ -335,7 +335,7 @@ function handleClose() {
                   />
                 </div>
 
-                <!-- Email -->
+                <!-- 邮箱 -->
                 <div class="field-group">
                   <label class="field-label">邮箱</label>
                   <input
@@ -346,7 +346,7 @@ function handleClose() {
                   />
                 </div>
 
-                <!-- Save Button -->
+                <!-- 保存按钮 -->
                 <div class="form-actions">
                   <button
                     class="btn-save"
@@ -357,7 +357,7 @@ function handleClose() {
                   </button>
                 </div>
 
-                <!-- Messages -->
+                <!-- 提示消息 -->
                 <Transition name="fade">
                   <div v-if="saveSuccess" class="toast success">保存成功</div>
                 </Transition>
@@ -367,7 +367,7 @@ function handleClose() {
               </div>
             </div>
 
-            <!-- Preferences Settings -->
+            <!-- 偏好设置 -->
             <div v-else-if="activeTab === 'preferences'" class="settings-section">
               <div class="section-card">
                 <h3 class="card-title">主题模式</h3>
@@ -512,7 +512,7 @@ function handleClose() {
               </div>
             </div>
 
-            <!-- Advanced -->
+            <!-- 高级设置 -->
             <div v-else-if="activeTab === 'advanced'" class="settings-section">
               <div class="section-card">
                 <h3 class="card-title">高级设置</h3>

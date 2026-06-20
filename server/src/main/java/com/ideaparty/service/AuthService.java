@@ -168,15 +168,15 @@ public class AuthService {
         String newUsername = null;
         String newEmail = null;
 
-        // Validate and update username if changed
+        // 当用户名有变化时校验并更新
         if (request.getUsername() != null && !request.getUsername().isBlank()) {
             newUsername = request.getUsername().trim().toLowerCase();
             if (!newUsername.equals(user.getUsername())) {
-                // Check username format: 3-20 chars, letters, numbers, underscores only
+                // 校验用户名格式：3-20 字符，仅允许字母、数字、下划线
                 if (!newUsername.matches("^[a-z0-9_]{3,20}$")) {
                     throw new IllegalArgumentException("用户名格式不正确");
                 }
-                // Check username uniqueness (exclude current user)
+                // 校验用户名唯一性（排除当前用户）
                 if (userRepository.existsByUsername(newUsername)) {
                     throw new IllegalArgumentException("用户名已被占用");
                 }
@@ -195,15 +195,15 @@ public class AuthService {
             }
         }
 
-        // Validate and update email if changed
+        // 当邮箱有变化时校验并更新
         if (request.getEmail() != null && !request.getEmail().isBlank()) {
             newEmail = request.getEmail().trim().toLowerCase();
             if (!newEmail.equals(user.getEmail())) {
-                // Email format validation
+                // 邮箱格式校验
                 if (!newEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
                     throw new IllegalArgumentException("邮箱格式不正确");
                 }
-                // Check email uniqueness (exclude current user)
+                // 校验邮箱唯一性（排除当前用户）
                 if (userRepository.existsByEmail(newEmail)) {
                     throw new IllegalArgumentException("邮箱已被使用");
                 }
@@ -212,7 +212,7 @@ public class AuthService {
             }
         }
 
-        // Update displayName
+        // 更新 displayName
         if (request.getDisplayName() != null && !request.getDisplayName().isBlank()) {
             user.setDisplayName(request.getDisplayName().trim());
         }

@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 
 /**
- * AI Service for generating character responses.
- * Uses DeepSeek via LangChain4j OpenAI-compatible API.
+ * 用于生成角色回复的 AI Service。
+ * 通过 LangChain4j 的 OpenAI 兼容 API 调用 DeepSeek。
  *
  * <p>集中封装 LLM 调用，避免业务层直接依赖 LangChain4j / DeepSeek SDK。
  * 同时屏蔽「用户自带 Key 优先、缺失时回落到系统环境变量」这一安全策略，
@@ -53,7 +53,7 @@ public class AIService {
     }
 
     /**
-     * Create a ChatLanguageModel with the user's API key (or fallback to system default).
+     * 使用用户的 API key（或回退到系统默认）创建 ChatLanguageModel。
      *
      * <p>契约：userApiKey 为空时回落系统环境变量；二者都缺时使用占位 dummy key，
      * 让模型构建不抛错（实际请求会由上游失败），便于在前端未配置 Key 的开发态下联调 UI。
@@ -76,7 +76,7 @@ public class AIService {
     }
 
     /**
-     * Create a streaming chat model for streaming responses.
+     * 创建用于流式回复的流式 chat model。
      *
      * <p>与 {@link #createChatModel} 的差异：流式路径额外做了 key 缺失的显式日志，
      * 因为前端会依赖首个 token 的延迟感知「AI 在思考」，配置错位必须暴露在日志而不是静默 dummy。
@@ -107,8 +107,8 @@ public class AIService {
     }
 
     /**
-     * Generate a response for a character given the user message.
-     * Uses the current user's API key if available.
+     * 根据用户消息为角色生成回复。
+     * 若可用则使用当前用户的 API key。
      *
      * <p>无历史的「一次性」同步入口：被 Moderator 选人/评审类步骤复用，要求整段返回再做下游决策。
      * 调用方：RoomService 的 Moderator 选择、角色单独答复等不需要流式 token 推送的场景。
@@ -122,11 +122,11 @@ public class AIService {
     }
 
     /**
-     * Generate a response with conversation history context.
-     * @param characterPrompt The character's system prompt
-     * @param userMessage The current user message
-     * @param conversationHistory Formatted history string (e.g., "User: xxx\nResponse: yyy\nUser: zzz\nResponse: ...")
-     * @return AI response
+     * 结合对话历史上下文生成回复。
+     * @param characterPrompt 角色的系统提示
+     * @param userMessage 当前的 user 消息
+     * @param conversationHistory 格式化后的历史字符串（例如 "User: xxx\nResponse: yyy\nUser: zzz\nResponse: ..."）
+     * @return AI 回复
      */
     public String generateResponseWithHistory(String characterPrompt, String userMessage, String conversationHistory) {
         // 设计取舍：把历史拼成纯文本前缀喂给模型，而不是用 ChatMemory 多轮消息结构，
@@ -143,7 +143,7 @@ public class AIService {
     }
 
     /**
-     * Generate a chat model with the user's API key for moderator selection.
+     * 为 moderator 选人创建带用户 API key 的 chat model。
      *
      * <p>公开委托：把 createChatModel 暴露给 Moderator 选择流程，让上游按需复用同一份模型构建逻辑，
      * 而不是另写一份；副作用是返回的 ChatLanguageModel 是新实例，调用方持有期间需自行管理资源。
@@ -153,15 +153,15 @@ public class AIService {
     }
 
     /**
-     * Generate a streaming response for a character given the user message.
-     * Uses callbacks to deliver chunks as they arrive.
+     * 根据用户消息为角色生成流式回复。
+     * 通过回调按 token 到达顺序逐块投递。
      *
-     * @param characterPrompt The character's system prompt
-     * @param userMessage The user's message
-     * @param userApiKey The user's API key (passed explicitly to avoid SecurityContext threading issues)
-     * @param onChunk Callback for each text chunk as it arrives
-     * @param onComplete Callback when response is complete
-     * @param onError Callback for errors
+     * @param characterPrompt 角色的系统提示
+     * @param userMessage 用户消息
+     * @param userApiKey 用户的 API key（显式传入以避免 SecurityContext 线程传递问题）
+     * @param onChunk 每段文本块到达时的回调
+     * @param onComplete 回复完成时的回调
+     * @param onError 出错时的回调
      */
     public void generateResponseStream(String characterPrompt, String userMessage, String userApiKey,
                                        java.util.function.Consumer<String> onChunk,
@@ -191,7 +191,7 @@ public class AIService {
         String fullPrompt = characterPrompt + "\n\nUser: " + userMessage + "\n\nResponse:";
         log.info("[AI Service] Full prompt length: {}, calling streamingModel.chat...", fullPrompt.length());
 
-        // StringBuilder to accumulate chunks for final response
+        // StringBuilder 用于累计各个块以拼成最终回复
         // 显式 final：仅由 onPartialResponse 写入、onCompleteResponse 读出，确保跨线程可见性。
         final StringBuilder accumulatedResponse = new StringBuilder();
 

@@ -23,7 +23,6 @@ public class AdminFeedbackDetail extends AdminFeedbackListItem {
     private String characterId;
     /** AI 角色名称，仅当角色存在时有值，UI 据此决定是否渲染「来源角色」一栏。 */
     private String characterName;
-    /** Most recent USER message that prompted the AI reply. May be null. */
     /** 触发该 AI 回复的最近一条用户消息原文；用于管理员理解上下文，可能为 null（用户首条发言时没有前置 prompt）。 */
     private String userPrompt;
     /** 对应 userPrompt 的发送时间，与 userPrompt 配套出现以便在时间线上对齐。 */
@@ -39,7 +38,7 @@ public class AdminFeedbackDetail extends AdminFeedbackListItem {
      */
     public static AdminFeedbackDetail fromEntity(MessageFeedback fb) {
         AdminFeedbackDetail dto = new AdminFeedbackDetail();
-        // Copy list-item fields
+        // 拷贝列表项字段
         dto.setId(fb.getId().toString());
         dto.setMessageId(fb.getMessage().getId());
         String content = fb.getMessage().getContent();
@@ -54,7 +53,7 @@ public class AdminFeedbackDetail extends AdminFeedbackListItem {
         dto.setDisplayName(fb.getUser().getDisplayName());
         dto.setCreatedAt(fb.getCreatedAt());
 
-        // Detail-only fields
+        // 仅详情需要的字段
         dto.setMessageContent(content);
         dto.setMessageCreatedAt(fb.getMessage().getCreatedAt());
         dto.setRoomId(fb.getMessage().getRoom().getId().toString());

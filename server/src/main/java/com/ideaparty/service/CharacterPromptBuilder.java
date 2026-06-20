@@ -6,11 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Builds the system prompt for a Character, optionally enriched with web context.
+ * 为角色（Character）构建 system prompt，可选地附带联网背景信息。
  *
- * The full prompt (includeWebContext=true) is the long, debate-style prompt
- * used by ModeratorAgent. The simple prompt (includeWebContext=false) is the
- * shorter prompt used by ChatService for round-robin dialogue.
+ * 完整版 prompt（includeWebContext=true）是 ModeratorAgent 使用的长篇辩论风格 prompt。
+ * 简化版 prompt（includeWebContext=false）是 ChatService 用于轮询对话的较短 prompt。
  */
 @Slf4j
 @Service
@@ -22,14 +21,13 @@ public class CharacterPromptBuilder {
     private final FirecrawlService firecrawlService;
 
     /**
-     * Build the system prompt for a character.
+     * 为角色构建 system prompt。
      *
-     * @param character the character to build a prompt for
-     * @param includeWebContext if true, fetch background info from Firecrawl and
-     *                          include the long group-discussion framing,
-     *                          persona, expertise, length restriction, and
-     *                          consistency rules. If false, return the short
-     *                          conversational prompt used by round-robin chat.
+     * @param character         要为其构建 prompt 的角色
+     * @param includeWebContext 若为 true，则通过 Firecrawl 抓取背景信息，
+     *                          并附带长篇群聊讨论框架、persona、专长、长度限制
+     *                          以及一致性规则；若为 false，则返回轮询对话
+     *                          使用的简短会话型 prompt。
      */
     public String build(Character character, boolean includeWebContext) {
         // 入参约定：character 必填（来自 DB），includeWebContext=true 用于 Moderator 群聊场景（更长更严谨），

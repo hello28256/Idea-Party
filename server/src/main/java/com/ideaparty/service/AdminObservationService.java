@@ -28,9 +28,9 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Admin overview: list ALL AI messages (rated + unrated) with feedback rollup.
- * One row per observation, joined with message meta + caller's own feedback row
- * (if any) so the UI can distinguish rated / unrated / aggregated.
+ * 管理员总览：列出全部 AI 消息（已评分 + 未评分）及其反馈汇总。
+ * 每条观测占一行，联接消息元数据 + 调用方自己的反馈记录（如果有），
+ * 以便 UI 能区分已评分 / 未评分 / 已聚合三类。
  */
 @Service
 @RequiredArgsConstructor
@@ -86,7 +86,7 @@ public class AdminObservationService {
                 .map(obs -> {
                     Message ai = messages.get(obs.getMessageId());
                     if (ai == null) return toItem(obs, null, null);
-                    // Look up the most recent USER message before this AI one.
+                    // 查询这条 AI 消息之前最近的一条 USER 消息。
                     Message priorUser = messageRepository
                             .findPriorUserMessages(
                                     ai.getRoom().getId(),

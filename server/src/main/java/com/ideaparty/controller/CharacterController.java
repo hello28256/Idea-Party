@@ -44,7 +44,7 @@ public class CharacterController {
      */
     @GetMapping
     public ResponseEntity<List<CharacterResponse>> getAllCharacters(Authentication auth) {
-        // Returns all characters (presets + user's) for authenticated user
+        // 为已认证用户返回全部角色（预设 + 本人的）
         List<CharacterResponse> characters = characterService.findAll();
         return ResponseEntity.ok(characters);
     }

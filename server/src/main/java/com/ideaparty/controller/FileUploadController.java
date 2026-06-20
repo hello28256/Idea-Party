@@ -41,11 +41,11 @@ public class FileUploadController {
     }
 
     /**
-     * Upload an avatar image.
-     * Accepts multipart/form-data with field name "avatar".
+     * 上传头像图片。
+     * 接收字段名为 "avatar" 的 multipart/form-data 请求。
      *
-     * @param file The avatar file to upload
-     * @return URL of the uploaded file
+     * @param file 要上传的头像文件
+     * @return 已上传文件的 URL
      */
     @PostMapping("/avatar")
     public ResponseEntity<Map<String, String>> uploadAvatar(@RequestParam("avatar") MultipartFile file) {
@@ -72,10 +72,10 @@ public class FileUploadController {
     }
 
     /**
-     * Serve an uploaded avatar file.
+     * 提供已上传头像文件的对外读取。
      *
-     * @param filename The filename to serve
-     * @return The file as a resource
+     * @param filename 要返回的文件名
+     * @return 文件资源
      */
     @GetMapping("/avatars/{filename}")
     public ResponseEntity<Resource> serveAvatar(@PathVariable String filename) {
@@ -83,7 +83,7 @@ public class FileUploadController {
 
         Resource resource = fileStorageService.loadAsResource(filename);
 
-        // Determine content type from filename extension
+        // 根据文件扩展名推断 content type
         String contentType = "application/octet-stream";
         if (filename.toLowerCase().endsWith(".png")) {
             contentType = "image/png";

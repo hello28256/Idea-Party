@@ -31,14 +31,13 @@ const canSend = computed(() => {
 
 // 处理键盘事件：拦截 IME 组合中的 Enter（让用户确认候选词），并实现回车发送 / Shift+回车换行。
 function handleKeydown(event: KeyboardEvent) {
-  // When a CJK IME (pinyin / kana / hangul) is composing, Enter is used to
-  // confirm a candidate — not to send the message. Skip in that case so the
-  // user can pick an English letter from the candidate list without losing
-  // whatever they've already typed.
+  // 当 CJK IME（拼音 / kana / 谚文）正在组合输入时，Enter 用来确认候选词，
+  // 而不是发送消息。这种情况下直接跳过，让用户从候选列表里挑选英文候选，
+  // 而不会丢失已经输入的内容。
   if (event.isComposing || event.keyCode === 229) {
     return;
   }
-  // Enter sends message, Shift+Enter allows new line
+  // Enter 发送消息，Shift+Enter 换行
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     handleSend()
@@ -53,7 +52,7 @@ function handleSend() {
   emit('send', content.value.trim())
   content.value = ''
 
-  // Reset textarea height
+  // 重置 textarea 高度
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'
   }
@@ -64,8 +63,8 @@ function handleSend() {
 function autoResize() {
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'
-    // Max height approximately 4 lines
-    const maxHeight = 96 // 4 * 24px line height
+    // 最大高度约 4 行
+    const maxHeight = 96 // 4 * 24px 行高
     textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, maxHeight) + 'px'
   }
 }

@@ -11,9 +11,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 
 /**
- * Single row in the admin message overview. Represents one AI message
- * regardless of whether anyone has rated it. feedbackStatus is null when
- * the user viewing the admin panel has not rated this message.
+ * 管理员消息概览的单行数据。表示一条 AI 消息，
+ * 与是否有人评分无关。当查看后台的用户尚未对该消息评分时，feedbackStatus 为 null。
  */
 @Data
 @Builder
@@ -21,61 +20,61 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class AdminMessageObservationItem {
 
-    /** Stable identifier of the AI message row being observed in the admin list. */
+    /** 管理员列表中正在查看的 AI 消息行的稳定标识符。 */
     private String messageId;
-    /** Id of the room this AI message belongs to; used by admin UI to deep-link back to the room. */
+    /** 该 AI 消息所属聊天室 ID；管理员 UI 用它深链回聊天室。 */
     private String roomId;
-    /** Human-readable room name shown alongside the message so admins don't have to resolve id by hand. */
+    /** 与消息一同展示的、人类可读的聊天室名称，避免管理员手动根据 ID 解析。 */
     private String roomName;
-    /** Id of the AI character/role that produced this message; needed for drill-down filters. */
+    /** 生成该消息的 AI 角色 ID；下钻筛选时需要用到。 */
     private String characterId;
-    /** Display name of the AI character; shown directly in the admin table for fast scanning. */
+    /** AI 角色展示名；直接显示在管理员表格中以便快速浏览。 */
     private String characterName;
-    /** Id of the user who authored the feedback; null when nobody has rated this message yet. */
-    private String userId;          // author of feedback (null for unrated)
-    /** Login name of the feedback author; mirrors userId for display, null when unrated. */
+    /** 反馈作者的用户 ID；当尚无人评分时为 null。 */
+    private String userId;          // 反馈作者（未评时为 null）
+    /** 反馈作者的登录名；与 userId 配合用于展示，未评时为 null。 */
     private String username;
-    /** Preferred display name of the feedback author; null when unrated or not set. */
+    /** 反馈作者的首选展示名；未评或未设置时为 null。 */
     private String displayName;
 
-    /** Truncated body of the AI message so admins can preview content without opening detail view. */
+    /** AI 消息正文的截断版本，让管理员无需打开详情即可预览内容。 */
     private String messagePreview;
-    /** Timestamp the AI message was persisted; used to sort the admin table newest-first. */
+    /** AI 消息入库的时间戳；用于管理员表格按时间倒序排序。 */
     private LocalDateTime messageCreatedAt;
-    /** COMPLETE / EMPTY / FAILED — null for legacy rows. */
+    /** COMPLETE / EMPTY / FAILED —— 历史数据行时为 null。 */
     private String streamStatus;
 
-    /** Most recent USER message that prompted the AI reply. May be null. */
+    /** 触发该 AI 回复的最近一条用户消息，可能为 null。 */
     private String userPrompt;
-    /** Time the prompting user message was created; lets admin correlate latency with request time. */
+    /** 触发该回复的用户消息的创建时间；便于管理员将延迟与请求时间相关联。 */
     private LocalDateTime userPromptAt;
-    /** Id of the user whose question triggered this AI reply; null when the prompt context is missing. */
+    /** 触发该 AI 回复的用户 ID；当 prompt 上下文缺失时为 null。 */
     private String promptUserId;
-    /** Login name of the prompting user; shown to admin for context (who asked what). */
+    /** 触发用户的登录名；展示给管理员以了解上下文（谁问了什么）。 */
     private String promptUsername;
-    /** Display name of the prompting user; preferred over username in admin UI when present. */
+    /** 触发用户的展示名；在管理员 UI 中存在时优先于 username 显示。 */
     private String promptDisplayName;
 
-    // Rollup across ALL users
-    /** Total feedback rows across every user for this message; primary denominator for like/dislike ratios. */
+    // 汇总所有用户的反馈
+    /** 来自所有用户对该消息的反馈总条数；用于计算点赞 / 点踩比例的主要分母。 */
     private int feedbackCount;
-    /** Number of LIKE ratings aggregated from all users; used for at-a-glance quality signals. */
+    /** 汇总自所有用户的点赞数；用于一眼可见的质量信号。 */
     private int likeCount;
-    /** Number of DISLIKE ratings aggregated from all users; high values flag problem messages for triage. */
+    /** 汇总自所有用户的点踩数；高数值标记出需要分诊处理的问题消息。 */
     private int dislikeCount;
-    /** Time of the most recent feedback on this message; helps prioritize freshly-flagged content. */
+    /** 该消息最近一次反馈的时间；用于优先处理新近被标记的内容。 */
     private Instant lastFeedbackAt;
 
-    /** Feedback status: "RATED" (this user rated), "UNRATED" (nobody), "AGGREGATED" (others rated but not this user). */
+    /** 反馈状态："RATED"（当前用户已评）、"UNRATED"（无人评价）、"AGGREGATED"（其他用户评过但当前用户未评）。 */
     private String status;
 
-    /** If this user rated, details; otherwise null. */
-    /** LIKE/DISLIKE choice of the viewing admin user; null when status is UNRATED or AGGREGATED. */
+    /** 若当前用户已评价则为详情，否则为 null。 */
+    /** 当前查看的管理员用户给出的 LIKE / DISLIKE 选择；当状态为 UNRATED 或 AGGREGATED 时为 null。 */
     private FeedbackType feedbackType;
-    /** Optional category bucket the viewing user picked (e.g. tone, accuracy); null when not categorized. */
+    /** 查看用户选择的可选分类桶（如语气、准确性）；未分类时为 null。 */
     private FeedbackCategory feedbackCategory;
-    /** Free-text comment left by the viewing user; null when no comment was provided. */
+    /** 查看用户留下的自由文本评论；未填写时为 null。 */
     private String feedbackComment;
-    /** When the viewing user submitted their own feedback; null when this user has not rated yet. */
+    /** 查看用户提交其自身反馈的时间；该用户尚未评价时为 null。 */
     private Instant userFeedbackAt;
 }

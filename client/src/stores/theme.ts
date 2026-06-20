@@ -52,7 +52,7 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  // Initialize theme on store creation
+  // 主题 store 初始化时立即应用主题
   applyTheme()
 
   // 监听 OS 主题变化：仅在用户处于 'system' 档位时才重算，
@@ -64,7 +64,7 @@ export const useThemeStore = defineStore('theme', () => {
     }
   })
 
-  // Watch for changes and apply
+  // 监听变化并应用主题
   watch(themeMode, applyTheme)
 
   return {

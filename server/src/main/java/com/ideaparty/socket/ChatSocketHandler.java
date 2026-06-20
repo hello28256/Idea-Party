@@ -67,7 +67,6 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // 内部数据结构：记录一条 AI 回复的角色名、内容、时间戳，供后续 prompt 上下文使用。
-    // Simple record to store recent response context
     private static class RecentResponse {
         final String characterName;
         final String content;
@@ -169,14 +168,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private void handleJoinRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
 
-        // Authenticate via JWT if provided
+        // 如果提供了 JWT 则进行身份验证
         String userId = null;
         if (data.has("token") && !data.get("token").isNull()) {
             String token = data.get("token").asText();
             try {
                 UUID validatedUserId = authService.validateToken(token);
                 userId = validatedUserId.toString();
-                // Set SecurityContext for this WebSocket session
+                // 为本次 WebSocket 会话设置 SecurityContext
                 UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
                         userId, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER")));
@@ -217,7 +216,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             ? data.get("characterId").asText()
             : null;
 
-        // Check moderation before processing
+        // 处理前先进行内容审核
         ModerationService.ModerationResult result = moderationService.moderate(content);
         if (!result.isAllowed()) {
             String errorMessage = "42[\"error\","
@@ -229,7 +228,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Save message to database and get generated ID
+        // 保存消息到数据库并获取生成的 ID
         String messageId = null;
         String msgUserId = sessionUsers.get(session.getId());
         try {
@@ -272,13 +271,13 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             + "]";
         broadcastToRoom(roomId, broadcastMessage);
 
-        // Trigger AI response for user messages
+        // 触发用户消息的 AI 回复
         if ("USER".equals(senderType)) {
             // Get userId from sessionUsers map (set during join room)
             String userId = sessionUsers.get(session.getId());
             log.info("[WS] handleChatMessage - roomId: {}, userId from session: {}", roomId, userId);
 
-            // Check if room is in discussion mode
+            // 检查聊天室是否处于讨论模式
             Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
             boolean isDiscussionMode = room != null && "discussion".equals(room.getChatMode());
 
@@ -331,11 +330,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         // Format 1: @角色名 - extract name after @
         if (trimmed.startsWith("@")) {
             String afterAt = trimmed.substring(1);
-            // Split by whitespace or common punctuation
+            // 按空白字符或常见标点进行分割
             String[] parts = afterAt.split("[\\s，。！？、,.!?\\[\\](){}《》]");
             if (parts.length > 0 && !parts[0].isEmpty()) {
                 String mentioned = parts[0];
-                // First try exact match
+                // 首先尝试精确匹配
                 for (Character c : characters) {
                     if (c.getName().equalsIgnoreCase(mentioned)) {
                         return c.getName(); // Return actual character name
@@ -350,8 +349,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             }
         }
 
-        // Format 2: 角色名 + 疑问词 (no space) - e.g., "马云你怎么看", "马化腾你觉得呢"
-        // Check if message starts with a character name followed by a question word
+        // 格式二：角色名 + 疑问词（无空格）—— 例如 "马云你怎么看"、"马化腾你觉得呢"
+        // 检查消息是否以角色名开头并紧跟疑问词
         for (Character c : characters) {
             String name = c.getName();
             if (trimmed.toLowerCase().startsWith(name.toLowerCase())) {
@@ -368,7 +367,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         if (words.length > 0) {
             String firstWord = words[0];
             if (firstWord.length() <= 30 && !firstWord.contains("@")) {
-                // Only return if this word matches a character name in the room
+                // 只有当该词与聊天室中的角色名匹配时才返回
                 for (Character c : characters) {
                     if (c.getName().equalsIgnoreCase(firstWord)) {
                         return c.getName(); // Return actual character name
@@ -473,7 +472,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         log.info("[WS] onResponse callback - characterId: {}, content length: {}, isComplete: {}",
                             fragment.getCharacterId(), fragment.getContent().length(), fragment.isComplete());
 
-                        // Update last speaker and active thread owner for this room
+                        // 更新该聊天室的最近发言者与当前活跃话题主导者
                         roomLastSpeaker.put(roomId, fragment.getCharacterName());
                         roomActiveThreadOwner.put(roomId, fragment.getCharacterName());
                         log.info("[WS] Updated roomLastSpeaker and activeThreadOwner for room {}: {}", roomId, fragment.getCharacterName());
@@ -526,7 +525,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             log.info("[WS] triggerAIForRoom - moderatorAgent.processMessage called, returning");
         } catch (Exception e) {
             log.error("[WS] triggerAIForRoom - exception: {}", e.getMessage(), e);
-            // Broadcast AI error to room
+            // 向聊天室广播 AI 错误
             try {
                 String errorEvent = "42[\"error\","
                     + objectMapper.writeValueAsString(Map.of(
@@ -616,7 +615,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     Message savedMessage = messageService.saveMessage(UUID.fromString(roomId), characterUuid,
                         Message.SenderType.CHARACTER, fragment.getContent(), null);
 
-                    // Update active thread owner
+                    // 更新当前活跃话题主导者
                     roomActiveThreadOwner.put(roomId, fragment.getCharacterName());
                     roomLastSpeaker.put(roomId, fragment.getCharacterName());
 
@@ -693,7 +692,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Stop discussion requested for room: {}", roomId);
 
-        // Cancel ongoing discussion in ModeratorAgent
+        // 取消 ModeratorAgent 中正在进行的讨论
         moderatorAgent.cancelRoom(roomId);
 
         session.sendMessage(new TextMessage("42[\"discussion-stopped\",{\"roomId\":\"" + roomId + "\"}]"));
@@ -829,14 +828,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        // Remove session from its room
+        // 将该会话从其所在的聊天室中移除
         String roomId = sessionRooms.remove(session.getId());
         if (roomId != null) {
             leaveRoom(roomId, session);
         }
-        // Remove user mapping
+        // 移除会话对应的用户映射
         sessionUsers.remove(session.getId());
-        // Clear SecurityContext for this session
+        // 清理本次会话的 SecurityContext
         SecurityContextHolder.clearContext();
 
         // If no more sessions remain in this room, release per-room state to prevent unbounded growth.

@@ -142,7 +142,7 @@ function jumpToPage() {
   const target = parseInt(jumpToInput.value, 10)
   if (Number.isNaN(target)) return
   if (target < 1 || target > totalPages.value) {
-    // Snap to valid range instead of silently failing
+    // 把超出范围的页码吸附到合法区间，而不是默默失败
     goPage(Math.min(Math.max(1, target), totalPages.value) - 1)
     jumpToInput.value = ''
     return
