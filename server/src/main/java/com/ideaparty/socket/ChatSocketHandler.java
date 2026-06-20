@@ -50,18 +50,13 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     // 记录每个 WebSocket 会话对应的已认证 userId；在 join room 时写入，供后续消息落库使用。
     private final ConcurrentHashMap<String, String> sessionUsers = new ConcurrentHashMap<>();
     // 房间最近一次发言的角色名；用于上下文续接判断（不直接控制路由，仅作为线索参考）。
-    private final ConcurrentHashMap<String, String> roomLastSpeaker = new ConcurrentHashMap<>();  // Track last speaker per room
+    private final ConcurrentHashMap<String, String> roomLastSpeaker = new ConcurrentHashMap<>();
     // 当前房间的主线发言持有者；与 lastSpeaker 区分，用于表达"哪个角色正在主导当前话题线程"。
-    // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
     private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
     // 每个房间最近 5 条 AI 回复的上下文快照，供下一次发言时拼接到 prompt 中做跨角色感知。
-    // Track recent AI responses per room for cross-agent context (keeps last 5 responses)
     private final ConcurrentHashMap<String, List<RecentResponse>> roomRecentResponses = new ConcurrentHashMap<>();
     // 房间级互斥锁：将"讨论是否在跑"判定与"启动新讨论"打包成原子段，避免并发用户消息触发并行讨论循环。
     // 锁对象按需懒创建，房间空时清理（见 afterConnectionClosed）。
-    // Per-room locks used to make "is discussion running? then route / start" check-and-start atomic.
-    // Two concurrent user messages can otherwise both pass the "not running" check and start parallel
-    // discussion loops, overwriting the same DiscussionState.
     private final ConcurrentHashMap<String, Object> roomDiscussionLocks = new ConcurrentHashMap<>();
     // Jackson JSON 序列化器，用于将事件 payload 包装成 Socket.IO 帧以及解析入站消息。
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -95,7 +90,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        // Socket.IO client sends "40" (connect packet) initially
+        // Socket.IO 客户端在初始时发送 "40"（connect 包）
     }
 
     /**
@@ -107,16 +102,16 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String payload = message.getPayload();
         log.debug("[WS] Received message: {} (sessionId={})", payload, session.getId());
 
-        // Socket.IO protocol: "42" prefix means MESSAGE with event name
-        // Format: 42["event_name", data]
+        // Socket.IO 协议："42" 前缀表示带事件名的 MESSAGE
+        // 格式：42["event_name", data]
         if (payload.startsWith("42")) {
             handleSocketIOMessage(session, payload.substring(2));
         } else if (payload.equals("2")) {
-            // "2" is a ping, respond with "3" (pong)
+            // "2" 是 ping，回复 "3"（pong）
             log.debug("[WS] Sending pong");
             session.sendMessage(new TextMessage("3"));
         } else if (payload.startsWith("40")) {
-            // "40" is a connect packet, respond with "40" (connection acknowledged)
+            // "40" 是 connect 包，回复 "40"（连接确认）
             log.debug("[WS] Sending connection ack");
             session.sendMessage(new TextMessage("40"));
         } else {
@@ -256,7 +251,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // Broadcast to all clients in the room (include message id for deduplication)
+        // 向房间内所有客户端广播（附带 message id 用于去重）
         Map<String, Object> broadcastData = new java.util.HashMap<>();
         broadcastData.put("content", content);
         broadcastData.put("senderType", senderType);
@@ -273,7 +268,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         // 触发用户消息的 AI 回复
         if ("USER".equals(senderType)) {
-            // Get userId from sessionUsers map (set during join room)
+            // 从 sessionUsers 映射中获取 userId（在 join room 时写入）
             String userId = sessionUsers.get(session.getId());
             log.info("[WS] handleChatMessage - roomId: {}, userId from session: {}", roomId, userId);
 
@@ -292,29 +287,20 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         moderatorAgent.handleUserInterjection(roomId, userId, content);
                         log.info("[WS] Discussion mode: user interjection, reorganizing discussion");
                     } else {
-                        // Start new discussion
+                        // 启动新一轮讨论
                         log.info("[WS] Discussion mode: starting new discussion");
                         triggerAIForRoom(roomId, content, userId, null);
                     }
                 }
             } else {
-                // In dialogue mode, use moderator to select who should respond
-                // This ensures only the relevant character replies, not everyone
+                // dialogue 模式下，通过 moderator 决定谁应回复
+                // 确保只有相关角色回复，而不是全部角色一起回
                 log.info("[WS] Dialogue mode: routing through moderator for character selection");
                 triggerAIViaModerator(roomId, content, userId, room);
             }
         }
     }
 
-    /**
-     * Extract character name from message content.
-     * Supports multiple formats:
-     * 1. @角色名 - @mention format (takes priority)
-     * 2. 角色名你怎么看 - direct name followed by question (no space needed)
-     * 3. 角色名 at message start - matched against room characters
-     *
-     * Returns the matched character name or null if no explicit mention found.
-     */
     /**
      * 从用户消息文本中提取显式 @ 提及的角色名，是 Java 端唯一保留的结构化路由规则。
      * 支持三种格式：@角色名、角色名+疑问词（无空格）、消息开头的角色名（带空格）。
@@ -327,7 +313,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         String trimmed = content.trim();
 
-        // Format 1: @角色名 - extract name after @
+        // 格式一：@角色名 —— 提取 @ 之后的名称
         if (trimmed.startsWith("@")) {
             String afterAt = trimmed.substring(1);
             // 按空白字符或常见标点进行分割
@@ -337,13 +323,13 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 // 首先尝试精确匹配
                 for (Character c : characters) {
                     if (c.getName().equalsIgnoreCase(mentioned)) {
-                        return c.getName(); // Return actual character name
+                        return c.getName(); // 返回实际的角色名
                     }
                 }
-                // Then try prefix match (for Chinese names without space separator)
+                // 然后尝试前缀匹配（用于中文名无空格分隔的情况）
                 for (Character c : characters) {
                     if (mentioned.toLowerCase().startsWith(c.getName().toLowerCase())) {
-                        return c.getName(); // Return actual character name
+                        return c.getName(); // 返回实际的角色名
                     }
                 }
             }
@@ -355,14 +341,14 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             String name = c.getName();
             if (trimmed.toLowerCase().startsWith(name.toLowerCase())) {
                 String afterName = trimmed.substring(name.length());
-                // If what follows looks like a question or comment, it's a mention
+                // 若后面紧跟的是疑问或评论，则视为 @mention
                 if (afterName.matches("[，,， ].*") || afterName.matches("[？?！!].*") || afterName.matches(".*[你说看觉得怎么看觉得如何怎么样].*")) {
                     return c.getName();
                 }
             }
         }
 
-        // Format 3: 角色名 at message start (with space separator)
+        // 格式三：消息开头的角色名（以空格分隔）
         String[] words = trimmed.split("[ \\t\\n\\r\\f]");
         if (words.length > 0) {
             String firstWord = words[0];
@@ -370,7 +356,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 // 只有当该词与聊天室中的角色名匹配时才返回
                 for (Character c : characters) {
                     if (c.getName().equalsIgnoreCase(firstWord)) {
-                        return c.getName(); // Return actual character name
+                        return c.getName(); // 返回实际的角色名
                     }
                 }
             }
@@ -380,10 +366,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * Routing is delegated to the moderator LLM via the joint prompt. The only
-     * structural rule we keep in Java is explicit @-mention detection (above).
-     * Topical / thread-continuity / multi-character decisions are all made by
-     * the LLM reading the character roster + chat history.
+     * 路由决策统一交给 moderator LLM 通过 joint prompt 完成。Java 端仅保留一个结构化规则：
+     * 显式 @-mention 检测（见上文）。话题匹配、话题续接、多角色选择等所有其它决策
+     * 全部由 LLM 读取角色名单 + 聊天记录后自主完成。
      */
 
     /**
@@ -404,9 +389,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         log.info("[WS] triggerAIForRoom START - roomId: {}, message: {}, userId: {}, mentionedCharacter: {}",
             roomId, userMessage, userId, mentionedCharacter);
 
-        // userId is now passed directly from handleChatMessage (retrieved from sessionUsers map during join room)
+        // userId 现在由 handleChatMessage 直接传入（在 join room 时从 sessionUsers 映射中取出）
 
-        // Even if userId is null, continue - we'll use system API key in that case
+        // 即便 userId 为 null 也继续执行 —— 这种情况下会走 system API key
         try {
             Room room = roomRepository.findWithCharactersById(UUID.fromString(roomId)).orElse(null);
             if (room == null || room.getCharacters().isEmpty()) {
@@ -416,16 +401,16 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
             List<Character> allCharacters = room.getCharacters().stream().toList();
 
-            // Filter to only mentioned character if @mentioned, otherwise all characters respond
+            // 若有 @mention 则只保留被提及的角色，否则让所有角色都参与回复
             List<Character> characters;
             if (mentionedCharacter != null && !mentionedCharacter.isBlank()) {
-                // Match character by name (case-insensitive)
+                // 按名称（忽略大小写）匹配角色
                 characters = allCharacters.stream()
                     .filter(c -> c.getName().equalsIgnoreCase(mentionedCharacter))
                     .toList();
                 if (characters.isEmpty()) {
                     log.warn("[WS] No character found matching @{}", mentionedCharacter);
-                    // Fallback: no one responds
+                    // 兜底：无人回复
                     return;
                 }
                 log.info("[WS] @mention detected: {} -> character: {}", mentionedCharacter, characters.get(0).getName());
@@ -440,11 +425,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 characters.size(), isContinuous);
 
             moderatorAgent.processMessage(roomId, userId, userMessage, characters, isContinuous, maxRounds,
-                // onThinking: 不发送沉思状态，直接流式输出
+                // onThinking：不发送沉思状态，直接流式输出
                 characterId -> {
                     log.debug("[WS] onThinking callback (ignored) - characterId: {}", characterId);
                 },
-                // onChunk: 流式内容 - 立即发送到前端
+                // onChunk：流式内容 —— 立即发送到前端
                 fragment -> {
                     try {
                         if (!fragment.isComplete()) {
@@ -454,7 +439,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                             chunkData.put("senderType", "CHARACTER");
                             chunkData.put("characterId", fragment.getCharacterId());
                             chunkData.put("characterName", fragment.getCharacterName());
-                            // (truncated for display)
+                            // （为节省显示空间已截断）
                             chunkData.put("roomId", roomId);
                             chunkData.put("streaming", true);
                             String chunkEvent = "42[\"chat chunk\","
@@ -466,7 +451,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         log.warn("[WS] onChunk callback failed: {}", e.getMessage());
                     }
                 },
-                // onResponse: 收到角色完整回复
+                // onResponse：收到角色的完整回复
                 fragment -> {
                     try {
                         log.info("[WS] onResponse callback - characterId: {}, content length: {}, isComplete: {}",
@@ -477,7 +462,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         roomActiveThreadOwner.put(roomId, fragment.getCharacterName());
                         log.info("[WS] Updated roomLastSpeaker and activeThreadOwner for room {}: {}", roomId, fragment.getCharacterName());
 
-                        // Store recent response for cross-agent context
+                        // 保存最近回复，供跨 agent 上下文使用
                         addRecentResponse(roomId, fragment.getCharacterName(), fragment.getContent());
 
                         // 保存消息到数据库
@@ -504,7 +489,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         log.error("[WS] Failed to send response event: {}", e.getMessage(), e);
                     }
                 },
-                // onError: structured error (e.g. missing API key) — broadcast to room
+                // onError：结构化错误（例如缺少 API key）—— 广播到房间
                 err -> {
                     try {
                         String errorEvent = "42[\"error\","
@@ -548,7 +533,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         String roomId = data.get("roomId").asText();
         String userMessage = data.has("message") ? data.get("message").asText() : "";
 
-        // Get userId from SecurityContext (set during join room)
+        // 从 SecurityContext 中获取 userId（在 join room 时写入）
         String userId = null;
         try {
             var auth = SecurityContextHolder.getContext().getAuthentication();
@@ -581,12 +566,12 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
         // 使用 ModeratorAgent 进行智能发言编排和流式响应
         moderatorAgent.processMessage(roomId, userId, userMessage, characters, isContinuous, maxRounds,
-            // onThinking: 角色开始思考
+            // onThinking：角色开始思考
             characterId -> {
                 String event = "42[\"character thinking\",{\"characterId\":\"" + characterId + "\"}]";
                 broadcastToRoom(roomId, event);
             },
-            // onChunk: 流式内容片段（用于实时更新 UI）
+            // onChunk：流式内容片段（用于实时更新 UI）
             fragment -> {
                 log.info("[WS] onChunk callback CALLED charId={} contentLen={}", fragment.getCharacterId(), fragment.getContent().length());
                 try {
@@ -604,10 +589,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         fragment.getContent().length(), fragment.getContent());
                     broadcastToRoom(roomId, chunkEvent);
                 } catch (Exception e) {
-                    // Log error
+                    // 记录错误日志
                 }
             },
-            // onResponse: 收到角色完整回复
+            // onResponse：收到角色的完整回复
             fragment -> {
                 try {
                     // 保存消息到数据库
@@ -633,10 +618,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         + "]";
                     broadcastToRoom(roomId, responseEvent);
                 } catch (Exception e) {
-                    // Log error
+                    // 记录错误日志
                 }
             },
-            // onError: structured error (e.g. missing API key) — broadcast to room
+            // onError：结构化错误（例如缺少 API key）—— 广播到房间
             err -> {
                 try {
                     String errorEvent = "42[\"error\","
@@ -699,14 +684,6 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * Route AI response through moderator for dialogue mode.
-     * This ensures only the relevant character responds based on:
-     * 1. Thread continuity (active conversation thread owner) - HIGHEST PRIORITY
-     * 2. Explicit @mention
-     * 3. Last speaker (if user message is contextual)
-     * 4. Moderator semantic analysis
-     */
-    /**
      * dialogue 模式下的发言路由：唯一保留的 Java 端结构化规则是显式 @mention；
      * 其它场景（话题续接、群邀请、多角色挑选）一律交由 moderator LLM 在 joint prompt 中决策。
      * 检测到 @mention 时把该角色钉为 thread owner 并附上最近上下文；否则把全部角色交给 moderator。
@@ -725,14 +702,12 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
-            // Routing policy: Java only handles the ONE thing it's good at —
-            // structural detection of explicit @-mentions. Everything else
-            // (topical matching, group invitations, thread continuity, "should
-            // I pick 1 or 3 speakers?") is delegated to the moderator LLM via
-            // the joint prompt. Hand-coding keyword tables in Java for this
-            // is brittle and lossy by construction.
+            // 路由策略：Java 只做它擅长的一件事——显式 @-mention 的结构化识别。
+            // 其它所有决策（话题匹配、群邀请、话题续接、"应该选 1 个还是 3 个发言者"）
+            // 全部交给 moderator LLM 通过 joint prompt 完成。在 Java 中手工维护关键词表
+            // 天然脆弱且会丢失语义。
 
-            // 1. Explicit single @-mention (e.g., "@马化腾 你怎么看") — route to that one.
+            // 1. 显式单个 @-mention（例如 "@马化腾 你怎么看"）—— 直接路由到该角色。
             String mentionedCharacter = extractMentionedCharacter(content, allCharacters);
             if (mentionedCharacter != null) {
                 log.info("[WS] triggerAIViaModerator - explicit @mention detected: {}", mentionedCharacter);
@@ -743,9 +718,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
-            // 2. Anything else — pass ALL characters to the moderator LLM and let
-            //    it decide who speaks (1, several, or nobody), based on the joint
-            //    prompt's routing rules + the room's actual character personas.
+            // 2. 其它情况 —— 把所有角色都交给 moderator LLM，由它根据 joint prompt 中的
+            //    路由规则和当前房间角色的人设，决定谁发言（1 个 / 多个 / 都不发）。
             log.info("[WS] triggerAIViaModerator - delegating to moderator (no @mention, {} chars)", allCharacters.size());
             triggerAIForRoom(roomId, content, userId, null);
 
@@ -754,13 +728,9 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
-    // Field is declared near other room-* maps above.
+    // 当前房间的主线发言持有者（与 lastSpeaker 区分，以便更清晰地表达话题语义）
+    // 字段已在文件上方其它 room-* 映射附近声明。
 
-    /**
-     * Update the active thread owner for a room after a character responds.
-     * Call this after a character's complete response is broadcast.
-     */
     /**
      * 更新房间的主线发言持有者：在角色完整回复落库后由业务侧调用，把 thread owner 切换到当前发言人。
      * 调用方：外部业务代码 / ModeratorAgent 回调链；null 入参做安全短路。
@@ -771,16 +741,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         log.info("[WS] Updated active thread owner for room {}: {}", roomId, characterName);
     }
 
-    // NOTE: Previously this class contained isOpenEndedQuestion,
-    // isShortOrContextualMessage, pickTopicalTarget, and firstLongChineseWord —
-    // hand-coded routing heuristics. Removed in the "routing to LLM" refactor.
-    // The moderator LLM (joint prompt) is now the single source of truth for
-    // who speaks, how many, and in what order. Java only detects explicit
-    // @-mentions, which is a structural signal.
+    // 备注：此前本类曾包含 isOpenEndedQuestion、isShortOrContextualMessage、pickTopicalTarget
+    // 和 firstLongChineseWord 等手工编码的路由启发式方法，已在 "routing to LLM" 重构中删除。
+    // 如今 moderator LLM（joint prompt）成为"谁发言、发多少、按什么顺序"的唯一决策方。
+    // Java 仅保留显式 @-mention 检测——它是一个结构化信号，不属于语义决策。
 
-    /**
-     * Store a recent AI response for cross-agent context.
-     */
     /**
      * 将一条 AI 回复追加进房间最近上下文队列（CopyOnWriteArrayList，线程安全）；
      * 队列超过 5 条时丢最早的，供后续 prompt 拼上下文用——是有界窗口避免 prompt 膨胀。
@@ -790,7 +755,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         if (roomId == null || characterName == null || content == null) return;
         List<RecentResponse> responses = roomRecentResponses.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>());
         responses.add(new RecentResponse(characterName, content));
-        // Keep only last 5 responses
+        // 仅保留最近 5 条
         while (responses.size() > 5) {
             responses.remove(0);
         }
@@ -798,9 +763,6 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             characterName, roomId, responses.size());
     }
 
-    /**
-     * Get recent responses as a formatted string for context.
-     */
     /**
      * 把房间最近 5 条 AI 回复格式化成 markdown 文本片段，注入到下一次 prompt 的 system 提示中做跨角色感知。
      * 单条超过 200 字会截断，避免长上下文压垮 token 上限；空房间返回空串。
@@ -814,7 +776,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         StringBuilder sb = new StringBuilder();
         sb.append("\n\n[Recent conversation context - other characters said:]\n");
         for (RecentResponse r : responses) {
-            // Truncate long responses
+            // 截断过长的回复
             String truncated = r.content.length() > 200 ? r.content.substring(0, 200) + "..." : r.content;
             sb.append("- ").append(r.characterName).append(": \"").append(truncated).append("\"\n");
         }
@@ -838,7 +800,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         // 清理本次会话的 SecurityContext
         SecurityContextHolder.clearContext();
 
-        // If no more sessions remain in this room, release per-room state to prevent unbounded growth.
+        // 若房间内已无在线会话，释放该房间的 per-room 状态，避免无界增长。
         Set<WebSocketSession> remaining = roomId != null ? rooms.get(roomId) : null;
         if (roomId != null && (remaining == null || remaining.isEmpty())) {
             roomActiveThreadOwner.remove(roomId);
@@ -891,17 +853,13 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     try {
                         s.sendMessage(textMessage);
                     } catch (Exception e) {
-                        // Handle send error
+                        // 处理发送错误
                     }
                 }
             }
         }
     }
 
-    /**
-     * Broadcast an event with data to all clients in a room.
-     * Automatically wraps data in Socket.IO format (42["event",data]).
-     */
     /**
      * 广播便捷重载：把事件名 + 数据对象自动包装成 Socket.IO 帧（42["event", data]）后再走字符串广播。
      * 调用方：外部业务代码（moderator-message 等系统事件）。

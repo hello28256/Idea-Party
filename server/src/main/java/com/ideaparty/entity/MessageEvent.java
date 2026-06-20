@@ -10,9 +10,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Implicit user event tied to a specific AI message.
- * Examples: REWRITE (regenerate), COPY, READ_COMPLETE, EDIT, FOCUS.
- * Used to derive implicit feedback signals that complement explicit thumbs.
+ * 与某条 AI 消息关联的隐式用户行为事件。
+ * 示例：REWRITE（重新生成）、COPY、READ_COMPLETE、EDIT、FOCUS。
+ * 用于派生隐式反馈信号，与显式的点赞/点踩互为补充。
  */
 @Entity
 @Table(
@@ -29,52 +29,49 @@ import java.util.UUID;
 public class MessageEvent {
 
     /**
-     * Closed enumeration of implicit user actions captured against a single AI message.
-     * Stored as STRING so the DB remains human-readable and forward-compatible when new
-     * event kinds are added without forcing a schema migration.
+     * 针对单条 AI 消息所捕获的隐式用户行为的封闭式枚举。
+     * 以 STRING 形式存储，以便数据库保持可读性，并在新增事件种类时无需强制执行 schema migration 即可向前兼容。
      */
     public enum EventType {
-        /** User clicked "regenerate" or otherwise requested a new response for the same slot. */
+        /** 用户点击了"重新生成"，或以其他方式针对同一槽位请求新的回复。 */
         REWRITE,
-        /** User selected/copied part of the message text. */
+        /** 用户选中/复制了消息文本的部分内容。 */
         COPY,
-        /** Message was scrolled into view and stayed for at least the dwell threshold. */
+        /** 消息被滚动进入视图，并停留了至少一个 dwell 阈值时长。 */
         READ_COMPLETE,
-        /** User edited the AI output (only relevant in editable message surfaces). */
+        /** 用户编辑了 AI 输出（仅在可编辑的消息界面中有意义）。 */
         EDIT,
-        /** Message bubble received focus / hover for the dwell window. */
+        /** 消息气泡在 dwell 时间窗口内获得了焦点 / hover。 */
         FOCUS
     }
 
     /**
-     * Primary key, generated as a UUID so events can be produced client-side or in
-     * distributed workers without coordinating ID allocation with MySQL AUTO_INCREMENT.
+     * 主键，使用 UUID 生成，以便事件可以在客户端或分布式 worker 中产生，
+     * 而无需与 MySQL AUTO_INCREMENT 协调 ID 分配。
      */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     /**
-     * The AI message this event is about. LAZY because most analytics queries don't need
-     * the full Message body, and optional=false enforces referential integrity at write
-     * time so orphan events cannot accumulate.
+     * 本事件所对应的 AI 消息。使用 LAZY 加载是因为多数分析查询并不需要完整的 Message 实体；
+     * optional=false 在写入时强制引用完整性，避免产生孤儿事件累积。
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "message_id", nullable = false)
     private Message message;
 
     /**
-     * The acting user — anonymous/system events are not supported here; every row must
-     * be attributable to a real account so feedback signals can be per-user aggregated.
+     * 触发该事件的用户——此处不支持匿名/系统事件；
+     * 每一行都必须归属到真实账号，以便反馈信号可以按用户维度聚合。
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
     /**
-     * Discriminator column. Stored as STRING (not ordinal) so reordering or inserting new
-     * enum constants never silently corrupts existing rows; length=32 leaves headroom for
-     * future longer identifiers without an ALTER TABLE.
+     * 判别列。以 STRING 形式存储（而非序号），这样即便重排或新增枚举常量也不会静默损坏现有数据；
+     * length=32 为将来可能出现的更长标识符预留了空间，无需 ALTER TABLE。
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "event_type", nullable = false, length = 32)
