@@ -820,7 +820,7 @@ async function fetchFeaturedCharacters() {
 // Room cards data
 const roomCardsData = [
   {
-    id: '1',
+    id: '00000000-0000-0000-0000-000000000001',
     title: 'AI 会取代人类创造力吗？',
     cover: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&h=225&fit=crop',
     participants: ['爱因斯坦', '马斯克', '宫崎骏'],
@@ -836,7 +836,7 @@ const roomCardsData = [
     isHot: true
   },
   {
-    id: '2',
+    id: '00000000-0000-0000-0000-000000000002',
     title: '天赋与努力，哪个更重要？',
     cover: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=400&h=225&fit=crop',
     participants: ['梅西', '乔丹', '泰勒'],
@@ -852,7 +852,7 @@ const roomCardsData = [
     isHot: true
   },
   {
-    id: '3',
+    id: '00000000-0000-0000-0000-000000000003',
     title: '时间是否真实存在？',
     cover: 'https://images.unsplash.com/photo-1531297484001-80022131f5a1?w=400&h=225&fit=crop',
     participants: ['苏格拉底', '爱因斯坦', '牛顿'],
@@ -868,7 +868,7 @@ const roomCardsData = [
     isHot: false
   },
   {
-    id: '4',
+    id: '00000000-0000-0000-0000-000000000004',
     title: '创作的本质是什么？',
     cover: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=400&h=225&fit=crop',
     participants: ['宫崎骏', '莎士比亚', '泰勒'],
@@ -884,7 +884,7 @@ const roomCardsData = [
     isHot: true
   },
   {
-    id: '5',
+    id: '00000000-0000-0000-0000-000000000005',
     title: '星际旅行能实现吗？',
     cover: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=225&fit=crop',
     participants: ['马斯克', '爱因斯坦'],
@@ -899,7 +899,7 @@ const roomCardsData = [
     isHot: true
   },
   {
-    id: '6',
+    id: '00000000-0000-0000-0000-000000000006',
     title: '音乐能改变世界吗？',
     cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=225&fit=crop',
     participants: ['泰勒', '贝多芬'],

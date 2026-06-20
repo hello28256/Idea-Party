@@ -40,8 +40,9 @@ spring:
 jwt:
   # 开发期 fallback：与 AuthService.validateJwtSecret 配套，避免「未设置环境变量」时启动失败
   secret: ${JWT_SECRET:CHANGE_ME_INSECURE_DEV_ONLY_KEY_MUST_BE_AT_LEAST_32_BYTES}
-  secret:
-    min-length: 32
+  # 启动期校验最小长度（≥32 字节 / 256 位）—— 与 AuthService.@Value("${jwt.secret.min-length}") 配套
+  # yml 不支持带点号的 key，需用方括号形式 [key.subkey]: value
+  "[secret.min-length]": 32
   expiration: ${JWT_EXPIRATION:172800000}
 
 # =============================================================================
