@@ -48,12 +48,7 @@ public class AuthService {
     // 线程本地 Random：用于生成重置 token 等一次性随机串；种子取自默认时钟，无需 SecureRandom 的强随机场景
     private final Random random = new Random();
 
-    public AuthService(
-            UserRepository userRepository,
-            PasswordEncoder passwordEncoder,
-            @Value("${jwt.secret}") String jwtSecret,
-            @Value("${jwt.expiration}") long jwtExpiration,
-            @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, @Value("${jwt.secret}") String jwtSecret, @Value("${jwt.expiration}") long jwtExpiration, @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
         // 在构造期就把字符串 secret 解析为 SecretKey，避免每次签发/校验重复计算
         // 启动期显式校验密钥强度，避免弱密钥 / 默认占位符被部署到生产环境
         validateJwtSecret(jwtSecret, jwtSecretMinLength);

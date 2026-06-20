@@ -73,9 +73,7 @@ public class AuthController {
     // 个人资料修改：解析 Authorization 头得到 userId，避免信任请求体里的 userId 字段
     // （防止越权改他人资料），所有需鉴权的写操作都走这个模式。
     @PutMapping("/profile")
-    public ResponseEntity<AuthResponse> updateProfile(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody UpdateProfileRequest request) {
+    public ResponseEntity<AuthResponse> updateProfile(@RequestHeader("Authorization") String authHeader, @RequestBody UpdateProfileRequest request) {
         log.info("[DEBUG] [update profile] headers auth = {}", authHeader);
         log.info("[DEBUG] [update profile] body = {}", request);
 
@@ -96,9 +94,7 @@ public class AuthController {
      */
     // 改密返回 200 + 空体：操作是幂等的（重复请求结果相同），无需返回新 token。
     @PatchMapping("/change-password")
-    public ResponseEntity<Void> changePassword(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody ChangePasswordRequest request) {
+    public ResponseEntity<Void> changePassword(@RequestHeader("Authorization") String authHeader, @RequestBody ChangePasswordRequest request) {
         UUID userId = extractUserIdFromToken(authHeader);
         log.info("[DEBUG] [change password] extracted userId = {}", userId);
         authService.changePassword(userId, request);

@@ -79,9 +79,7 @@ public class UserController {
      * 校验顺序：非空 → MIME 白名单 → 体积上限 → 落盘，保证先把大文件/危险类型挡在写盘之前。
      */
     @PostMapping("/avatar")
-    public ResponseEntity<AvatarUploadResponse> uploadAvatar(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<AvatarUploadResponse> uploadAvatar(@RequestHeader("Authorization") String authHeader, @RequestParam("file") MultipartFile file) {
         UUID userId = extractUserIdFromToken(authHeader);
 
         // 校验文件
@@ -141,9 +139,7 @@ public class UserController {
      * 当前白名单只放行三档主题，避免前端传入未支持的 CSS 模式字符串污染数据库。
      */
     @PutMapping("/preferences")
-    public ResponseEntity<UserProfileResponse> updatePreferences(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody UpdatePreferencesRequest request) {
+    public ResponseEntity<UserProfileResponse> updatePreferences(@RequestHeader("Authorization") String authHeader, @RequestBody UpdatePreferencesRequest request) {
         UUID userId = extractUserIdFromToken(authHeader);
 
         User user = userRepository.findById(userId)

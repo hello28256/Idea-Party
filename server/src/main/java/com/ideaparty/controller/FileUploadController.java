@@ -33,9 +33,7 @@ public class FileUploadController {
      * @param fileStorageService 文件存储服务，负责真正的写盘与白名单校验
      * @param maxAvatarSize      单张头像上限字节数，由 application.yml 的 upload.avatar.max-size 提供
      */
-    public FileUploadController(
-            FileStorageService fileStorageService,
-            @Value("${upload.avatar.max-size:5242880}") long maxAvatarSize) {
+    public FileUploadController(FileStorageService fileStorageService, @Value("${upload.avatar.max-size:5242880}") long maxAvatarSize) {
         this.fileStorageService = fileStorageService;
         this.maxAvatarSize = maxAvatarSize;
     }

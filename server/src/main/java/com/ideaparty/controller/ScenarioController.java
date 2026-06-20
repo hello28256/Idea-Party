@@ -45,10 +45,7 @@ public class ScenarioController {
      * 构造器注入三个 Service：避免字段注入带来的循环依赖与隐式状态，所有依赖在对象创建期一次性确定。
      * 调用方：Spring IoC 容器在初始化 Controller Bean 时自动匹配。
      */
-    public ScenarioController(
-            ScenarioService scenarioService,
-            ResumeParseService resumeParseService,
-            ImageOcrService imageOcrService) {
+    public ScenarioController(ScenarioService scenarioService, ResumeParseService resumeParseService, ImageOcrService imageOcrService) {
         this.scenarioService = scenarioService;
         this.resumeParseService = resumeParseService;
         this.imageOcrService = imageOcrService;
@@ -60,9 +57,7 @@ public class ScenarioController {
      * 副作用：会在 DB 中持久化场景快照（便于回溯与复用），不直接返回 chat room。
      */
     @PostMapping("/interview/generate-prompt")
-    public ResponseEntity<InterviewScenarioResponse> generateInterviewPrompt(
-            Authentication auth,
-            @RequestBody InterviewScenarioRequest request) {
+    public ResponseEntity<InterviewScenarioResponse> generateInterviewPrompt(Authentication auth, @RequestBody InterviewScenarioRequest request) {
         // auth.getName() 在本项目 = userId 字符串（JwtAuthFilter 写入 UserDetails），强转为 UUID 供下游使用。
         UUID userId = UUID.fromString(auth.getName());
         // 日志用 [DEBUG] 前缀 + 是否提供简历，便于排查"用户说没生成 prompt"时区分输入形态差异。
@@ -78,9 +73,7 @@ public class ScenarioController {
      * 避免让前端自行解析文件导致格式不一致；userId 仅记日志，不参与解析逻辑（简历解析本身是无状态转换）。
      */
     @PostMapping("/interview/parse-resume")
-    public ResponseEntity<ParseResumeResponse> parseResume(
-            Authentication auth,
-            @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ParseResumeResponse> parseResume(Authentication auth, @RequestParam("file") MultipartFile file) {
         UUID userId = UUID.fromString(auth.getName());
         // 记录文件名+大小便于排查"上传成功但解析空"类问题；file.size 反映请求体大小，可与 nginx/网关层限流对照。
         log.info("[DEBUG] parseResume userId={}, filename={}, size={}",
@@ -95,9 +88,7 @@ public class ScenarioController {
      * 与 parse-resume 共用文件上传通道但走不同 Service，便于按 OCR 配额/计费独立扩展。
      */
     @PostMapping("/interview/extract-text-from-image")
-    public ResponseEntity<ExtractTextFromImageResponse> extractTextFromImage(
-            Authentication auth,
-            @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ExtractTextFromImageResponse> extractTextFromImage(Authentication auth, @RequestParam("file") MultipartFile file) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] extractTextFromImage userId={}, filename={}, size={}",
                 userId, file.getOriginalFilename(), file.getSize());

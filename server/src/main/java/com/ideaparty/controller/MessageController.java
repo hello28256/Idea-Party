@@ -65,10 +65,7 @@ public class MessageController {
      * @return 200 OK，分页后的消息响应 Page 对象
      */
     @GetMapping("/paginated")
-    public ResponseEntity<Page<MessageResponse>> getMessagesPaginated(
-            @PathVariable String roomId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
+    public ResponseEntity<Page<MessageResponse>> getMessagesPaginated(@PathVariable String roomId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
         UUID roomUuid = parseRoomId(roomId);
         Page<Message> messages = messageService.getMessagesPaginated(roomUuid, page, size);
         return ResponseEntity.ok(messages.map(MessageResponse::fromEntity));
@@ -83,10 +80,7 @@ public class MessageController {
      * @return 201 Created + 已入库的消息 DTO；审核不通过抛 IllegalArgumentException（400）；未登录抛 AccessDeniedException（401）
      */
     @PostMapping
-    public ResponseEntity<MessageResponse> sendMessage(
-            Authentication auth,
-            @PathVariable String roomId,
-            @RequestBody SendMessageRequest request) {
+    public ResponseEntity<MessageResponse> sendMessage(Authentication auth, @PathVariable String roomId, @RequestBody SendMessageRequest request) {
         // 统一交给 GlobalExceptionHandler：401/400/404 等都用 ErrorResponse 返回
         // auth 为 null 通常出现在 SecurityContext 被过滤器链清空或匿名访问受保护接口时；
         // 这里显式抛 AccessDeniedException 而非让后续 UUID.fromString 抛 NPE，确保前端拿到的是 401 而非 500。

@@ -31,9 +31,7 @@ public class RoomMemberController {
      * 返回 DTO 列表以避免直接暴露 RoomMember 实体字段。
      */
     @GetMapping
-    public ResponseEntity<?> getRoomMembers(
-            Authentication auth,
-            @PathVariable UUID roomId) {
+    public ResponseEntity<?> getRoomMembers(Authentication auth, @PathVariable UUID roomId) {
         // 防御性兜底：理论上 @PathVariable 非空，但显式校验可在路径缺失时返回更友好的中文提示。
         if (roomId == null) {
             return ResponseEntity.badRequest().body(java.util.Map.of("message", "聊天室 ID 不能为空"));
@@ -57,10 +55,7 @@ public class RoomMemberController {
      * 副作用：写入 RoomMember 持久化记录；失败时（角色不存在/已加入/无权限）抛 IllegalArgumentException。
      */
     @PostMapping("/invite")
-    public ResponseEntity<?> inviteMember(
-            Authentication auth,
-            @PathVariable UUID roomId,
-            @RequestBody InviteMemberRequest request) {
+    public ResponseEntity<?> inviteMember(Authentication auth, @PathVariable UUID roomId, @RequestBody InviteMemberRequest request) {
         // 与 GET 同样的兜底：路径变量缺失时给出明确错误，避免被框架转成 500。
         if (roomId == null) {
             return ResponseEntity.badRequest().body(java.util.Map.of("message", "聊天室 ID 不能为空"));

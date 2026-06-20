@@ -76,9 +76,7 @@ public class CharacterController {
      */
     @PostMapping("/generate-prompt")
     @ResponseBody
-    public GeneratePromptResponse generatePrompt(
-            Authentication auth,
-            @RequestBody GeneratePromptRequest request) {
+    public GeneratePromptResponse generatePrompt(Authentication auth, @RequestBody GeneratePromptRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         String prompt = characterService.generatePrompt(userId, request.getName(), request.getDescription());
         return new GeneratePromptResponse(prompt);
@@ -100,9 +98,7 @@ public class CharacterController {
      * 失败由全局异常处理器转 400。成功返回 201 + 新建实体的完整表示，便于前端直接渲染。
      */
     @PostMapping
-    public ResponseEntity<CharacterResponse> createCharacter(
-            Authentication auth,
-            @Valid @RequestBody CharacterRequest request) {
+    public ResponseEntity<CharacterResponse> createCharacter(Authentication auth, @Valid @RequestBody CharacterRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         CharacterResponse created = characterService.create(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -113,10 +109,7 @@ public class CharacterController {
      * 避免向未授权用户泄露"角色是否存在"这一侧信道信息。
      */
     @PutMapping("/{id}")
-    public ResponseEntity<CharacterResponse> updateCharacter(
-            Authentication auth,
-            @PathVariable UUID id,
-            @Valid @RequestBody CharacterRequest request) {
+    public ResponseEntity<CharacterResponse> updateCharacter(Authentication auth, @PathVariable UUID id, @Valid @RequestBody CharacterRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         return characterService.update(id, userId, request)
                 .map(ResponseEntity::ok)
@@ -128,9 +121,7 @@ public class CharacterController {
      * 失败统一回 403；预设角色实际由另一条管理路径处理，不走此处。
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteCharacter(
-            Authentication auth,
-            @PathVariable UUID id) {
+    public ResponseEntity<Void> deleteCharacter(Authentication auth, @PathVariable UUID id) {
         UUID userId = UUID.fromString(auth.getName());
         boolean deleted = characterService.deleteIfOwner(id, userId);
         if (!deleted) {

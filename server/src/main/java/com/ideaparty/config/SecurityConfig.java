@@ -133,9 +133,7 @@ public class SecurityConfig {
          * @param jwtSecret        用于 HS256 签名的原始密钥（应通过 JWT_SECRET 环境变量注入）
          * @param jwtSecretMinLength 最低字节长度阈值，默认 32 字节（HS256 RFC 最小建议值）
          */
-        public JwtAuthenticationFilter(
-                @Value("${jwt.secret}") String jwtSecret,
-                @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
+        public JwtAuthenticationFilter(@Value("${jwt.secret}") String jwtSecret, @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
             // 启动期校验密钥强度：避免部署弱密钥 + 解析失败时给出明确日志
             if (jwtSecret == null || jwtSecret.isBlank()
                     || jwtSecret.startsWith("CHANGE_ME")

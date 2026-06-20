@@ -48,11 +48,7 @@ public class AdminObservationController {
      * @return 包装成 Page 的消息观察项列表
      */
     @GetMapping
-    public ResponseEntity<Page<AdminMessageObservationItem>> list(
-            Authentication auth,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String status) {
+    public ResponseEntity<Page<AdminMessageObservationItem>> list(Authentication auth, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) String status) {
         requireAdmin(auth);
         return ResponseEntity.ok(observationService.list(page, size, status));
     }
@@ -68,9 +64,7 @@ public class AdminObservationController {
      * @return 单条消息的观察详情 DTO
      */
     @GetMapping("/{messageId}")
-    public ResponseEntity<AdminMessageObservationItem> detail(
-            Authentication auth,
-            @PathVariable String messageId) {
+    public ResponseEntity<AdminMessageObservationItem> detail(Authentication auth, @PathVariable String messageId) {
         requireAdmin(auth);
         UUID viewerId = UUID.fromString(auth.getName());
         return ResponseEntity.ok(observationService.detail(messageId, viewerId));

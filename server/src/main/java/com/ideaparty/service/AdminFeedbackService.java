@@ -51,11 +51,7 @@ public class AdminFeedbackService {
      * @param to           可选的创建时间上界（不包含）
      * @return 翻译为 {@link AdminFeedbackListItem} 的分页结果，按 createdAt 倒序
      */
-    public Page<AdminFeedbackListItem> list(
-            int page, int size,
-            FeedbackType type, FeedbackCategory category,
-            String userKeyword,
-            Instant from, Instant to) {
+    public Page<AdminFeedbackListItem> list(int page, int size, FeedbackType type, FeedbackCategory category, String userKeyword, Instant from, Instant to) {
 
         Specification<MessageFeedback> spec = (root, query, cb) -> {
             List<Predicate> preds = new ArrayList<>();

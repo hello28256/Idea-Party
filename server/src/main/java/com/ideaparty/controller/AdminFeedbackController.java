@@ -86,15 +86,7 @@ public class AdminFeedbackController {
      * 调用方：管理后台反馈管理页；副作用：写一条 [DEBUG] 日志便于排查。
      */
     @GetMapping
-    public ResponseEntity<Page<AdminFeedbackListItem>> list(
-            Authentication auth,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) FeedbackType type,
-            @RequestParam(required = false) FeedbackCategory category,
-            @RequestParam(required = false) String userId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+    public ResponseEntity<Page<AdminFeedbackListItem>> list(Authentication auth, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) FeedbackType type, @RequestParam(required = false) FeedbackCategory category, @RequestParam(required = false) String userId, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from, @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
 
         requireAdmin(auth);
         log.info("[DEBUG] admin list feedback page={} size={} type={} category={}", page, size, type, category);
@@ -109,9 +101,7 @@ public class AdminFeedbackController {
      * 副作用：写一条 [DEBUG] 日志记录被查看的反馈 id；返回 AdminFeedbackDetail（含正文/截图等完整字段）。
      */
     @GetMapping("/{id}")
-    public ResponseEntity<AdminFeedbackDetail> detail(
-            Authentication auth,
-            @PathVariable UUID id) {
+    public ResponseEntity<AdminFeedbackDetail> detail(Authentication auth, @PathVariable UUID id) {
         requireAdmin(auth);
         log.info("[DEBUG] admin feedback detail id={}", id);
         return ResponseEntity.ok(adminFeedbackService.detail(id));

@@ -32,10 +32,7 @@ public class MessageFeedbackController {
      * 入参必须通过 {@code @Valid} 校验，messageId 用于定位消息实体。
      */
     @PostMapping
-    public ResponseEntity<FeedbackResponse> submit(
-            Authentication auth,
-            @PathVariable String messageId,
-            @Valid @RequestBody SubmitFeedbackRequest request) {
+    public ResponseEntity<FeedbackResponse> submit(Authentication auth, @PathVariable String messageId, @Valid @RequestBody SubmitFeedbackRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] POST feedback user={} message={}", userId, messageId);
         FeedbackResponse response = feedbackService.submit(userId, messageId, request);
@@ -47,9 +44,7 @@ public class MessageFeedbackController {
      * 无记录时返回 404，前端据此渲染为未投票态。
      */
     @GetMapping
-    public ResponseEntity<FeedbackResponse> get(
-            Authentication auth,
-            @PathVariable String messageId) {
+    public ResponseEntity<FeedbackResponse> get(Authentication auth, @PathVariable String messageId) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] GET feedback user={} message={}", userId, messageId);
         return feedbackService.get(userId, messageId)
@@ -62,9 +57,7 @@ public class MessageFeedbackController {
      * 幂等：重复删除不会报错；成功返回 204 No Content。
      */
     @DeleteMapping
-    public ResponseEntity<Void> delete(
-            Authentication auth,
-            @PathVariable String messageId) {
+    public ResponseEntity<Void> delete(Authentication auth, @PathVariable String messageId) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] DELETE feedback user={} message={}", userId, messageId);
         feedbackService.delete(userId, messageId);

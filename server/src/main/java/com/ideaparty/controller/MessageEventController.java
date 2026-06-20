@@ -36,10 +36,7 @@ public class MessageEventController {
      * 副作用：会向 MessageEventService 持久化一行事件，并在日志中打印用户/消息/事件类型三元组用于排查。
      */
     @PostMapping("/api/messages/{messageId}/events")
-    public ResponseEntity<Void> record(
-            Authentication auth,
-            @PathVariable String messageId,
-            @Valid @RequestBody RecordEventRequest request) {
+    public ResponseEntity<Void> record(Authentication auth, @PathVariable String messageId, @Valid @RequestBody RecordEventRequest request) {
         // auth.getName() 存的是 subject（即用户 UUID 字符串），这里直接解析为 UUID 供下游使用。
         UUID userId = UUID.fromString(auth.getName());
         // 按用户调试约定加 [DEBUG] 前缀，便于在日志里快速过滤消息事件轨迹。
@@ -58,9 +55,7 @@ public class MessageEventController {
      * 调用方：管理后台审核面板；要求调用者具备管理员权限，否则抛 AccessDeniedException。
      */
     @GetMapping("/api/admin/messages/{messageId}/signals")
-    public ResponseEntity<MessageSignalsResponse> signals(
-            Authentication auth,
-            @PathVariable String messageId) {
+    public ResponseEntity<MessageSignalsResponse> signals(Authentication auth, @PathVariable String messageId) {
         // 在 controller 层做权限校验：复用现有 admin 检查约定，避免在 service 里再分裂权限逻辑。
         requireAdmin(auth);
         return ResponseEntity.ok(eventService.aggregate(messageId));

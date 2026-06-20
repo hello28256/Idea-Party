@@ -47,9 +47,7 @@ public class RoomController {
      * 避免把脏数据带进 Service/DB；初始成员与角色装配逻辑在 Service 中完成。
      */
     @PostMapping
-    public ResponseEntity<RoomResponse> createRoom(
-            Authentication auth,
-            @Valid @RequestBody CreateRoomRequest request) {
+    public ResponseEntity<RoomResponse> createRoom(Authentication auth, @Valid @RequestBody CreateRoomRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Creating room for user: {}", userId);
 
@@ -62,9 +60,7 @@ public class RoomController {
      * 控制器只负责把 Authentication 转成 userId 透传下去。
      */
     @GetMapping("/{id}")
-    public ResponseEntity<RoomResponse> getRoomById(
-            Authentication auth,
-            @PathVariable UUID id) {
+    public ResponseEntity<RoomResponse> getRoomById(Authentication auth, @PathVariable UUID id) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Getting room {} for user: {}", id, userId);
 
@@ -77,9 +73,7 @@ public class RoomController {
      * 仅房主可删的规则由 Service.deleteIfOwner 抛异常统一处理，避免在此处写分支。
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteRoom(
-            Authentication auth,
-            @PathVariable UUID id) {
+    public ResponseEntity<Void> deleteRoom(Authentication auth, @PathVariable UUID id) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Deleting room {} for user: {}", id, userId);
 
@@ -92,10 +86,7 @@ public class RoomController {
      * 是为了契合 REST 资源层级语义：角色是 room 的子资源，且 GET 缓存友好。
      */
     @PostMapping("/{id}/characters/{characterId}")
-    public ResponseEntity<RoomResponse> addCharacterToRoom(
-            Authentication auth,
-            @PathVariable UUID id,
-            @PathVariable UUID characterId) {
+    public ResponseEntity<RoomResponse> addCharacterToRoom(Authentication auth, @PathVariable UUID id, @PathVariable UUID characterId) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Adding character {} to room {} by user {}", characterId, id, userId);
 
@@ -108,10 +99,7 @@ public class RoomController {
      * 是因为 chatMode 与 maxDiscussionRounds 都是可选局部更新，无需提交完整资源。
      */
     @PatchMapping("/{id}/mode")
-    public ResponseEntity<RoomResponse> updateRoomMode(
-            Authentication auth,
-            @PathVariable UUID id,
-            @Valid @RequestBody UpdateRoomModeRequest request) {
+    public ResponseEntity<RoomResponse> updateRoomMode(Authentication auth, @PathVariable UUID id, @Valid @RequestBody UpdateRoomModeRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Updating room {} mode by user {}", id, userId);
 
@@ -124,9 +112,7 @@ public class RoomController {
      * 选用 PATCH+空体而非 GET，是因为这是一个写副作用：必须走安全/幂等约束，不能被浏览器/爬虫预取触发。
      */
     @PatchMapping("/{id}/enter")
-    public ResponseEntity<Void> recordEnter(
-            Authentication auth,
-            @PathVariable UUID id) {
+    public ResponseEntity<Void> recordEnter(Authentication auth, @PathVariable UUID id) {
         UUID userId = UUID.fromString(auth.getName());
         log.info("[DEBUG] Recording enter for room {} by user {}", id, userId);
 

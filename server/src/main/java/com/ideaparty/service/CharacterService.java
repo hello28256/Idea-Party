@@ -45,13 +45,7 @@ public class CharacterService {
      * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
      * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
      */
-    public CharacterService(
-            CharacterRepository characterRepository,
-            UserRepository userRepository,
-            RoomRepository roomRepository,
-            MessageRepository messageRepository,
-            FirecrawlService firecrawlService,
-            @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
+    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.roomRepository = roomRepository;
