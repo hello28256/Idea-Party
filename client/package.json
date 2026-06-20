@@ -10,7 +10,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@vueuse/core": "14.3.0",
     "axios": "1.16.0",
     "esbuild": "^0.28.0",
     "lucide-vue-next": "1.0.0",
@@ -25,8 +24,6 @@
     "@tailwindcss/vite": "^4.2.4",
     "@types/node": "22.10.0",
     "@vitejs/plugin-vue": "5.2.3",
-    "@vitest/ui": "^2.1.9",
-    "@vue/test-utils": "^2.4.10",
     "happy-dom": "^16.8.1",
     "tailwindcss": "4.3.0",
     "typescript": "6.0.3",
