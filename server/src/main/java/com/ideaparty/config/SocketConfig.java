@@ -20,6 +20,7 @@ public class SocketConfig implements WebSocketConfigurer {
     private ChatSocketHandler chatSocketHandler;
 
     @Override
+    // Spring WebSocket 启动回调：在此把业务 handler 与端点路径绑定，registry 由容器注入，调用方为 Spring WebSocket 初始化流程
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(chatSocketHandler, "/ws")
             // 放开跨域：前端开发态独立 dev server，需要允许跨源 WS 握手

@@ -44,20 +44,31 @@ import java.util.stream.Collectors;
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     // Maps roomId -> set of sessions
+    // 用于按房间维度向所有在线 session 广播消息，房间无 session 时会随 join/leave 自动清理
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
     // Maps sessionId -> roomId
+    // 记录每个 session 当前所在的房间，断连时据此自动 leave，避免脏数据
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
     // Maps sessionId -> userId
+    // join room 时若前端传 token 则解析写入，供后续 chat message 关联到具体发言用户
     private final ConcurrentHashMap<String, UUID> sessionUsers = new ConcurrentHashMap<>();
+    // 复用单例 ObjectMapper 解析 Socket.IO "42[event, data]" 帧，避免每次创建开销
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // 注入 service/repository 供 handleChatMessage 串联审核-查房-编排-落库-广播全流程
     private final MessageService messageService;
+    // 负责多角色轮询/Moderator 编排，由 ModerationService 通过构造注入保持测试可替换
     private final ChatService chatService;
+    // 用户发言前的合规审查服务，命中策略时直接拒绝并向当前 session 回 error 事件
     private final ModerationService moderationService;
+    // 加载房间实体及其角色列表（无角色则提示 "No characters in room"）
     private final RoomRepository roomRepository;
+    // 校验 join room 时附带的 token，将合法 userId 写入 sessionUsers
     private final AuthService authService;
+    // 当前未在 handler 内直接调用，保留以便后续按 userId 反查用户信息时复用
     private final UserRepository userRepository;
 
+    // 通过构造器注入所有协作服务，便于单元测试时用 mock 替换（避免字段注入难以替换）
     public ChatWebSocketHandler(MessageService messageService, ChatService chatService,
                                ModerationService moderationService,
                                RoomRepository roomRepository,
@@ -74,9 +85,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         // Socket.IO client sends "40" (connect packet) initially
+        // 不在此处主动推送，业务握手交由客户端的 "40" 帧触发，避免重复响应
     }
 
     @Override
+    // Socket.IO 协议入口：所有来自客户端的帧都先经过此方法，按前缀分发到 ping/connect/MESSAGE 处理分支
+    // 入参 session 为当前 WebSocket 连接上下文，message 携带原始 payload；异常向上抛由 Spring 框架处理
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
 
@@ -93,6 +107,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    // 解析 "42" 后的 JSON 数组 [event, data]，按事件名路由到对应处理器；非数组或长度不足 2 直接忽略
+    // data 为去前缀后的原始 JSON 字符串，由调用方（handleTextMessage）裁剪
     private void handleSocketIOMessage(WebSocketSession session, String data) throws Exception {
         JsonNode node = objectMapper.readTree(data);
         if (node.isArray() && node.size() >= 2) {
@@ -111,16 +127,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     break;
                 default:
                     // Unknown event - log for debugging
+                    // 静默忽略未知事件，避免日志噪声；后续如需排查可加 log.debug
                     break;
             }
         }
     }
 
+    // 处理 "join room" 事件：登记 session 到房间并解析可选 token，token 非法不影响加入（仅影响后续发言归属）
+    // session 为新会话，data 至少包含 roomId，可选 token 用于绑定 userId
     private void handleJoinRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         joinRoom(roomId, session);
 
         // Extract and validate user from token if provided
+        // token 可选：未登录用户也能加入房间听广播，仅在发言时退化为匿名
         if (data.has("token") && !data.get("token").isNull()) {
             try {
                 String token = data.get("token").asText();
@@ -135,11 +155,16 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         session.sendMessage(new TextMessage("42[\"room-joined\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
+    // 处理 "leave room" 事件：仅清理 roomId 维度映射，userId/sessionId 关联保留至连接关闭统一回收
+    // session 为发起离开的会话，data 必含 roomId
     private void handleLeaveRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         leaveRoom(roomId, session);
     }
 
+    // 处理 "chat message" 事件：串联 ModerationService 审查、RoomRepository 加载、ChatService 编排、
+    // 最终通过 onThinking/onMessage 回调向房间广播；sessionUsers 中若无 userId 则按匿名处理
+    // session 为发言者连接，data 必含 roomId 与 content
     private void handleChatMessage(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String content = data.get("content").asText();
@@ -217,6 +242,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
+    // 连接关闭钩子：清理 session ↔ room/user 映射并触发 leaveRoom，幂等可多次调用
+    // 依赖框架保证 session.getId() 仍可用；若 roomId 为 null 表示该 session 从未加入任何房间
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String roomId = sessionRooms.remove(session.getId());
         sessionUsers.remove(session.getId());
@@ -225,11 +252,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    // 将 session 登记到指定房间的在线集合，并更新 session->room 反向索引，供断连时反向定位
+    // 被 handleJoinRoom 与 afterConnectionEstablished 后的回放场景共用
     public void joinRoom(String roomId, WebSocketSession session) {
         rooms.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet()).add(session);
         sessionRooms.put(session.getId(), roomId);
     }
 
+    // 从指定房间移除 session；集合为空时同步删除 roomId 键，避免内存泄漏（房间维度无人后自动回收）
+    // 双向索引同步清理，保证 sessionRooms 与 rooms 状态一致
     public void leaveRoom(String roomId, WebSocketSession session) {
         Set<WebSocketSession> room = rooms.get(roomId);
         if (room != null) {
@@ -241,6 +272,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         sessionRooms.remove(session.getId());
     }
 
+    // 向房间内所有仍处于打开状态的 session 广播同一条消息；单条发送失败仅记 warn，不中断其他 session
+    // message 必须已是完整的 Socket.IO 帧（含 "42[...]" 前缀），由调用方负责序列化
     public void broadcastToRoom(String roomId, String message) {
         Set<WebSocketSession> room = rooms.get(roomId);
         if (room != null) {

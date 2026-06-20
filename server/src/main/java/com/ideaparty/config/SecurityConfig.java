@@ -42,6 +42,12 @@ import java.util.Collections;
 @Slf4j
 public class SecurityConfig {
 
+    /**
+     * 注册密码编码器 Bean：使用 BCrypt（Spring Security 默认推荐算法），
+     * 供 UserService 注册/改密时单向哈希；强度默认值足以抵御离线暴力破解。
+     *
+     * @return BCryptPasswordEncoder 单例，供依赖注入容器全局复用
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -80,9 +86,17 @@ public class SecurityConfig {
     }
 
     // 允许的跨域来源：优先读取配置属性，再回退到环境变量；默认包含本地开发常用的 5 个 Vite 端口（5173-5177），覆盖多开调试场景
+    // 注入顺序：application.yml 的 app.cors.allowed-origins → 环境变量 APP_CORS_ALLOWED_ORIGINS → 内置默认值
     @Value("${app.cors.allowed-origins:${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:5177}}")
     private String corsAllowedOrigins;
 
+    /**
+     * 构造 CORS 配置源：把 {@link #corsAllowedOrigins} 解析为列表后写入 {@link CorsConfiguration}，
+     * 允许常用 REST 方法与任意请求头，凭证支持开启（前端带 Cookie 的场景），
+     * 预检缓存 3600 秒降低 OPTIONS 请求频率。
+     *
+     * @return 返回一个按请求动态取配置的 CorsConfigurationSource（此处实际对所有请求返回同一份配置）
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         // 解析逗号分隔的 origins，空白和空项自动跳过
@@ -109,8 +123,16 @@ public class SecurityConfig {
     @Slf4j
     public static class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+        // 由构造器根据 jwt.secret 派生的对称签名密钥：单例复用，避免每个请求重新计算
         private final SecretKey secretKey;
 
+        /**
+         * 构造器：从配置/环境变量读取 JWT 密钥字符串，并在启动期强校验长度与占位符；
+         * 校验失败立即抛 IllegalStateException，让 Spring 启动失败而不是带病上线。
+         *
+         * @param jwtSecret        用于 HS256 签名的原始密钥（应通过 JWT_SECRET 环境变量注入）
+         * @param jwtSecretMinLength 最低字节长度阈值，默认 32 字节（HS256 RFC 最小建议值）
+         */
         public JwtAuthenticationFilter(
                 @Value("${jwt.secret}") String jwtSecret,
                 @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
@@ -124,6 +146,14 @@ public class SecurityConfig {
             this.secretKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
         }
 
+        /**
+         * OncePerRequestFilter 钩子：从 Authorization 头解析 Bearer Token，验签后将 userId 注入 SecurityContextHolder；
+         * 若 Token 非法/过期，立即 401 短路并清理上下文，避免后续业务因"半鉴权"状态出现 403 误判。
+         *
+         * @param request     当前 HTTP 请求
+         * @param response    当前 HTTP 响应（Token 非法时直接写入 401 JSON 体）
+         * @param filterChain 过滤器链，用于放行已鉴权请求
+         */
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {

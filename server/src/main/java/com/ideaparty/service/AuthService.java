@@ -37,10 +37,15 @@ import java.util.UUID;
 @Slf4j
 public class AuthService {
 
+    // 持久化用户记录：注册/登录/资料/密码更新最终都落到这张表
     private final UserRepository userRepository;
+    // BCrypt 编码器：由 SecurityConfig 注册为全局 Bean，避免不同 Service 用不同算法导致 hash 不互通
     private final PasswordEncoder passwordEncoder;
+    // HMAC-SHA 签名密钥：构造期从 jwt.secret 字符串解析而来，签发/校验复用同一实例避免重复计算
     private final SecretKey secretKey;
+    // JWT 有效期（毫秒）：由 jwt.expiration 注入，便于 dev/staging/prod 差异化配置 token 寿命
     private final long jwtExpiration;
+    // 线程本地 Random：用于生成重置 token 等一次性随机串；种子取自默认时钟，无需 SecureRandom 的强随机场景
     private final Random random = new Random();
 
     public AuthService(
@@ -272,10 +277,19 @@ public class AuthService {
         }
     }
 
+    /**
+     * 按 ID 查询用户：薄包装 UserRepository.findById，供 Controller 等上层在已通过 token 校验
+     * 的场景中快速拿到 User 实体（不抛 401/404，由调用方决定如何处理空 Optional）。
+     */
     public Optional<User> findUserById(UUID userId) {
         return userRepository.findById(userId);
     }
 
+    /**
+     * 组装 AuthResponse：统一处理 token 类型/过期秒数与 UserResponse 字段映射，
+     * 避免在 register/login/updateProfile 三处重复构造逻辑。themeMode/isAdmin 提供默认值，
+     * 防止老数据（null/旧 boolean）让前端拿到不一致的形状。
+     */
     private AuthResponse buildAuthResponse(String token, User user) {
         return AuthResponse.builder()
                 .accessToken(token)

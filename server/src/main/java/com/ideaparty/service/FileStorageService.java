@@ -19,6 +19,9 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class FileStorageService {
+    // 本服务专门负责把用户上传的头像/图片安全地存到本地磁盘、读回、以及删除。
+    // 存在的原因：Spring Boot 默认不提供文件落盘能力，而 Controller/Service 层不应直接操作 java.nio.file。
+    // 配合 Controller（如头像上传接口）和静态资源映射使用，对外返回 UUID 文件名以避免冲突和泄露原名。
 
     private static final List<String> ALLOWED_CONTENT_TYPES = Arrays.asList(
             "image/jpeg",
@@ -26,11 +29,18 @@ public class FileStorageService {
             "image/gif",
             "image/webp"
     );
+    // 业务含义：只允许这四种 MIME 类型的文件入库，防止脚本/可执行文件通过上传通道注入。
 
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+    // 业务含义：5MB 是头像/聊天图片的合理上限，避免大文件撑爆磁盘或被恶意刷带宽。
 
     private final Path uploadDir;
+    // 取值原因：构造时按相对路径 uploads/avatars 解析并转绝对路径，作为所有文件读写的根目录。
 
+    /**
+     * Spring 注入入口：解析上传根目录并确保目录存在，失败则直接抛出阻止应用启动。
+     * 副作用：可能创建 uploads/avatars 目录。
+     */
     public FileStorageService() {
         // Store in server/uploads/avatars/
         this.uploadDir = Paths.get("uploads", "avatars").toAbsolutePath().normalize();
@@ -49,6 +59,10 @@ public class FileStorageService {
      * @param file The multipart file to store
      * @return The stored filename (UUID-based)
      * @throws IllegalArgumentException if file is invalid
+     */
+    /**
+     * 把前端上传的文件校验后落盘，返回新的 UUID 文件名。
+     * 副作用：会在 uploadDir 写入一个新文件；调用方拿到返回的文件名后通常会写回数据库。
      */
     public String store(MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -90,6 +104,10 @@ public class FileStorageService {
      * @return Resource pointing to the file
      * @throws RuntimeException if file cannot be loaded
      */
+    /**
+     * 按文件名读取并包装成 Spring 的 Resource，供下载/预览接口流式返回。
+     * 副作用：无（只读）；调用方一般是 Controller 写回 HTTP 响应体。
+     */
     public Resource loadAsResource(String filename) {
         try {
             Path filePath = this.uploadDir.resolve(filename).normalize();
@@ -113,6 +131,10 @@ public class FileStorageService {
      *
      * @param filename The filename to delete
      */
+    /**
+     * 按文件名删除磁盘文件，失败仅记录 warn 而不抛异常，避免清理逻辑打断主流程。
+     * 副作用：可能从 uploadDir 删除一个文件；调用方通常是头像替换/用户注销场景。
+     */
     public void delete(String filename) {
         try {
             Path filePath = this.uploadDir.resolve(filename).normalize();
@@ -129,6 +151,10 @@ public class FileStorageService {
      * @param contentType The content type to check
      * @return true if allowed
      */
+    /**
+     * 提供给 Controller 在接收 multipart 之前做预校验，避免无效请求走到完整 store 流程。
+     * 入参约束：contentType 可以为 null（视为不允许）。
+     */
     public boolean isAllowedContentType(String contentType) {
         return contentType != null && ALLOWED_CONTENT_TYPES.contains(contentType);
     }
@@ -137,6 +163,10 @@ public class FileStorageService {
      * Get the upload directory path.
      *
      * @return The upload directory path
+     */
+    /**
+     * 暴露给静态资源映射或调试日志使用的根目录路径，方便查看文件真实落盘位置。
+     * 调用方一般是 WebMvcConfig 注册 ResourceHandler 时读取。
      */
     public Path getUploadDir() {
         return this.uploadDir;

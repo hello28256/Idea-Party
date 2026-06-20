@@ -10,28 +10,40 @@ import java.util.Map;
 import java.util.HashMap;
 
 /**
- * Firecrawl web scraping service for character information.
- * Uses Firecrawl API to scrape web content about characters.
+ * 角色信息抓取服务：封装 Firecrawl REST 调用，承担"用户输入角色名 → 返回结构化正文"的职责。
+ * 之所以独立成 Service：一是为了把 API Key 隔离在后端（CLAUDE.md 安全约束）；
+ * 二是把多策略（搜索消歧 → 直链 Wikipedia → 本地 fallback）集中在一处，便于上层 CharacterService 复用。
+ *
+ * <p>原 Javadoc: "Firecrawl web scraping service for character information. Uses Firecrawl API to scrape web content about characters."
  */
 @Service
 @Slf4j
 public class FirecrawlService {
 
+    // Firecrawl 鉴权密钥；按系统属性 > 环境变量优先级解析，避免硬编码到代码或配置文件
     private final String apiKey;
+    // 注入的 HTTP 客户端，用于调用 Firecrawl REST 接口；由调用方传入以便测试时替换
     private final RestTemplate restTemplate;
+    // v1 旧版抓取端点，作为 v2 失败时的兼容兜底（Firecrawl 仍在过渡期保留 v0 API）
     private static final String FIRECRAWL_URL_V1 = "https://api.firecrawl.dev/v0/scrape";
+    // v2 当前推荐端点，结构化响应更稳定，是首选抓取入口
     private static final String FIRECRAWL_URL_V2 = "https://api.firecrawl.dev/v2/scrape";
+    // 搜索端点，用于在直接抓取前先解析歧义名（如"Messi"）对应的真实 Wikipedia 链接
     private static final String FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search";
 
+    // Spring 注入入口：接收共享 RestTemplate，并按系统属性 > 环境变量顺序解析 API Key；
+    // 缺失 Key 时仅警告不抛错，保证未配置时仍可降级运行
     public FirecrawlService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         // Check both system property and environment variable (system property takes precedence)
         String propKey = System.getProperty("FIRECRAWL_API_KEY");
         String envKey = System.getenv("FIRECRAWL_API_KEY");
         this.apiKey = propKey != null ? propKey : envKey;
+        // 提示运维：未配置 Key 时不要让请求报错，调用链路会自动切换到本地 fallback 内容
         if (this.apiKey == null || this.apiKey.isBlank()) {
             log.warn("[Firecrawl] FIRECRAWL_API_KEY not configured, web scraping will use fallback content");
         } else {
+            // 仅记录"已配置"，避免密钥明文进入日志
             log.info("[DEBUG] FirecrawlService initialized with API key: present");
         }
     }
@@ -39,8 +51,14 @@ public class FirecrawlService {
     /**
      * Scrape web content for a character name.
      * Returns scraped markdown content about the character.
+     *
+     * <p>对上层（CharacterService）的契约：
+     * 入参为用户原始输入的角色名（任意语言、可能含歧义）；
+     * 返回值保证非 null，要么是 Firecrawl 抓到的 markdown，要么是 fallback 文案；
+     * 无副作用，不抛异常（网络异常会被内部捕获并降级）。
      */
     public String scrape(String characterName) {
+        // 哨兵判断：未配置 Key 或仍为占位符时直接走本地 fallback，避免向 Firecrawl 发送无效请求
         if (apiKey == null || apiKey.isBlank() || apiKey.equals("your-firecrawl-api-key-here")) {
             log.warn("[DEBUG] Firecrawl API key not configured, using fallback");
             return getFallbackContent(characterName);
@@ -48,6 +66,7 @@ public class FirecrawlService {
 
         try {
             // First, search for the correct URL to handle ambiguous names like "Messi"
+            // 优先用搜索消歧：对"Messi"这种多义词，先解析出真正的人物页面 URL，避免抓到消歧义页
             String correctUrl = searchForCharacter(characterName);
             if (correctUrl != null) {
                 log.info("[DEBUG] Found URL via search: {}", correctUrl);
@@ -55,22 +74,28 @@ public class FirecrawlService {
                 if (result != null && !isNoArticlePage(result)) {
                     return result;
                 }
+                // 即便 URL 来自搜索，仍要二次校验正文不是消歧义页
                 log.warn("[DEBUG] Search returned no-article page, trying direct scrape");
             }
             // Fallback to direct Wikipedia URL
+            // 搜索失败或搜到的是消歧义页时，退回到按 Wikipedia 直链抓取（中英文自动分流）
             String directResult = scrapeFromFirecrawl(characterName);
             if (directResult != null && !isNoArticlePage(directResult)) {
                 return directResult;
             }
             // If direct Wikipedia also returns no-article page, use fallback
+            // 兜底兜底：Wikipedia 也没收录该角色时，使用内置人设文本，保证前端仍有内容可用
             log.warn("[DEBUG] Direct Wikipedia scrape returned no-article page, using fallback");
             return getFallbackContent(characterName);
         } catch (Exception e) {
+            // 任何未预期的异常都不向上抛，改为静默降级到 fallback，避免阻塞角色创建流程
             log.error("[DEBUG] Firecrawl scrape failed: {}", e.getMessage());
             return getFallbackContent(characterName);
         }
     }
 
+    // 判定抓回的 markdown 是否是消歧义页/无条目页：Wikipedia 在无匹配词条时会返回这类导航页，
+    // 中英文都覆盖（包括"消歧义""可以指："等本地化文案），避免把它当成人物简介喂给 LLM
     private boolean isNoArticlePage(String content) {
         if (content == null) return true;
         return content.contains("Wikipedia does not have an article")
@@ -86,18 +111,24 @@ public class FirecrawlService {
     /**
      * Search for a character's Wikipedia page URL.
      * Handles ambiguous names like "Messi" by finding the most relevant page.
+     *
+     * <p>返回值：找到则返回首个 wikipedia.org URL，否则返回 null；纯工具方法，不抛异常。
      */
+    // 用 Firecrawl 搜索接口解析角色名对应的 Wikipedia URL，主要解决同名歧义问题；
+    // 入参为用户输入的角色名（任意语言），返回首个匹配到的 wikipedia.org 链接，失败返回 null
     private String searchForCharacter(String characterName) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + apiKey);
 
         // Determine search query based on character name language
+        // 按名字是否纯中文分流查询策略：英文名走通用补全，中文名需要更强的上下文（如"足球"）才能命中人物页
         boolean isChinese = characterName.matches("[\\u4e00-\\u9fa5]+");
 
         String[] searchQueries;
         if (isChinese) {
             // For Chinese names, try multiple disambiguation queries
+            // 中文名仅靠原名搜索大概率命中古籍/成语，所以加上领域关键词与 Wikipedia 兜底
             searchQueries = new String[]{
                 characterName + " footballer",
                 characterName + " 足球",
@@ -105,12 +136,14 @@ public class FirecrawlService {
             };
         } else {
             // For English names, try basic + disambiguation
+            // 英文先按原名搜一次，再追加"footballer"领域词处理"Messi"这类重名
             searchQueries = new String[]{
                 characterName,
                 characterName + " footballer"
             };
         }
 
+        // 顺序尝试多条查询词：任一命中 wikipedia.org 链接即立即返回，避免对同一个角色做重复抓取
         for (String searchQuery : searchQueries) {
             try {
                 Map<String, Object> body = new HashMap<>();
@@ -130,6 +163,7 @@ public class FirecrawlService {
                     Object data = response.getBody().get("data");
                     if (data instanceof java.util.List) {
                         java.util.List<?> results = (java.util.List<?>) data;
+                        // 只认 wikipedia.org 域名：其它站点结构差异大，跳过可减少后续解析异常
                         for (Object item : results) {
                             if (item instanceof Map) {
                                 Map<String, Object> result = (Map<String, Object>) item;
@@ -143,15 +177,22 @@ public class FirecrawlService {
                     }
                 }
             } catch (Exception e) {
+                // 单条查询失败不中断整体流程，下一条查询词仍可成功
                 log.warn("[DEBUG] Firecrawl search '{}' failed: {}", searchQuery, e.getMessage());
             }
         }
+        // 全部查询都未命中 Wikipedia 链接，由调用方决定后续是否直链抓取或 fallback
         return null;
     }
 
     /**
      * Scrape a specific URL.
+     *
+     * <p>入参为已知的完整 URL（通常是 Wikipedia 链接）；
+     * 返回正文 markdown；两个端点都失败时抛 RestClientException，由 scrape() 兜底。
      */
+    // 抓取指定 URL 的正文 markdown：先试 v2，v2 内容过短或失败时回退 v1；
+    // 两个端点都失败时抛出异常，由上层 scrape() 捕获并降级到 fallback
     private String scrapeUrl(String url) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -159,6 +200,7 @@ public class FirecrawlService {
 
         try {
             // Try v2 endpoint
+            // v2 用顶层 onlyMainContent 字段（Firecrawl 新协议），优先尝试
             Map<String, Object> bodyV2 = new HashMap<>();
             bodyV2.put("url", url);
             bodyV2.put("onlyMainContent", true);
@@ -173,6 +215,7 @@ public class FirecrawlService {
             );
 
             String result = parseResponse(response);
+            // 经验值：低于 100 字符通常意味着只抓到了导航/标题，正文尚未取到，触发 v1 重试
             if (result != null && result.length() > 100) return result;
         } catch (RestClientException e) {
             log.warn("[DEBUG] V2 scrape failed for URL {}: {}", url, e.getMessage());
@@ -180,6 +223,7 @@ public class FirecrawlService {
 
         // Fallback to v1
         try {
+            // v1 旧协议用 pageOptions 嵌套结构，部分账号/区域仍只能走 v1 才能拿到内容
             Map<String, Object> bodyV1 = new HashMap<>();
             bodyV1.put("url", url);
             bodyV1.put("pageOptions", Map.of("onlyMainContent", true));
@@ -199,13 +243,25 @@ public class FirecrawlService {
             log.error("[DEBUG] V1 scrape also failed for URL {}: {}", url, e.getMessage());
         }
 
+        // 向上抛异常让 scrape() 统一决定是否走 fallback，避免在工具方法里静默吞错
         throw new RestClientException("Both scrape endpoints failed for URL: " + url);
     }
 
+    /**
+     * 按 Wikipedia 命名规则直接抓取角色页，作为搜索接口失败时的后备方案。
+     *
+     * <p>入参为用户输入的角色名（已用于消歧尝试但未找到合适 URL）；
+     * 命中 Wikipedia 词条返回 markdown，失败抛 RestClientException；
+     * 副作用：每次调用会向 Firecrawl 发起 1~2 次 HTTP 请求。
+     */
+    // 在搜索接口未命中时，直接按 Wikipedia 命名规则拼 URL 抓取，避免依赖第三方搜索质量；
+    // 仍保持 v2 优先 / v1 兜底策略，与 scrapeUrl() 一致以便上层统一处理
     private String scrapeFromFirecrawl(String characterName) {
         // Determine if name is Chinese and use appropriate Wikipedia
+        // 根据角色名语种分流到中英文 Wikipedia：中文角色直接抓 zh.wikipedia 通常正文更全
         boolean isChinese = characterName.matches("[\\u4e00-\\u9fa5]+");
         String wikipediaBase = isChinese ? "https://zh.wikipedia.org/wiki/" : "https://en.wikipedia.org/wiki/";
+        // Wikipedia URL 用下划线代替空格，这是 MediaWiki 的固定路由规则
         String url = wikipediaBase + characterName.replace(" ", "_");
 
         HttpHeaders headers = new HttpHeaders();
@@ -256,9 +312,12 @@ public class FirecrawlService {
             log.error("[DEBUG] V1 endpoint failed: {}", e.getMessage());
         }
 
+        // 抛出后由 scrape() 捕获并切到 fallback 内容
         throw new RestClientException("Both Firecrawl endpoints failed");
     }
 
+    // 从 Firecrawl 响应里安全提取 markdown 字段；v1/v2 都把正文塞在 data.markdown，结构稳定；
+    // 任意一层结构缺失都返回 null，由调用方继续尝试兜底，避免 NPE
     private String parseResponse(ResponseEntity<Map> response) {
         if (response.getBody() != null && response.getBody().containsKey("data")) {
             Object dataObj = response.getBody().get("data");
@@ -266,6 +325,7 @@ public class FirecrawlService {
                 Map<String, Object> data = (Map<String, Object>) dataObj;
                 if (data.containsKey("markdown")) {
                     String markdown = (String) data.get("markdown");
+                    // 记录正文长度便于排查"抓到了但太短"这类问题
                     log.info("[DEBUG] Scraped content length: {}", markdown.length());
                     return markdown;
                 }
@@ -276,6 +336,8 @@ public class FirecrawlService {
         return null;
     }
 
+    // 本地人设字典：Firecrawl 不可用或 Wikipedia 无收录时的兜底来源；
+    // 覆盖 demo 场景常用角色，中英文同义词都支持，未命中则给出通用模板，保证前端不会拿到空字符串
     private String getFallbackContent(String name) {
         return switch (name.toLowerCase()) {
             case "william shakespeare", "shakespeare" -> """
@@ -358,6 +420,7 @@ public class FirecrawlService {
                 Famous for his skill with the halberd and his horse Red Hare, Lu Bu was defeated only when faced with combined forces.
                 He was ambitious, proud of his martial prowess, and believed in strength as the ultimate arbiter of power.
                 """;
+            // 默认兜底文案：未在字典中收录的角色用通用模板，避免返回空字符串导致 LLM prompt 构造失败
             default -> String.format("""
                 %s is a notable historical/cultural figure known for their significant contributions and influence.
                 This character has a rich background, unique personality traits, and distinctive qualities that make them memorable.

@@ -14,27 +14,51 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * Encryption utility for sensitive data using AES-256-GCM.
- * GCM mode provides both confidentiality and authenticity (authenticated encryption).
+ * AES-256-GCM encryption helper for sensitive persisted values (currently DeepSeek / provider
+ * API keys). GCM was chosen because it is an AEAD mode that gives confidentiality AND integrity
+ * in one pass, removing the need to layer a separate MAC.
  *
- * When ENCRYPTION_KEY environment variable is not configured, encryption is disabled
- * and the system operates in backward compatibility mode (plain text storage).
+ * Collaborates with services such as ApiKeyService, which gate writes/reads on
+ * {@link #isEncryptionEnabled()} so that missing/malformed ENCRYPTION_KEY never blocks startup.
+ *
+ * Backward-compatibility: when ENCRYPTION_KEY is absent, encryption is disabled and callers
+ * fall back to plain text storage, allowing legacy data to coexist until a key is provisioned.
  */
 @Component
 public class EncryptionUtil {
 
     private static final Logger log = LoggerFactory.getLogger(EncryptionUtil.class);
 
+    // AES-GCM with no padding: GCM is a stream-based AEAD mode and does not require block padding,
+    // avoiding the pitfalls of PKCS#5/PKCS#7 padding (padding-oracle attacks, ciphertext expansion).
     private static final String ALGORITHM = "AES/GCM/NoPadding";
+    // 96-bit (12-byte) IV is the NIST-recommended size for GCM: it maximizes performance
+    // (no extra hashing) and minimizes collision probability across encryptions.
     private static final int GCM_IV_LENGTH = 12; // 96 bits recommended for GCM
+    // 128-bit auth tag: the maximum strength supported by GCM, chosen to guarantee
+    // strong integrity/authenticity guarantees alongside confidentiality.
     private static final int GCM_TAG_LENGTH = 128; // 128 bits authentication tag
+    // 32-byte (256-bit) key matches AES-256 strength; length is validated at startup
+    // so a misconfigured key fails fast instead of silently weakening crypto.
     private static final int KEY_LENGTH = 32; // 256 bits for AES-256
 
+    // Lazily built from ENCRYPTION_KEY in init(); held in memory only (never logged/persisted)
+    // because leaking it would defeat the entire purpose of encryption.
     private SecretKeySpec secretKey;
+    // SecureRandom (not java.util.Random) is required for cryptographic IV generation;
+    // reused across calls because instantiation is expensive and seeding it once is sufficient.
     private final SecureRandom secureRandom = new SecureRandom();
+    // Tracks whether init() successfully loaded a valid key so callers (e.g. ApiKeyService)
+    // can branch to plaintext storage when running in backward-compatibility mode.
     private boolean encryptionEnabled = false;
 
     @PostConstruct
+    /**
+     * Loads and validates the AES key from the ENCRYPTION_KEY environment variable once
+     * the Spring context has instantiated this bean. Side effects: builds the SecretKeySpec,
+     * flips encryptionEnabled to true on success, and emits a warning (never throws) on
+     * failure so the application can still boot in plaintext compatibility mode.
+     */
     public void init() {
         String encryptionKey = System.getenv("ENCRYPTION_KEY");
         if (encryptionKey == null || encryptionKey.isBlank()) {
@@ -70,16 +94,25 @@ public class EncryptionUtil {
 
     /**
      * Returns whether encryption is properly configured and enabled.
+     * Called by services (e.g. ApiKeyService before persisting user-provided API keys)
+     * to decide whether to route through encrypt()/decrypt() or store values as plain text.
+     *
+     * @return true when init() successfully loaded a valid 256-bit Base64 key, false otherwise
      */
     public boolean isEncryptionEnabled() {
         return encryptionEnabled;
     }
 
     /**
-     * Encrypts plaintext using AES-256-GCM.
+     * Encrypts plaintext using AES-256-GCM. Each call generates a fresh 96-bit IV so that
+     * encrypting the same plaintext twice yields different ciphertexts (semantic security).
      *
-     * @param plaintext the text to encrypt
-     * @return Base64-encoded ciphertext (IV prepended)
+     * Contract: plaintext must be non-null and non-blank; caller is responsible for first
+     * checking isEncryptionEnabled(). Output layout: Base64(IV || ciphertextWithTag), making
+     * the value self-contained for round-trip via decrypt().
+     *
+     * @param plaintext the text to encrypt (e.g. a user-supplied DeepSeek API key)
+     * @return Base64-encoded ciphertext (IV prepended) safe for DB/text storage
      * @throws RuntimeException if encryption fails
      */
     public String encrypt(String plaintext) {
@@ -112,9 +145,15 @@ public class EncryptionUtil {
     }
 
     /**
-     * Decrypts ciphertext using AES-256-GCM.
+     * Decrypts ciphertext using AES-256-GCM. Reverses encrypt() by extracting the prepended IV
+     * and running AES-256-GCM in decrypt mode. The GCM auth tag is verified during doFinal();
+     * any tampering, truncation, or wrong key causes an AEADBadTagException wrapped here as a
+     * RuntimeException.
      *
-     * @param ciphertext Base64-encoded ciphertext (IV prepended)
+     * Contract: ciphertext must be non-null, non-blank Base64 produced by this class; caller
+     * should gate on isEncryptionEnabled() when running in compatibility mode.
+     *
+     * @param ciphertext Base64-encoded ciphertext (IV prepended) returned by encrypt()
      * @return decrypted plaintext
      * @throws RuntimeException if decryption fails
      */

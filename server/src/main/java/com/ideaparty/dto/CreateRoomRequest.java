@@ -32,15 +32,23 @@ public class CreateRoomRequest {
     // 可选字段：保持前向兼容，老客户端不传也能工作；由 Service 层在缺失时回退到默认 group 行为。
     private String mode;
 
+    // 暴露给 Service / Controller 反序列化回读，由 Jackson 在 HTTP 绑定阶段填充。
     public String getName() { return name; }
+    // Jackson 反序列化入口；写入的值会被 Bean Validation 校验后落库。
     public void setName(String name) { this.name = name; }
 
+    // 话题可空读取：UI 在房间卡片副标题展示 null 时回退占位文案。
     public String getTopic() { return topic; }
+    // 允许 null：用户新建房间时可以只填名字，稍后再补话题。
     public void setTopic(String topic) { this.topic = topic; }
 
+    // 返回当前请求要绑定的角色 ID 列表，可能为 null（Service 需处理"无角色"场景）。
     public List<UUID> getCharacterIds() { return characterIds; }
+    // 由 Controller 在校验后直接传入，供 Service 做"按 ID 解析 Character 实体"的批量查询。
     public void setCharacterIds(List<UUID> characterIds) { this.characterIds = characterIds; }
 
+    // 返回房间模式枚举字符串；null 表示未指定，由 Service 回退到 group 默认行为。
     public String getMode() { return mode; }
+    // 写入对话形态；调用方负责传入合法值（"single" / "group"），DTO 层不做枚举转换以保持协议灵活。
     public void setMode(String mode) { this.mode = mode; }
 }

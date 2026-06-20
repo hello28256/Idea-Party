@@ -19,14 +19,19 @@ import java.util.UUID;
 @RequestMapping("/api/rooms")
 @RequiredArgsConstructor
 @Slf4j
-public class RoomController {
-
-    private final RoomService roomService;
-
-    /**
+/**
      * 聊天室 REST 入口。负责鉴权上下文解析、参数传递与响应码包装；
      * 鉴权（JWT 解析与用户身份）由 Spring Security 过滤器链在更上层完成，此处只拿到已认证的 Authentication。
      * 业务规则（所有权校验、删除/角色关联副作用）下沉到 RoomService，保持控制器薄、可测试。
+     */
+public class RoomController {
+
+    // 由 Lombok @RequiredArgsConstructor 注入；final 保证不可变，便于单测通过构造器替换 mock。
+    private final RoomService roomService;
+
+    /**
+     * 返回当前用户可见的聊天室列表。调用方为前端「我的聊天室」页；
+     * 仅返回当前 userId 拥有的房间，可见性过滤在 Service.findByUserId 内完成。
      */
     @GetMapping
     public ResponseEntity<List<RoomResponse>> getUserRooms(Authentication auth) {

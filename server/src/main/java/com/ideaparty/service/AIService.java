@@ -25,6 +25,7 @@ import java.time.Duration;
 @Service
 public class AIService {
 
+    // SLF4J Logger：以 [AI Service] 前缀输出，便于在多服务日志聚合时快速过滤本类调用链（生成 / 流式 / Moderator 三条主路径）。
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
 
     // baseUrl / model 来自 application.yml，便于不改代码即可切换 DeepSeek / 其它 OpenAI 兼容服务。
@@ -43,6 +44,10 @@ public class AIService {
     // 注入 SettingsService 用于读取当前登录用户的 API Key，避免在 AI 调用链路上访问 SecurityContext（线程切换场景易丢上下文）。
     private final SettingsService settingsService;
 
+    /**
+     * 构造注入 SettingsService：唯一合作方是 {@link SettingsService}，提供当前用户的 DeepSeek API Key。
+     * 之所以用构造器注入而非字段注入：方便单元测试直接 mock，并让 final 字段保证线程安全。
+     */
     public AIService(SettingsService settingsService) {
         this.settingsService = settingsService;
     }
@@ -104,6 +109,9 @@ public class AIService {
     /**
      * Generate a response for a character given the user message.
      * Uses the current user's API key if available.
+     *
+     * <p>无历史的「一次性」同步入口：被 Moderator 选人/评审类步骤复用，要求整段返回再做下游决策。
+     * 调用方：RoomService 的 Moderator 选择、角色单独答复等不需要流式 token 推送的场景。
      */
     public String generateResponse(String characterPrompt, String userMessage) {
         String userApiKey = settingsService.getApiKey();
@@ -136,6 +144,9 @@ public class AIService {
 
     /**
      * Generate a chat model with the user's API key for moderator selection.
+     *
+     * <p>公开委托：把 createChatModel 暴露给 Moderator 选择流程，让上游按需复用同一份模型构建逻辑，
+     * 而不是另写一份；副作用是返回的 ChatLanguageModel 是新实例，调用方持有期间需自行管理资源。
      */
     public ChatLanguageModel createChatModelWithApiKey(String userApiKey) {
         return createChatModel(userApiKey);
@@ -181,6 +192,7 @@ public class AIService {
         log.info("[AI Service] Full prompt length: {}, calling streamingModel.chat...", fullPrompt.length());
 
         // StringBuilder to accumulate chunks for final response
+        // 显式 final：仅由 onPartialResponse 写入、onCompleteResponse 读出，确保跨线程可见性。
         final StringBuilder accumulatedResponse = new StringBuilder();
 
         try {

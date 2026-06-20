@@ -21,8 +21,10 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     @Query("SELECT m FROM Message m LEFT JOIN FETCH m.character WHERE m.room.id = :roomId ORDER BY m.createdAt ASC")
     List<Message> findByRoomIdWithCharacter(@Param("roomId") UUID roomId);
 
+    // 按创建时间升序取房间全量消息：给聊天室的「加载历史」或导出接口使用，无需分页。
     List<Message> findByRoomIdOrderByCreatedAtAsc(UUID roomId);
 
+    // 按创建时间倒序分页取房间消息：管理后台或搜索场景下倒序展示，配合 Pageable 控制页大小避免一次性加载过多。
     Page<Message> findByRoomIdOrderByCreatedAtDesc(UUID roomId, Pageable pageable);
 
     /**
@@ -34,6 +36,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     @Query("SELECT m FROM Message m WHERE m.id = :id")
     Optional<Message> findByIdString(@Param("id") String id);
 
+    // default 方法委托给 findByIdString：当调用方拿到的是 String 类型 ID（如前端路由参数）时，
+    // 可直接调用 findById(String)，避免各业务点重复写 findByIdString，保持调用侧接口一致。
     default Optional<Message> findById(String id) {
         return findByIdString(id);
     }
@@ -55,7 +59,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
                                         @Param("before") java.time.LocalDateTime before,
                                         org.springframework.data.domain.Pageable pageable);
 
-    /** 统计指定角色的消息数（用于删除角色前的引用检查，避免出现悬挂外键；用 COUNT 而非 EXISTS 是为了在返回数量时直接给提示文案）。 */
+    // 在删除 AI 角色前调用：返回该角色在历史消息中仍被引用的条数。
+    // 用 COUNT 而非 EXISTS 是因为业务上要在删除确认弹窗里直接展示「仍有 N 条消息引用」等具体数字提示。
     @Query("SELECT COUNT(m) FROM Message m WHERE m.character.id = :characterId")
     long countByCharacterId(@Param("characterId") UUID characterId);
 }

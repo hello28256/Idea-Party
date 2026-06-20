@@ -32,6 +32,7 @@ public class Message {
         FAILED
     }
 
+    // 主键用 UUID：分布式生成、无自增序列依赖，方便后续按 id 直接对外暴露而不泄露递增信息
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
@@ -56,6 +57,7 @@ public class Message {
     @JoinColumn(name = "user_id")
     private User user;
 
+    // 创建时间由 @PrePersist 自动填充，调用方无需 set；列表查询按它降序排得到"最新消息在顶"的聊天室体验
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -87,28 +89,45 @@ public class Message {
         if (streamStatus == null) streamStatus = StreamStatus.COMPLETE;
     }
 
+    // JPA 要求 entity 必须有无参构造；实例化完全由 Hibernate 负责，业务代码统一走 builder/of 静态工厂
     public Message() {}
 
+    // 读：DTO 序列化、消息跳转链接；写：仅测试/反射构造，业务路径不直接 setId
     public String getId() { return id; }
+    // 写：测试/反射构造；业务路径通常由 JPA 在 persist 时自动生成
     public void setId(String id) { this.id = id; }
 
+    // 读：聊天列表渲染、上下文回灌 LLM；写：onResponse 回调时一次性写完整段
     public String getContent() { return content; }
+    // 写：流式生成期间不要走 setter，每次 delta 直接走 Repository update，避免覆盖丢失 token
     public void setContent(String content) { this.content = content; }
 
+    // 读：前端根据 senderType 决定头像/气泡样式（USER vs CHARACTER）
     public SenderType getSenderType() { return senderType; }
+    // 写：构建消息时根据发送方选定，业务路径必填
     public void setSenderType(SenderType senderType) { this.senderType = senderType; }
 
+    // 读：前端要拿 character.name / avatar 用于消息气泡头；LAZY 需在事务内访问
     public Character getCharacter() { return character; }
+    // 写：CHARACTER 类型消息必填；USER 类型消息保持 null
     public void setCharacter(Character character) { this.character = character; }
 
+    // 读：聚合查询或消息列表分页时拿 roomId；LAZY 触发 SQL
     public Room getRoom() { return room; }
+    // 写：每条消息必填，反向级联删除路径的根节点
     public void setRoom(Room room) { this.room = room; }
 
+    // 读：USER 类型消息需要拿 user.username / avatar；LAZY 触发 SQL
     public User getUser() { return user; }
+    // 写：USER 类型消息必填；CHARACTER 类型消息保持 null
     public void setUser(User user) { this.user = user; }
 
+    // 读：消息列表排序、UI 时间戳展示；写入统一交给 @PrePersist，业务不应手 set
     public LocalDateTime getCreatedAt() { return createdAt; }
+    // 写：仅测试/数据迁移使用；正常路径由 JPA 自动填充
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    // 读：前端/消息列表可据此决定是否显示"生成失败"角标；nullable（user 消息时为 null）
     public StreamStatus getStreamStatus() { return streamStatus; }
+    // 写：onResponse/异常分支写入；默认 COMPLETE 由 @PrePersist 兜底
     public void setStreamStatus(StreamStatus streamStatus) { this.streamStatus = streamStatus; }
 }

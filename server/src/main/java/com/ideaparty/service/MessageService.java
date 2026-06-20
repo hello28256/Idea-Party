@@ -33,6 +33,10 @@ public class MessageService {
     // 观测服务：仅在 AI 消息落库后触发，用于驱动 Moderator 编排下一轮发言等异步逻辑，不影响主写入路径。
     private final MessageObservationService observationService;
 
+    /**
+     * 构造注入所有协作仓储与旁路观测服务：四个 Repository 负责实体读写，observationService 负责 AI 消息落库后的下游通知。
+     * 契约：所有依赖由 Spring 容器提供，本类不做兜底校验；调用方应保证运行时各 bean 已就绪。
+     */
     public MessageService(MessageRepository messageRepository, RoomRepository roomRepository,
                          CharacterRepository characterRepository, UserRepository userRepository,
                          MessageObservationService observationService) {
@@ -83,11 +87,19 @@ public class MessageService {
         return saved;
     }
 
+    /**
+     * 拉取某聊天室全部消息（含 character 关联），供前端进入房间时一次性渲染历史对话。
+     * 契约：roomId 必须存在；返回列表按时间正序（依赖仓储实现约定），前端可直接用于聊天流展示。
+     */
     public List<Message> getMessagesByRoomId(UUID roomId) {
         // 走带 character 关联的查询，避免前端展示时 N+1 回查角色表。
         return messageRepository.findByRoomIdWithCharacter(roomId);
     }
 
+    /**
+     * 分页拉取某聊天室的历史消息，page/size 由前端控制以支持无限滚动加载。
+     * 契约：page 从 0 开始，size 由调用方负责限制上限；返回 Page 含 totalElements 用于前端判断是否还有更多。
+     */
     public Page<Message> getMessagesPaginated(UUID roomId, int page, int size) {
         // 即使方法名带 Desc，排序仍取 ASC：前端通常按时间正序渲染，PageRequest 仅承担分页职责。
         return messageRepository.findByRoomIdOrderByCreatedAtDesc(
@@ -96,6 +108,10 @@ public class MessageService {
         );
     }
 
+    /**
+     * 按主键查询单条消息，主要供编辑/删除/单条跳转等场景使用。
+     * 契约：不存在时返回 Optional.empty()，由调用方决定是否抛业务异常；不做级联字段填充。
+     */
     public Optional<Message> getMessageById(UUID id) {
         return messageRepository.findById(id);
     }

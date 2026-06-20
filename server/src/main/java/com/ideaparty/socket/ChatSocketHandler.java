@@ -33,25 +33,40 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * WebSocket 入口处理器，负责前端 Socket.IO 客户端与后端聊天室之间的实时消息路由。
+ * 角色：解析 Socket.IO 协议、把客户端事件分发给 ModeratorAgent、组织讨论/对话模式下的发言编排。
+ * 配合 AuthService（JWT 校验）、ModerationService（内容审核）、MessageService（持久化）、ModeratorAgent（AI 编排）共同构成聊天室后端。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChatSocketHandler extends TextWebSocketHandler {
 
+    // 全局房间注册表：roomId -> 当前连接到该房间的所有 WebSocket 会话；用于按房间广播消息。
     private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
+    // 反向索引：sessionId -> session 当前所在的 roomId；用于连接断开时精准清理房间状态。
     private final ConcurrentHashMap<String, String> sessionRooms = new ConcurrentHashMap<>();
+    // 记录每个 WebSocket 会话对应的已认证 userId；在 join room 时写入，供后续消息落库使用。
     private final ConcurrentHashMap<String, String> sessionUsers = new ConcurrentHashMap<>();
+    // 房间最近一次发言的角色名；用于上下文续接判断（不直接控制路由，仅作为线索参考）。
     private final ConcurrentHashMap<String, String> roomLastSpeaker = new ConcurrentHashMap<>();  // Track last speaker per room
+    // 当前房间的主线发言持有者；与 lastSpeaker 区分，用于表达"哪个角色正在主导当前话题线程"。
     // Track active conversation thread owner per room (distinct from lastSpeaker for clearer thread semantics)
     private final ConcurrentHashMap<String, String> roomActiveThreadOwner = new ConcurrentHashMap<>();
+    // 每个房间最近 5 条 AI 回复的上下文快照，供下一次发言时拼接到 prompt 中做跨角色感知。
     // Track recent AI responses per room for cross-agent context (keeps last 5 responses)
     private final ConcurrentHashMap<String, List<RecentResponse>> roomRecentResponses = new ConcurrentHashMap<>();
+    // 房间级互斥锁：将"讨论是否在跑"判定与"启动新讨论"打包成原子段，避免并发用户消息触发并行讨论循环。
+    // 锁对象按需懒创建，房间空时清理（见 afterConnectionClosed）。
     // Per-room locks used to make "is discussion running? then route / start" check-and-start atomic.
     // Two concurrent user messages can otherwise both pass the "not running" check and start parallel
     // discussion loops, overwriting the same DiscussionState.
     private final ConcurrentHashMap<String, Object> roomDiscussionLocks = new ConcurrentHashMap<>();
+    // Jackson JSON 序列化器，用于将事件 payload 包装成 Socket.IO 帧以及解析入站消息。
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // 内部数据结构：记录一条 AI 回复的角色名、内容、时间戳，供后续 prompt 上下文使用。
     // Simple record to store recent response context
     private static class RecentResponse {
         final String characterName;
@@ -64,17 +79,30 @@ public class ChatSocketHandler extends TextWebSocketHandler {
             this.timestamp = System.currentTimeMillis();
         }
     }
+    // 由 @RequiredArgsConstructor 注入：用于把用户消息与 AI 回复写入 MySQL。
     private final MessageService messageService;
+    // 由 @RequiredArgsConstructor 注入：用户消息入站前的内容安全审核。
     private final ModerationService moderationService;
+    // 由 @RequiredArgsConstructor 注入：按 roomId 加载聊天室及其角色列表的 JPA 仓库。
     private final RoomRepository roomRepository;
+    // 由 @RequiredArgsConstructor 注入：AI 编排核心，负责发言顺序、轮次、流式回调。
     private final ModeratorAgent moderatorAgent;
+    // 由 @RequiredArgsConstructor 注入：JWT 校验，前端在 join room 时带 token 上来识别身份。
     private final AuthService authService;
 
+    /**
+     * WebSocket 握手成功后的钩子；Socket.IO 客户端随后会发 "40" connect 包，由 handleTextMessage 走协议分支响应。
+     * 此处刻意留空，不在此阶段分配房间资源——等到 join room 事件到达时再注册。
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         // Socket.IO client sends "40" (connect packet) initially
     }
 
+    /**
+     * WebSocket 文本帧入口；按 Socket.IO Engine.IO 协议分发：4xx 是 Engine.IO 控制帧，42 是 MESSAGE 数据帧。
+     * 调用方：Spring WebSocket 容器；副作用：根据帧类型回 pong/connect-ack，或进一步解析事件并广播。
+     */
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
@@ -97,6 +125,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 解析 Socket.IO MESSAGE 帧（已剥掉 "42" 前缀的 JSON 数组），按事件名分派到对应处理器。
+     * 约定：前端发送格式为 ["event_name", data]；调用方为 handleTextMessage。
+     */
     private void handleSocketIOMessage(WebSocketSession session, String data) throws Exception {
         JsonNode node = objectMapper.readTree(data);
         if (node.isArray() && node.size() >= 2) {
@@ -129,6 +161,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 处理客户端 join room 事件：可选校验 JWT、注册会话到房间注册表、记录 userId 映射。
+     * 副作用：更新 rooms / sessionRooms / sessionUsers / SecurityContext；向客户端回 room-joined 确认帧。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handleJoinRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
 
@@ -157,11 +194,21 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         session.sendMessage(new TextMessage("42[\"room-joined\",{\"roomId\":\"" + roomId + "\"}]"));
     }
 
+    /**
+     * 处理客户端 leave room 事件：从房间注册表与反向索引中移除当前会话。
+     * 调用方：handleSocketIOMessage；空房间清理交给 afterConnectionClosed 统一处理。
+     */
     private void handleLeaveRoom(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         leaveRoom(roomId, session);
     }
 
+    /**
+     * 处理客户端 chat message 事件：审核 → 持久化 → 广播 → 触发 AI 回复的完整流水线。
+     * 关键策略：审核失败直接回 error 帧不广播；持久化失败必须中断（防静默丢消息）；
+     * USER 类型消息根据房间 chatMode 分流到 discussion 模式（per-room 锁原子启动）或 dialogue 模式（moderator 路由）。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handleChatMessage(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String content = data.get("content").asText();
@@ -269,6 +316,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      *
      * Returns the matched character name or null if no explicit mention found.
      */
+    /**
+     * 从用户消息文本中提取显式 @ 提及的角色名，是 Java 端唯一保留的结构化路由规则。
+     * 支持三种格式：@角色名、角色名+疑问词（无空格）、消息开头的角色名（带空格）。
+     * 返回房间内匹配的角色名（原始大小写）或 null；调用方：triggerAIViaModerator。
+     */
     private String extractMentionedCharacter(String content, List<Character> characters) {
         if (content == null || content.isBlank() || characters == null || characters.isEmpty()) {
             return null;
@@ -335,10 +387,20 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      * the LLM reading the character roster + chat history.
      */
 
+    /**
+     * triggerAIForRoom 的三参重载：不指定提及角色时调用四参版本，让 moderator 自行决定发言者。
+     * 调用方：外部测试 / 业务代码。
+     */
     public void triggerAIForRoom(String roomId, String userMessage, String userId) {
         triggerAIForRoom(roomId, userMessage, userId, null);
     }
 
+    /**
+     * 触发指定房间的 AI 回复流程：@mention 时收敛到单角色，否则把全部角色交给 moderator 编排。
+     * 通过 moderatorAgent.processMessage 注入四个回调（onThinking / onChunk / onResponse / onError），
+     * 完成流式广播、最终回复持久化、错误事件转发；discussion 模式下走多轮循环。
+     * 调用方：handleChatMessage、handleTriggerAI、triggerAIViaModerator。
+     */
     public void triggerAIForRoom(String roomId, String userMessage, String userId, String mentionedCharacter) {
         log.info("[WS] triggerAIForRoom START - roomId: {}, message: {}, userId: {}, mentionedCharacter: {}",
             roomId, userMessage, userId, mentionedCharacter);
@@ -478,6 +540,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 处理客户端 trigger-ai 事件：前端在某些场景下手动触发 AI 续接（无需伴随新用户消息）。
+     * 从 SecurityContext 取已认证 userId，要求消息中带 roomId；校验通过后调用 moderatorAgent.processMessage。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handleTriggerAI(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         String userMessage = data.has("message") ? data.get("message").asText() : "";
@@ -589,6 +656,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         );
     }
 
+    /**
+     * 处理客户端 pause-discussion 事件：通知 ModeratorAgent 暂停多轮讨论循环（保留当前状态），并广播确认。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handlePauseDiscussion(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Pause discussion requested for room: {}", roomId);
@@ -599,6 +670,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         broadcastToRoom(roomId, "42[\"discussion-paused\",{\"roomId\":\"" + roomId + "\"}]");
     }
 
+    /**
+     * 处理客户端 resume-discussion 事件：从暂停状态恢复 ModeratorAgent 的讨论循环，并广播确认。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handleResumeDiscussion(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Resume discussion requested for room: {}", roomId);
@@ -609,6 +684,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         broadcastToRoom(roomId, "42[\"discussion-resumed\",{\"roomId\":\"" + roomId + "\"}]");
     }
 
+    /**
+     * 处理客户端 stop-discussion 事件：彻底取消 ModeratorAgent 中该房间的进行中讨论（清理状态）。
+     * 仅向发起方回确认帧，不广播——避免对房间内其他旁观者造成"被中断"的误读。
+     * 调用方：handleSocketIOMessage。
+     */
     private void handleStopDiscussion(WebSocketSession session, JsonNode data) throws Exception {
         String roomId = data.get("roomId").asText();
         log.info("[WS] Stop discussion requested for room: {}", roomId);
@@ -626,6 +706,12 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      * 2. Explicit @mention
      * 3. Last speaker (if user message is contextual)
      * 4. Moderator semantic analysis
+     */
+    /**
+     * dialogue 模式下的发言路由：唯一保留的 Java 端结构化规则是显式 @mention；
+     * 其它场景（话题续接、群邀请、多角色挑选）一律交由 moderator LLM 在 joint prompt 中决策。
+     * 检测到 @mention 时把该角色钉为 thread owner 并附上最近上下文；否则把全部角色交给 moderator。
+     * 调用方：handleChatMessage。
      */
     private void triggerAIViaModerator(String roomId, String content, String userId, Room room) {
         try {
@@ -676,6 +762,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      * Update the active thread owner for a room after a character responds.
      * Call this after a character's complete response is broadcast.
      */
+    /**
+     * 更新房间的主线发言持有者：在角色完整回复落库后由业务侧调用，把 thread owner 切换到当前发言人。
+     * 调用方：外部业务代码 / ModeratorAgent 回调链；null 入参做安全短路。
+     */
     public void updateRoomActiveThread(String roomId, String characterName) {
         if (roomId == null || characterName == null) return;
         roomActiveThreadOwner.put(roomId, characterName);
@@ -692,6 +782,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     /**
      * Store a recent AI response for cross-agent context.
      */
+    /**
+     * 将一条 AI 回复追加进房间最近上下文队列（CopyOnWriteArrayList，线程安全）；
+     * 队列超过 5 条时丢最早的，供后续 prompt 拼上下文用——是有界窗口避免 prompt 膨胀。
+     * 调用方：triggerAIForRoom 内 onResponse 回调 / 外部测试。
+     */
     public void addRecentResponse(String roomId, String characterName, String content) {
         if (roomId == null || characterName == null || content == null) return;
         List<RecentResponse> responses = roomRecentResponses.computeIfAbsent(roomId, k -> new CopyOnWriteArrayList<>());
@@ -706,6 +801,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
 
     /**
      * Get recent responses as a formatted string for context.
+     */
+    /**
+     * 把房间最近 5 条 AI 回复格式化成 markdown 文本片段，注入到下一次 prompt 的 system 提示中做跨角色感知。
+     * 单条超过 200 字会截断，避免长上下文压垮 token 上限；空房间返回空串。
+     * 调用方：triggerAIViaModerator。
      */
     public String getRecentContext(String roomId) {
         List<RecentResponse> responses = roomRecentResponses.get(roomId);
@@ -722,6 +822,11 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         return sb.toString();
     }
 
+    /**
+     * WebSocket 关闭钩子：从房间注册表移除会话、清 SecurityContext；
+     * 当房间空时一并清理 per-room 状态（thread owner / last speaker / recent responses / discussion lock）防止长期运行的内存泄漏。
+     * 调用方：Spring WebSocket 容器。
+     */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         // Remove session from its room
@@ -748,11 +853,19 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 把会话挂到指定房间注册表，并写入 sessionId -> roomId 反向索引。
+     * 调用方：handleJoinRoom；线程安全：ConcurrentHashMap + HashSet 组合（HashSet 内的写由调用方保证单线程触发 join/leave）。
+     */
     public void joinRoom(String roomId, WebSocketSession session) {
         rooms.computeIfAbsent(roomId, k -> new HashSet<>()).add(session);
         sessionRooms.put(session.getId(), roomId);
     }
 
+    /**
+     * 把会话从指定房间注册表中移除；房间集合空时整张 roomId 条目也清理。
+     * 调用方：handleLeaveRoom、afterConnectionClosed。
+     */
     public void leaveRoom(String roomId, WebSocketSession session) {
         Set<WebSocketSession> room = rooms.get(roomId);
         if (room != null) {
@@ -764,6 +877,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         sessionRooms.remove(session.getId());
     }
 
+    /**
+     * 把已组装好的 Socket.IO 帧原文广播到指定房间的所有在线会话，跳过已关闭的会话。
+     * 调用方：triggerAIForRoom、handlePauseDiscussion、handleResumeDiscussion、broadcastToRoom(event,data) 重载。
+     */
     public void broadcastToRoom(String roomId, String message) {
         log.info("[WS] broadcastToRoom CALLED roomId={} msgLen={} rooms={}",
             roomId, message != null ? message.length() : 0, rooms.keySet());
@@ -786,6 +903,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
      * Broadcast an event with data to all clients in a room.
      * Automatically wraps data in Socket.IO format (42["event",data]).
      */
+    /**
+     * 广播便捷重载：把事件名 + 数据对象自动包装成 Socket.IO 帧（42["event", data]）后再走字符串广播。
+     * 调用方：外部业务代码（moderator-message 等系统事件）。
+     */
     public void broadcastToRoom(String roomId, String event, Object data) {
         try {
             String message = "42[\"" + event + "\"," + objectMapper.writeValueAsString(data) + "]";
@@ -795,6 +916,10 @@ public class ChatSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 构造一条 ModeratorMessage（系统提示类消息，如 moderator 自身发言）并广播到房间。
+     * 调用方：当前未在文件内引用，预留给后续 moderator 系统消息场景。
+     */
     private void broadcastModeratorMessage(String roomId, String content, String type) {
         ModeratorMessage message = new ModeratorMessage(content, type);
         broadcastToRoom(roomId, "moderator-message", message);

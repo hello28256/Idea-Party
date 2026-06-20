@@ -26,12 +26,22 @@ import java.util.UUID;
 public class CharacterController {
     private static final Logger log = LoggerFactory.getLogger(CharacterController.class);
 
+    // 业务编排委托给 Service；Controller 只做参数解析、认证注入、状态码映射，保持薄层便于单元测试
     private final CharacterService characterService;
 
+    /**
+     * Spring 容器注入业务服务。
+     * 走构造器注入而非字段注入，便于在测试中手动传入 mock 实现，并保证字段不可变。
+     */
     public CharacterController(CharacterService characterService) {
         this.characterService = characterService;
     }
 
+    /**
+     * 列出当前用户可见的全部角色（预设 + 本人创建）。
+     * Authentication 由 Spring Security 注入：访问此接口本身已被 SecurityFilterChain 保护，
+     * 此处暂未基于 auth 做差异化过滤，等价于"登录后即可看到全部预设 + 自己的角色"。
+     */
     @GetMapping
     public ResponseEntity<List<CharacterResponse>> getAllCharacters(Authentication auth) {
         // Returns all characters (presets + user's) for authenticated user
@@ -39,12 +49,20 @@ public class CharacterController {
         return ResponseEntity.ok(characters);
     }
 
+    /**
+     * 列出系统预设角色（与具体用户无关，因此不需要 Authentication）。
+     * 用于"加入聊天室前先挑一个预设人物"的场景，与 /recommended 互为补充。
+     */
     @GetMapping("/presets")
     public ResponseEntity<List<CharacterResponse>> getPresetCharacters() {
         List<CharacterResponse> presets = characterService.findPresets();
         return ResponseEntity.ok(presets);
     }
 
+    /**
+     * 列出推荐角色（热门 / 高频使用），用于首页卡片流。
+     * 上限 10 是前端首页推荐位的固定容量；如需分页，后续会改为 @RequestParam + Service 层 Pageable。
+     */
     @GetMapping("/recommended")
     public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters() {
         List<CharacterResponse> recommended = characterService.findRecommended(10);
@@ -66,6 +84,10 @@ public class CharacterController {
         return new GeneratePromptResponse(prompt);
     }
 
+    /**
+     * 按 ID 查询单个角色。Service 返回 Optional，此处把"不存在"显式映射为 404。
+     * 未做归属校验：预设角色允许匿名读，自己创建的角色只有本人能改/删（见 update/delete）。
+     */
     @GetMapping("/{id}")
     public ResponseEntity<CharacterResponse> getCharacterById(@PathVariable UUID id) {
         return characterService.findById(id)
@@ -73,6 +95,10 @@ public class CharacterController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    /**
+     * 创建角色。@Valid 触发 CharacterRequest 上的 Bean Validation 注解（name 非空、长度等），
+     * 失败由全局异常处理器转 400。成功返回 201 + 新建实体的完整表示，便于前端直接渲染。
+     */
     @PostMapping
     public ResponseEntity<CharacterResponse> createCharacter(
             Authentication auth,

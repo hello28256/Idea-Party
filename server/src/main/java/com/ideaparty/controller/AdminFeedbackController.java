@@ -24,19 +24,31 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 管理端反馈查看接口。
+ * 承担用户反馈（Bug/Feature/Question 等）的列表与详情查询，配合 AdminFeedbackService 做数据装配。
+ * 与 AdminFeedbackService、UserRepository 协作完成 admin 鉴权与分页检索。
+ */
 @RestController
 @RequestMapping("/api/admin/feedbacks")
 @RequiredArgsConstructor
 @Slf4j
 public class AdminFeedbackController {
 
+    /** 反馈查询业务封装：承担分页/过滤与详情组装，避免 Controller 直接接触 Repository。 */
     private final AdminFeedbackService adminFeedbackService;
+    /** 用户表查询：用于读取 User.isAdmin 字段，完成 admin 鉴权快速路径。 */
     private final UserRepository userRepository;
 
     /** Bootstrap admin whitelist from application.yml. Fallback when User.isAdmin=false. */
     @Value("${app.admin.user-ids:}")
     private String adminUserIdsConfig;
 
+    /**
+     * 解析 application.yml 中的 bootstrap admin 白名单。
+     * 返回值每次调用都重新解析（不缓存）：保证 yml 热更新或测试替换时立即生效。
+     * 返回 HashSet 以便 contains 查询为 O(1)。
+     */
     private Set<UUID> adminWhitelist() {
         if (adminUserIdsConfig == null || adminUserIdsConfig.isBlank()) {
             return Set.of();
@@ -48,6 +60,11 @@ public class AdminFeedbackController {
                 .collect(Collectors.toCollection(HashSet::new));
     }
 
+    /**
+     * admin 鉴权闸门，所有 /api/admin/** 接口在执行业务前必须调用。
+     * 先看 User.isAdmin（数据库事实），再看 application.yml 白名单（bootstrap/灾备）。
+     * 失败抛 AccessDeniedException，由全局异常处理器转 403。
+     */
     private void requireAdmin(Authentication auth) {
         UUID userId = UUID.fromString(auth.getName());
         // Fast path: User.isAdmin
@@ -63,6 +80,11 @@ public class AdminFeedbackController {
         throw new AccessDeniedException("Admin permission required");
     }
 
+    /**
+     * 反馈分页列表。
+     * 入参支持按 type/category/userId/from/to 多维过滤，from/to 用 ISO-8601 Instant。
+     * 调用方：管理后台反馈管理页；副作用：写一条 [DEBUG] 日志便于排查。
+     */
     @GetMapping
     public ResponseEntity<Page<AdminFeedbackListItem>> list(
             Authentication auth,
@@ -81,6 +103,11 @@ public class AdminFeedbackController {
         return ResponseEntity.ok(result);
     }
 
+    /**
+ * 反馈详情。
+     * 入参 id 为反馈主键 UUID；调用方：管理后台点击列表行进入详情。
+     * 副作用：写一条 [DEBUG] 日志记录被查看的反馈 id；返回 AdminFeedbackDetail（含正文/截图等完整字段）。
+     */
     @GetMapping("/{id}")
     public ResponseEntity<AdminFeedbackDetail> detail(
             Authentication auth,

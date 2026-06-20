@@ -30,10 +30,17 @@ import java.util.UUID;
 @Slf4j
 public class ScenarioService {
 
+    // 用于根据 userId 查 User，拿到该用户的 DeepSeek API key（每个用户用各自的 key 调用 AI）。
     private final UserRepository userRepository;
     // 复用 langchain4j 已配好的 base url，避免在配置里再维护一份重复的 DeepSeek endpoint。
     private final String deepseekBaseUrl;
 
+    /**
+     * 构造器注入依赖，避免在类内自行 new 出来，便于单元测试时用 mock 替换。
+     *
+     * @param userRepository 用于根据 userId 取出该用户的 DeepSeek API key
+     * @param deepseekBaseUrl 从 application.yml 注入 base URL（不含 /chat/completions），运行时拼接路径调用 DeepSeek
+     */
     public ScenarioService(
             UserRepository userRepository,
             // 从 application.yml 注入 base URL（不含 /chat/completions），运行时拼接路径调用 DeepSeek。
@@ -64,6 +71,13 @@ public class ScenarioService {
 
     // ---------- 私有方法 ----------
 
+    /**
+     * 取当前用户的 DeepSeek API key。
+     * 副作用：查 user 表；查不到或 key 为占位符时返回 null，让上层走无 key 的 fallback 路径。
+     *
+     * @param userId 当前登录用户 ID
+     * @return 真实可用的 API key；若不存在或为占位符，返回 null
+     */
     private String resolveUserApiKey(UUID userId) {
         try {
             User owner = userRepository.findById(userId).orElse(null);
@@ -79,9 +93,19 @@ public class ScenarioService {
         return null;
     }
 
+    /**
+     * 组装面试 prompt 模板，调用 DeepSeek chat completions 接口拿原始生成结果。
+     * 失败（无 key / 网络错 / 解析错）不抛异常，统一返回 fallback prompt，保证前端创建角色流程不被打断。
+     *
+     * @param req 用户填写的岗位/行业/年限/JD/简历
+     * @param apiKey 用户自己的 DeepSeek key；为 null 时仍发请求，由 DeepSeek 拒绝后走 fallback
+     * @return LLM 原始输出（已 trim），失败时返回 fallback 文案
+     */
     private String callDeepSeekForInterview(InterviewScenarioRequest req, String apiKey) {
+        // 每次新建 RestTemplate：本服务调用频率低（用户点按钮才调一次），复用连接池带来的复杂度不值得。
         RestTemplate restTemplate = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
+        // DeepSeek 要求 JSON 请求体
         headers.setContentType(MediaType.APPLICATION_JSON);
         if (apiKey != null) {
             headers.set("Authorization", "Bearer " + apiKey);
@@ -98,6 +122,7 @@ public class ScenarioService {
                 .replace("{{jobDescription}}", nullToEmpty(req.getJobDescription()))
                 .replace("{{resumeSection}}", resumeSection);
 
+        // DeepSeek chat completions 请求体：temperature 选 0.7 是为了让角色名/口吻有一点多样性但不至于天马行空。
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
         body.put("messages", List.of(
@@ -105,6 +130,7 @@ public class ScenarioService {
         ));
         body.put("temperature", 0.7);
 
+        // Spring RestTemplate 通用请求包装：body + headers 一起发送
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         log.info("[DEBUG] Calling DeepSeek for interview prompt, position: {}", req.getPosition());
 
@@ -132,6 +158,13 @@ public class ScenarioService {
         return buildFallbackPrompt(req);
     }
 
+    /**
+     * 当用户未配置 API key 或 DeepSeek 临时不可用时，拼一份最基础的面试官 prompt。
+     * 故意不抛异常：保证"创建角色"主流程在 AI 缺失时仍可进行，前端至少能用上一份可聊的 prompt。
+     *
+     * @param req 用户填写的岗位/行业/年限（用于拼角色名）
+     * @return 形如 "角色名：xxx\n\n{prompt}" 的字符串，结构与 LLM 输出保持一致以便上层统一解析
+     */
     private String buildFallbackPrompt(InterviewScenarioRequest req) {
         // 故意不抛异常：用户没配 key 或 DeepSeek 临时不可用时，仍然要给前端一份能用的 prompt，避免创建角色流程被打断。
         String position = nullToEmpty(req.getPosition());
@@ -186,6 +219,13 @@ public class ScenarioService {
         return new InterviewScenarioResponse(fallbackPosition + " 面试官", raw);
     }
 
+    /**
+     * 从 classpath 读取 prompt 模板文件（如 resources/prompts/interview-prompt-generator.txt）。
+     * 找不到或 IO 失败直接抛 RuntimeException，因为没有模板根本无法生成 prompt，必须 fail-fast 让问题暴露。
+     *
+     * @param resourcePath classpath 相对路径
+     * @return 模板全文（UTF-8）
+     */
     private String loadPromptTemplate(String resourcePath) {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
@@ -199,6 +239,10 @@ public class ScenarioService {
         }
     }
 
+    /**
+     * null 转空串的辅助方法，避免模板里大量出现三元运算符。
+     * 仅用于把可空字段安全地拼进 prompt 模板占位符。
+     */
     private String nullToEmpty(String s) {
         return s == null ? "" : s;
     }

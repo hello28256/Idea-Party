@@ -39,6 +39,12 @@ public class CharacterService {
     // 这样 REST 调用走的也是同一个 DeepSeek 兼容 endpoint，便于将来切换供应商时只改一个配置。
     private final String deepseekBaseUrl;
 
+    /**
+     * 构造时一次性注入所有依赖（构造函数注入优于字段注入）：
+     * 方便测试时 mock 替换，也避免循环依赖在字段注入时悄无声息地出现。
+     * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
+     * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
+     */
     public CharacterService(
             CharacterRepository characterRepository,
             UserRepository userRepository,
@@ -90,6 +96,12 @@ public class CharacterService {
         }
     }
 
+    /**
+     * 创建角色的统一入口，供 CharacterController 调用。
+     * 合约：userId 必须存在；未带 prompt 时会联网抓取 + AI 生成（可能慢且可能失败但有兜底）；
+     * 返回持久化后的角色（含 id），preset 强制 false 以保证用户角色不会污染公共池。
+     * 副作用：写入 character 表；可能触发 Firecrawl 抓取 + DeepSeek 调用。
+     */
     public CharacterResponse create(UUID userId, CharacterRequest request) {
         // 创建角色的入口：若请求未带 prompt 则走联网抓取 + AI 生成（generatePromptFromWeb），
         // 让"只给个名字"就能建出可聊角色；preset 强制 false 以保证用户自定义角色不会被混入公共预设池。
@@ -720,6 +732,11 @@ public class CharacterService {
         );
     }
 
+    /**
+     * 列出指定用户自建的角色（不含预设），供"我的角色"页加载。
+     * 读路径走 Entity→DTO 转换在 Service 层完成，避免控制器直接接触持久化对象。
+     * 调用方：CharacterController 的"我的角色"列表接口。
+     */
     public List<CharacterResponse> findByUserId(UUID userId) {
         return characterRepository.findByOwnerId(userId)
                 .stream()
@@ -727,6 +744,11 @@ public class CharacterService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 列出系统预设角色（is_preset=true），供新用户"开箱即用"创建聊天室。
+     * 预设与用户自建角色共用同一张表，通过 owner 与 preset 字段区分，避免双表 JOIN。
+     * 调用方：新建聊天室时的"选择预设角色"下拉。
+     */
     public List<CharacterResponse> findPresets() {
         return characterRepository.findByIsPresetTrue()
                 .stream()
@@ -734,6 +756,11 @@ public class CharacterService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 管理员视角的"所有角色"全量查询，不做分页。
+     * 仅在管理后台/调试时使用，线上接口请用 findByUserId / findPresets。
+     * 调用方：管理后台角色管理页。
+     */
     public List<CharacterResponse> findAll() {
         return characterRepository.findAll()
                 .stream()
@@ -741,11 +768,22 @@ public class CharacterService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按 id 查单个角色，找不到返回 Optional.empty() 而非 null，
+     * 让调用方显式处理"不存在"分支，避免 NPE 扩散。
+     * 调用方：聊天室详情页解析角色信息。
+     */
     public Optional<CharacterResponse> findById(UUID id) {
         return characterRepository.findById(id)
                 .map(CharacterResponse::fromEntity);
     }
 
+    /**
+     * 更新角色的名称/描述/头像/prompt。仅 owner 可改（DB 层用 findByIdAndOwnerId 双重条件兜底）。
+     * 返回 Optional：角色不存在或非 owner 时返回 empty()，由控制器映射成 404；
+     * 与 create 不同：update 不会自动重新生成 prompt，避免覆盖用户的精调结果。
+     * 调用方：角色编辑表单提交接口。
+     */
     public Optional<CharacterResponse> update(UUID characterId, UUID userId, CharacterRequest request) {
         Optional<Character> optCharacter = characterRepository.findByIdAndOwnerId(characterId, userId);
         if (optCharacter.isEmpty()) {
@@ -800,6 +838,11 @@ public class CharacterService {
         return null;
     }
 
+    /**
+     * 鉴权用：判断指定用户是否是该角色的 owner，供控制器在更新/删除前做权限校验。
+     * 比把 owner 字段读出来比较更省一次 SELECT，exists 查询只回 bool。
+     * 调用方：CharacterController 的更新/删除接口前置校验。
+     */
     public boolean isOwner(UUID characterId, UUID userId) {
         return characterRepository.existsByIdAndOwnerId(characterId, userId);
     }

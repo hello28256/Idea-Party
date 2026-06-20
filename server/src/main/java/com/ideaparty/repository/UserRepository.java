@@ -17,12 +17,28 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    /**
+     * 按邮箱精确匹配查询用户：用于「忘记密码」、邮箱激活等场景，需保证邮箱字段格式/大小写与持久化时一致。
+     * 调用方：AuthService 在发送重置链接前定位用户、Admin 后台按邮箱检索账号。
+     */
     Optional<User> findByEmail(String email);
 
+    /**
+     * 判断邮箱是否已被注册：在用户注册/修改邮箱时做唯一性前置校验，避免到保存阶段才暴露数据库唯一约束异常。
+     * 由 Service 层在事务内调用，配合 findByEmail 使用以提供更友好的错误信息。
+     */
     boolean existsByEmail(String email);
 
+    /**
+     * 按用户名精确匹配查询用户：用于「我的资料」回显、后台按用户名搜索、以及需要区分大小写的展示场景。
+     * 登录主流程请使用 findByUsernameOrEmail 以支持大小写不敏感。
+     */
     Optional<User> findByUsername(String username);
 
+    /**
+     * 判断用户名是否已被占用：注册时防止重名，注册失败时立即给出可读性更高的错误信息而非依赖 DB 约束。
+     * 调用方：AuthService.register、UserService.updateProfile。
+     */
     boolean existsByUsername(String username);
 
     // 更新资料时排除自身：避免「用户名未变更却因唯一约束报错」的误判，仅用于编辑场景。
