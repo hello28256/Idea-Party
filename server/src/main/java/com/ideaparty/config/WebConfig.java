@@ -18,7 +18,7 @@ import java.nio.file.Paths;
 public class WebConfig implements WebMvcConfigurer {
 
     /**
-     * 类级别 SLF4J 日志器：用于在启动阶段打印静态资源映射的实际物理路径，
+     * 类级 SLF4J 日志器：用于在启动阶段打印静态资源映射所对应的实际物理路径，
      * 方便运维/调试时确认 uploads 目录指向正确（避免相对路径在不同启动方式下解析不一致）。
      */
     private static final Logger log = LoggerFactory.getLogger(WebConfig.class);

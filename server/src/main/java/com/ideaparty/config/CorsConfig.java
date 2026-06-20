@@ -40,14 +40,14 @@ public class CorsConfig implements WebMvcConfigurer {
     );
 
     /**
-     * Registers the global CORS mapping consumed by Spring MVC's {@code DispatcherServlet}.
+     * 注册由 Spring MVC 的 {@code DispatcherServlet} 使用的全局 CORS 映射。
      * <p>
-     * Applies to every path ({@code /**}) so REST endpoints, error pages, and any future
-     * static handlers share one policy. Credentials are enabled because the frontend
-     * sends the JWT {@code Authorization} header; {@code maxAge=3600} lets the browser
-     * cache the preflight for an hour to avoid an OPTIONS round-trip on every request.
+     * 应用于所有路径（{@code /**}），因此 REST 接口、错误页面以及未来可能加入的
+     * 静态资源处理器共享同一套策略。开启凭据支持是因为前端会发送 JWT
+     * {@code Authorization} 头；{@code maxAge=3600} 让浏览器可以缓存
+     * 预检请求一小时，避免每次请求都多一次 OPTIONS 往返。
      *
-     * @param registry Spring MVC CORS registry; must not be null (caller is the framework).
+     * @param registry Spring MVC 的 CORS 注册表；不能为 null（调用方是框架本身）。
      */
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
@@ -62,15 +62,15 @@ public class CorsConfig implements WebMvcConfigurer {
     }
 
     /**
-     * Normalises the raw allow-list string into a trimmed, non-empty list of origins.
+     * 将原始白名单字符串规整成一份去空白、非空的来源列表。
      * <p>
-     * Centralised so blank entries (e.g. a trailing comma in {@code APP_CORS_ALLOWED_ORIGINS})
-     * cannot poison the CORS registration, and so an entirely empty value degrades
-     * gracefully to the dev defaults instead of denying every cross-origin request.
+     * 集中在这里处理，是为了防止空白条目（例如 {@code APP_CORS_ALLOWED_ORIGINS}
+     * 末尾多余的逗号）污染 CORS 注册结果，同时也让完全为空的值能够平滑降级到
+     * 开发环境默认值，而不是直接拒绝所有跨域请求。
      *
-     * @param raw comma-separated origins; may be null or blank.
-     * @return non-empty, non-null list of trimmed origins; falls back to
-     *         {@link #DEFAULT_DEV_ORIGINS} when the input is null, blank, or empty after splitting.
+     * @param raw 逗号分隔的来源；允许为 null 或空白。
+     * @return 非空、非 null 的去空白后来源列表；当入参为 null、空白或
+     *         拆分后为空时，回退到 {@link #DEFAULT_DEV_ORIGINS}。
      */
     @NonNull
     private List<String> parseOrigins(String raw) {

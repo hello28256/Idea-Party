@@ -19,64 +19,61 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Spring Boot startup hook that prepares the database before the server
- * begins serving traffic. Seeds a default cast of preset AI characters on
- * a fresh install, syncs the configured admin whitelist into the user
- * table, and backfills observation rows so legacy messages surface in
- * the admin feedback overview. Runs once per JVM boot via
- * {@link CommandLineRunner}, wrapped in a single transaction so partial
- * failures roll back cleanly instead of leaving a half-seeded database.
+ * Spring Boot 启动钩子：在服务器开始对外提供服务之前准备好数据库。
+ * 在全新安装时植入一组默认的预设 AI 角色，把配置的管理员白名单同步到
+ * 用户表，并为历史消息回填观测行，以便旧消息能在管理后台反馈总览中展示。
+ * 通过 {@link CommandLineRunner} 在每次 JVM 启动时执行一次，
+ * 整体包裹在一个事务里，使部分失败能够干净回滚，避免留下半成品的数据库。
  */
 @Component
 public class DataLoader implements CommandLineRunner {
 
     /**
-     * Standard SLF4J logger; tagged log lines with prefixes like
-     * [Backfill] / [AdminSync] so operators can grep startup output
-     * without knowing the source class.
+     * 标准 SLF4J 日志器；日志行统一加上
+     * [Backfill] / [AdminSync] 等前缀，便于运维人员
+     * 在不知道来源类的情况下也能直接 grep 启动日志。
      */
     private static final Logger log = LoggerFactory.getLogger(DataLoader.class);
 
-    /** JPA repository used to insert the preset characters and count whether seeding has already happened. */
+    /** JPA 仓库：用于插入预设角色，以及通过 count 判断是否已经植入过。 */
     private final CharacterRepository characterRepository;
-    /** JPA repository used to flip is_admin on whitelisted users. */
+    /** JPA 仓库：用于把白名单用户的 is_admin 字段置为 true。 */
     private final UserRepository userRepository;
-    /** Scanned during backfill to enumerate every persisted message and decide which need an observation row. */
+    /** 回填阶段扫描该仓库，枚举所有已持久化的消息并判断哪些需要补一条 observation 行。 */
     private final MessageRepository messageRepository;
     /**
-     * Domain service that owns the "one observation per AI message" invariant.
-     * Injected so this loader stays thin and the backfill logic lives next
-     * to the live code path instead of being duplicated.
+     * 拥有"每条 AI 消息对应一条 observation"不变量的领域服务。
+     * 通过注入方式引入，让本类保持精简，回填逻辑与线上代码路径放在一起，
+     * 避免重复实现。
      */
     private final com.ideaparty.service.MessageObservationService observationService;
     /**
-     * Spring {@link ApplicationContext} held purely to look up
-     * {@link com.ideaparty.repository.MessageFeedbackRepository} lazily inside
-     * {@link #recomputeForExisting(Message)}, avoiding a circular-bean hazard
-     * between this loader and the feedback repository's own dependencies.
+     * 仅用于在 {@link #recomputeForExisting(Message)} 中惰性查找
+     * {@link com.ideaparty.repository.MessageFeedbackRepository} 而持有的
+     * Spring {@link ApplicationContext}，避免本类与 feedback repository
+     * 自身依赖之间出现循环 Bean 风险。
      */
     private final ApplicationContext appCtx;
 
     /**
-     * Comma-separated list of user UUIDs pulled from
-     * {@code application.yml: app.admin.user-ids}. Empty default keeps dev
-     * environments safe; production sets it to the founder/operator IDs.
-     * Synced into the {@code is_admin} column at every boot so reverts are
-     * automatic if the whitelist is pruned.
+     * 从 {@code application.yml: app.admin.user-ids} 读取的逗号分隔用户 UUID 列表。
+     * 默认值留空以保证开发环境安全；生产环境应配置为创始人/运维人员的 ID。
+     * 每次启动都会同步到 {@code is_admin} 列，因此当白名单被缩减时，
+     * 权限会自动回收。
      */
     @Value("${app.admin.user-ids:}")
     private String adminUserIdsConfig;
 
     /**
-     * Constructor-injected dependencies; Spring resolves each by type.
-     * Marked {@code final} so this bean is immutable and safe to share
-     * across threads (CommandLineRunner instances are singletons).
+     * 通过构造器注入依赖；Spring 按类型解析每一个。
+     * 标记为 {@code final}，使本 Bean 不可变且可在多线程间安全共享
+     * （CommandLineRunner 实例是单例）。
      *
-     * @param characterRepository JPA repo for the {@code characters} table.
-     * @param userRepository      JPA repo for the {@code users} table.
-     * @param messageRepository   JPA repo for the {@code messages} table.
-     * @param observationService  Service that maintains the message_observations table.
-     * @param appCtx              Spring context, used only for lazy bean lookup during backfill.
+     * @param characterRepository {@code characters} 表的 JPA 仓库。
+     * @param userRepository      {@code users} 表的 JPA 仓库。
+     * @param messageRepository   {@code messages} 表的 JPA 仓库。
+     * @param observationService  维护 message_observations 表的服务。
+     * @param appCtx              Spring 上下文，仅在回填阶段用于惰性查找 Bean。
      */
     public DataLoader(CharacterRepository characterRepository, UserRepository userRepository,
                      MessageRepository messageRepository,
@@ -90,13 +87,12 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * Spring boot callback executed after the context is fully initialized
-     * but before the embedded server starts accepting traffic. Idempotent:
-     * seeding is gated on {@code characterRepository.count() == 0}, the
-     * admin sync only flips users whose flag is currently false, and the
-     * observation backfill is a no-op when every message already has a row.
+     * Spring Boot 回调，在上下文完全初始化完成后、内嵌服务器开始接受请求前执行。
+     * 具有幂等性：植入操作以 {@code characterRepository.count() == 0} 为前置条件，
+     * 管理员同步只把当前为 false 的用户翻转为 true，回填观测行在每条消息
+     * 都已有对应行时则为空操作。
      *
-     * @param args the raw command-line arguments passed to the JVM; unused here.
+     * @param args 传给 JVM 的原始命令行参数；此处未使用。
      */
     @Override
     @Transactional
@@ -109,14 +105,13 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * One-shot backfill: ensure every existing CHARACTER message has an
-     * observation row. Idempotent (onAiMessagePersisted skips if present).
-     * Also recomputes counts from existing message_feedbacks so legacy
-     * feedback rows show up in the admin overview.
+     * 一次性回填：确保每条已有的 CHARACTER 消息都有一条 observation 行。
+     * 具有幂等性（onAiMessagePersisted 会在已存在时跳过）。
+     * 同时根据已有的 message_feedbacks 重新计算计数，让历史反馈行
+     * 能够在管理后台总览中显示出来。
      *
-     * <p>Side effect: writes one observation row (or updates an existing one)
-     * per AI message; failure on a single message is logged at WARN and
-     * swallowed so a corrupt row doesn't abort the whole boot.
+     * <p>副作用：为每条 AI 消息写入一条 observation 行（或更新已有行）；
+     * 单条消息失败会以 WARN 级别记录并吞掉，避免因为某一行损坏而中断整个启动。
      */
     private void backfillObservations() {
         int created = 0;
@@ -134,13 +129,11 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * Re-derives like/dislike counters for a single AI message from the
-     * authoritative {@code message_feedbacks} table and pushes them into
-     * the matching observation row. Skips work entirely when no feedback
-     * has ever been recorded — the freshly-created observation already
-     * holds zeros in that case.
+     * 从权威表 {@code message_feedbacks} 中重新推导出单条 AI 消息的
+     * 点赞/点踩计数，并写回对应的 observation 行。当该消息从未收到任何
+     * 反馈时直接跳过——新创建的 observation 行本身已经全部为 0。
      *
-     * @param m the AI-authored message whose observation should be refreshed.
+     * @param m 需要刷新 observation 的 AI 消息。
      */
     private void recomputeForExisting(Message m) {
         var feedbackRepo = appCtx.getBean(com.ideaparty.repository.MessageFeedbackRepository.class);
@@ -153,15 +146,13 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * Promote users listed in app.admin.user-ids to is_admin=true so that
-     * the frontend (which only checks the DB-backed isAdmin field) can
-     * surface the Admin menu. The AdminFeedbackController also still
-     * accepts this whitelist as a runtime fallback, but syncing to the
-     * column makes the rest of the app (UI, future middleware) work too.
+     * 把 app.admin.user-ids 中列出的用户提升为 is_admin=true，使前端
+     * （前端只检查来自数据库的 isAdmin 字段）能够显示管理员菜单。
+     * AdminFeedbackController 仍然把这份白名单作为运行时兜底，但同步到列里
+     * 之后，应用的其它部分（UI、未来的中间件）也能直接生效。
      *
-     * <p>Side effect: mutates {@code users.is_admin} on matched rows and
-     * emits one INFO log per promotion. Unknown UUIDs are WARN-logged and
-     * skipped instead of failing the boot.
+     * <p>副作用：修改匹配行的 {@code users.is_admin}，并为每次提升输出一条 INFO 日志。
+     * 未知的 UUID 会以 WARN 级别记录并跳过，不会让启动失败。
      */
     private void syncAdminWhitelist() {
         if (adminUserIdsConfig == null || adminUserIdsConfig.isBlank()) {
@@ -192,12 +183,10 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * Inserts the canonical "preset" character roster — Shakespeare, Einstein,
-     * Cleopatra, Confucius, Marie Curie — so a brand-new database already has
-     * something interesting for users to chat with. Each row is flagged
-     * {@code preset=true} so the UI can distinguish them from user-created
-     * characters and disable destructive actions accordingly. Persisted in a
-     * single batch to keep the seed transaction compact.
+     * 写入规范的"预设"角色阵容——莎士比亚、爱因斯坦、克利奥帕特拉、孔子、居里夫人——
+     * 让一个全新的数据库一上来就有值得聊的角色。每条记录都标记
+     * {@code preset=true}，UI 据此把它们与用户自建角色区分开，
+     * 并禁用破坏性操作。一次性批量写入，让植入事务保持紧凑。
      */
     private void seedCharacters() {
         Character shakespeare = new Character();

@@ -14,8 +14,8 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  * 与 ChatWebSocketHandler 协作：把 handler 注册到 /ws 端点，供前端 wsClient 使用。
  */
 /**
- * WebSocket configuration for real-time chat.
- * Registers ChatWebSocketHandler at /ws endpoint with CORS support.
+ * 用于实时聊天的 WebSocket 配置类。
+ * 把 ChatWebSocketHandler 注册到 /ws 端点，并支持 CORS。
  */
 // @Configuration  // Disabled - using SocketConfig instead
 // @EnableWebSocket
