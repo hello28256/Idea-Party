@@ -2,6 +2,9 @@
 /**
  * 全局 Toast 组件：底部居中显示提示，2.5 秒后自动消失。
  * 状态由 useToast() composable 管理，本组件只负责渲染。
+ *
+ * 单一全局实例：挂在 App.vue 根级；所有页面共享同一组 toast 队列。
+ * type 区分：success（✓）/ error（✕）/ info（ⓘ），各自配色见 CSS。
  */
 import { useToasts } from '@/composables/useToast'
 

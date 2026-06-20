@@ -2,6 +2,15 @@
 /**
  * 通用确认弹窗：用于"危险操作前最后确认"场景（删除、清空等）。
  * 替代 window.confirm()，风格与项目深色主题一致。
+ *
+ * 契约（事件式，非 Promise）：
+ *   - 父组件持有 show 状态，受控开关
+ *   - 用户点确认 → emit('confirm')，由父组件执行异步操作并自行管理 loading
+ *   - 用户点取消 / 点遮罩 → emit('cancel')
+ *   - 父组件应在异步完成后手动将 show 置 false（这是有意为之，便于在请求失败时仍保持弹窗打开）
+ *
+ * 之所以不返回 Promise：与 Vue 受控组件范式一致，避免父组件在 await 中途被
+ * 弹窗关闭打断造成状态错乱；loading 由调用方控制可让错误处理更直观（toast + 保留弹窗）。
  */
 // 通过 Teleport 挂到 body，避免父容器 transform/overflow 影响定位；
 // 由调用方控制 show/danger/loading，本组件只负责 UI 与事件转发（不内置异步请求）。

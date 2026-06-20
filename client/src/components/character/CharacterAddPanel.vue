@@ -14,6 +14,8 @@ import Input from '@/components/ui/Input.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
 
+// show：父组件通过 v-model 控制抽屉显隐
+// editingCharacter：传入非空时进入编辑模式，null/undefined 时进入创建模式
 interface Props {
   show: boolean
   editingCharacter?: Character | null
@@ -23,6 +25,7 @@ const props = withDefaults(defineProps<Props>(), {
   editingCharacter: null
 })
 
+// close：父组件收到后置 show=false；characterAdded 携带写入后的角色（含 server id / avatarUrl）
 const emit = defineEmits<{
   close: []
   characterAdded: [character: Character]

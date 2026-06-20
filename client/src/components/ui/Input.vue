@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // 通用受控输入框：遵循 Vue3 v-model 标准约定（modelValue + update:modelValue），
 // 由父组件持有真实值，便于在登录/注册等场景统一做校验、提交与重置。
+// 非全局单例：每个表单字段实例化一次（登录页用户名/密码、注册表单、反馈备注等）。
+//
+// type 限定为 HTML5 标准值：复用浏览器原生校验（email/url）与移动端键盘体验（tel/number 唤起数字键盘）。
 import { computed } from 'vue'
 
 // Props 契约：限定 type 取值是为复用 HTML5 原生校验（email/url）与移动端键盘体验（tel/number）；

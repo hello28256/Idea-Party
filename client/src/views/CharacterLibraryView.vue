@@ -1,4 +1,12 @@
 <script setup lang="ts">
+// CharacterLibraryView：路由 /characters
+// 「我的角色库」管理页——展示当前用户创建的自定义角色，支持创建 / 编辑 / 一键开聊。
+// 关键依赖：
+//   - characterStore：角色 CRUD / 头像上传 / 同名校验
+//   - authStore：当前用户标识，用于过滤"我创建的角色"
+//   - roomStore：一键开聊时负责 createRoom + addCharacterToRoom
+//   - CreateCharacterModal：复用弹窗组件，通过 mode='create' | 'edit' 区分行为
+//   - AppSidebar / ALL_NAV_ITEMS：通用左侧导航（activeId='characters' 高亮当前页）
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'

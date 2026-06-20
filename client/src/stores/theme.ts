@@ -1,3 +1,6 @@
+// 主题 store：维护用户档位（system/light/dark）、解析后的 isDark，并与 <html> 的 .dark / data-theme 同步。
+// 协作模块：SettingsModal（用户切换）、authStore.fetchProfile（登录后从后端回灌）、所有 Tailwind 暗色变体消费方。
+
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { updatePreferences } from '@/api/user'

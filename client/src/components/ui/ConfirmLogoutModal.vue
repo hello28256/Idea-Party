@@ -1,6 +1,10 @@
 <script setup lang="ts">
-// 退出登录二次确认弹窗：与父组件通过 v-model:show 控制可见性，仅做 UI 与交互编排，
+// 退出登录二次确认弹窗：与父组件通过 show prop 控制可见性，仅做 UI 与交互编排，
 // 不直接调登出 API；登出副作用由父组件在 confirm 事件中处理，便于复用与单测。
+// 非全局单例：仅 UserDropdown 在点击「退出登录」时挂载一次，关闭即随父组件复用。
+//
+// 与 ConfirmDialog 的差异：内置 300ms loading（掩盖本地清 token 的瞬时空窗），
+// 并在 loading 中禁止关闭（避免请求飞行途中 UI 状态与后端不一致）。
 import { ref, watch } from 'vue'
 
 interface Props {

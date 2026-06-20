@@ -1,5 +1,8 @@
 import { ref, watch } from 'vue'
 
+// 登录页「记住密码」状态 composable：用 Web Crypto 加密 identifier+password 落盘 localStorage，
+// 调用方：LoginView 在挂载时读 hasStoredCreds() 决定是否显示解锁框，登录成功后调 setCredentials 落盘。
+
 /**
  * 加密保存登录凭据的 composable。
  *
@@ -131,6 +134,7 @@ function clearLegacy() {
 export function useRememberCredentials() {
   const enabled = ref(loadEnabled())
   // 旧方案的明文 identifier 优先回填一次（迁移），然后清掉
+  // 重要：只在 enabled 为 true 时才尝试读 identifier，避免「未勾选记住」时也从旧 key 回填出用户名。
   const identifier = ref<string>(enabled.value ? loadIdentifier() : '')
 
   // 勾选状态变化时立即持久化；关闭时连带清掉密文与 identifier，避免「勾掉复选框但密文仍在」的隐私残留
@@ -146,6 +150,8 @@ export function useRememberCredentials() {
 
   /**
    * 登录成功后保存凭据（用登录密码作为加密密钥）
+   * 副作用：写入 localStorage(CREDS_KEY) 加密 blob，标识同时回填到 identifier ref。
+   * 调用方：LoginView 的 submit handler 成功分支。
    */
   async function setCredentials(identifierValue: string, password: string) {
     identifier.value = identifierValue
@@ -174,6 +180,7 @@ export function useRememberCredentials() {
    * 用主密码（=登录密码）解锁已保存的凭据。
    * 成功时回填 identifier + password；密码错误时返回 null。
    * 注意：传入的是用户当前输入的密码，与 setCredentials 时的密码必须完全一致（PBKDF2 是确定性的）
+   * 调用方：LoginView 的「解锁已保存凭据」表单。
    */
   async function unlock(passphrase: string): Promise<StoredCreds | null> {
     if (!isCryptoAvailable()) return null
@@ -192,6 +199,7 @@ export function useRememberCredentials() {
 
   /**
    * 是否存在加密凭据（即「记住我」生效且曾成功登录过）
+   * 用途：LoginView 挂载时据此决定显示「解锁」入口还是普通登录表单。
    */
   function hasStoredCreds(): boolean {
     if (!isCryptoAvailable()) return false

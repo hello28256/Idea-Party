@@ -7,11 +7,14 @@ import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useMessageStore } from '@/stores/message'
 
+// show：父组件控制弹窗显隐
+// roomId：当前操作的目标房间 id，用于 store 调用与回写路由
 const props = defineProps<{
   show: boolean
   roomId: string
 }>()
 
+// close：父组件收到后置 show=false；本组件内部不再做导航，仅 store + 路由
 const emit = defineEmits<{
   close: []
 }>()

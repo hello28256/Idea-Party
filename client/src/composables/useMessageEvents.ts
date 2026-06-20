@@ -1,6 +1,10 @@
 import { onMounted, onUnmounted } from 'vue'
 import { messageEventsApi, type EventType } from '@/api/messageEvents'
 
+// 单条消息的「隐式用户行为」埋点 composable：监听气泡可见性、复制事件等，
+// 把 COPY / READ_COMPLETE / REWRITE 等非主动信号上报到后端做参与度分析。
+// 调用方：MessageList 渲染每条消息气泡时各调用一次，setupObserver 需在气泡 ref 挂载后触发。
+
 // 复合函数需要 messageId 来关联后端事件；threshold 留作可选是因为不同消息类型
 // （长文/短回复）需要不同的「读完」判定阈值，由调用方决定更合理。
 interface TrackOptions {
@@ -19,6 +23,9 @@ interface TrackOptions {
  *
  * Events are best-effort: failures are swallowed to avoid noisy UI errors
  * since these are observability, not user-facing actions.
+ *
+ * 资源清理：document 级 copy 监听、定时器、IntersectionObserver 都在 onUnmounted 中释放，
+ * 调用方无需手动 destroy。
  */
 // 每个消息气泡独立调用一次本组合式；其生命周期跟 Vue 组件实例绑定，
 // 通过 IntersectionObserver 判断「用户是否真的在看」并触发隐式信号事件。

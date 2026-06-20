@@ -1,5 +1,8 @@
 // Centralized sidebar nav configuration.
 // AppSidebar (components/ui/AppSidebar.vue) reads from this list.
+// 侧边栏导航配置中心：所有路由入口在此声明一次，
+// 视图层（AppSidebar、各 view）只通过 ALL_NAV_ITEMS / MINIMAL_NAV_ITEMS 取自己需要的子集。
+// 之所以集中：新增/重命名路由只需改此处，避免在多个 view 文件里重复硬编码。
 
 // 导航项契约：id 在同一数组内唯一，用于匹配 activeId 与过滤；route 支持 path 或 path+query，
 // 由消费方在 router.push / RouterLink 中直接消费，组件本身不做跳转解析。

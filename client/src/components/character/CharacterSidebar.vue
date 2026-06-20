@@ -9,6 +9,13 @@ import Avatar from '@/components/ui/Avatar.vue'
 
 // Props 设计原则：所有状态都受控于父组件，侧边栏本身不持有业务状态。
 // `show` 仅控制移动端抽屉可见性；桌面端在 lg+ 始终渲染，不依赖 `show`。
+
+// show：仅移动端控制抽屉显隐，桌面端忽略
+// characters：当前用户可访问的角色列表
+// activeCharacterId：当前选中的角色 id（用于高亮 + 思考指示定位）
+// isThinking：是否有角色正在发言（用于显示三点动画）
+// chatMode：对话模式（dialogue 单次 / discussion 持续讨论），决定底部模式开关的视觉态
+// isDiscussing：讨论模式下是否处于「正在进行中」状态
 interface Props {
   show: boolean
   characters: Character[]
@@ -25,6 +32,10 @@ const props = withDefaults(defineProps<Props>(), {
   isDiscussing: false
 })
 
+// close：仅移动端抽屉「关闭」按钮触发
+// characterSelected：选中某个角色（null 表示触发"添加角色"）
+// characterDetail：点击「详情」图标，由父级弹 CharacterDetailModal
+// switchMode：切换对话/讨论模式
 const emit = defineEmits<{
   close: []
   characterSelected: [character: Character | null]

@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// RegisterView：路由 /register
+// 独立注册页（与 LoginView 的 ?mode=register 模式并存的入口，老链接/老用户可能仍走这里）。
+// 仅处理注册流程：调 register API，成功后跳回登录页并 query 携带用户名以便自动回填。
+// 不维护任何持久化状态——token 的存取由登录流程负责，避免在两处重复实现鉴权副作用。
+// 关键依赖：register()（@/api/auth）——直接调 API，不写 authStore。
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'

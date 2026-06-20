@@ -2,6 +2,10 @@
 // 管理端「反馈详情」弹窗：在 AdminFeedbackListView 里点开某条 like/dislike 反馈时打开。
 // 既要展示用户显式反馈（分类、备注），也要拉取并展示该消息的隐式信号
 // （复制/重写/停留等），帮助管理员判断是否需要标记低质回答或调整角色 prompt。
+//
+// 权限要求：仅管理员（isAdmin=true）可见。路由 /admin/feedbacks 由后端鉴权拦截，
+// 前端通过 AdminLayout 守卫 + 接口 401 双重保护；本弹窗自身不做权限判断（依赖父级已经过滤）。
+// 非全局单例：跟随列表行的点开动作挂载，关闭即销毁，隐式信号缓存随组件生命周期清理。
 import { ref, watch } from 'vue'
 import { X, ThumbsUp, ThumbsDown, Copy, Eye, RefreshCw, Pencil } from 'lucide-vue-next'
 import type { AdminFeedbackDetail } from '@/api/messageFeedback'

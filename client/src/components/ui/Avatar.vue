@@ -3,6 +3,12 @@ import { computed, ref, watch } from 'vue'
 
 // 通用头像组件：支持图片源失败回退为首字母占位、思考中状态指示。
 // 配合聊天消息列表使用：聊天室中每个 AI 角色都需要稳定可识别的头像展示。
+// 非全局单例：每条消息渲染一次，由 MessageList 在 v-for 中实例化。
+//
+// Fallback 逻辑（按优先级）：
+//   1. props.src —— 用户上传/AI 生成的头像 URL
+//   2. /image.png —— 项目根静态资源兜底，保证 UI 不留空白
+//   3. name.charAt(0) —— 任意图片加载失败（404/网络断开）时显示首字母占位（渐变色背景）
 
 interface Props {
   src?: string | null

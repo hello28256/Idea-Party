@@ -15,14 +15,16 @@ const CATEGORIES: { value: string; label: string }[] = [
   { value: 'OTHER', label: '其他' }
 ]
 
+// show：父组件控制显隐
 // current 为 null 表示新增反馈；非 null 表示编辑已有反馈，UI 据此切换「取消反馈」按钮和确认文案。
 interface Props {
   show: boolean
   current: MessageFeedbackPayload | null
 }
 
+// close：仅关闭弹窗（遮罩、关闭按钮、返回按钮触发），不动服务端数据
 // submit 携带标准化后的 { category, comment }，由父组件决定走「新增」还是「更新」接口。
-// cancel-feedback 用于撤销已存在的反馈记录；close 只关闭弹窗，不动服务端数据。
+// cancel-feedback 用于撤销已存在的反馈记录
 interface Emits {
   (e: 'close'): void
   (e: 'submit', payload: { category: string; comment: string | null }): void

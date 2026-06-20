@@ -1,5 +1,8 @@
 <template>
   <div class="legal-page">
+    <!-- 法务页布局：条款页（/terms）与隐私页（/privacy）共用此 layout。
+         设计要点：sticky 头栏 + 单列卡片正文 + 居中 footer，强调"长文阅读"而非"操作表单"，
+         与登录/注册的双栏布局刻意区分开。 -->
     <!-- 顶栏两个入口都跳 /login：法务页对未登录用户开放，但所有交互最终仍需登录态，故品牌与"返回"共用一个出口。 -->
     <header class="legal-header">
       <RouterLink to="/login" class="brand">Idea Party</RouterLink>
@@ -15,6 +18,8 @@
         </div>
 
         <article class="legal-content">
+          <!-- 正文 slot：条款/隐私的 <section>/<h2>/<p> 等由各页面自行编写，
+               样式由本 layout 通过 :deep() 统一约束，保证多份法务文档视觉一致。 -->
           <slot />
         </article>
       </section>

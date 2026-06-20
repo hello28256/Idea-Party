@@ -125,6 +125,7 @@ const SEED_SCENARIOS: Scenario[] = [
 // 场景 Pinia store。
 // 当前不持久化、不写后端：仅作为路由 / 弹窗之间的「共享只读数据源」，
 // 避免在多个组件里各自 import SEED_SCENARIOS 造成耦合。
+// 协作模块：CreateRoomDialog（场景卡片）、RoomDetailView（场景提示词渲染）。
 export const useScenarioStore = defineStore('scenario', () => {
   // 用展开运算符拷贝一份：防御 SEED_SCENARIOS 被外部引用修改（例如单测里 mock 状态时）。
   const scenarios = ref<Scenario[]>([...SEED_SCENARIOS])

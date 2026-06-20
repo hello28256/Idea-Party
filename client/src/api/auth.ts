@@ -55,10 +55,23 @@ api.interceptors.response.use(
   }
 )
 
-// Auth API functions
+// 鉴权域 REST 客户端，对接后端 AuthController（/auth/*）。
+// 职责：登录、注册、修改资料、改密，并对外暴露带拦截器的 axios 实例，
+// 供其它 API 模块（characters/rooms/scenarios/...）复用，避免各自维护一份 JWT 注入。
+
+/**
+ * 登录。
+ * HTTP POST /auth/login。
+ * 调用方：LoginView 表单提交、AuthStore.login。
+ */
 export const login = (data: LoginRequest) =>
   api.post<AuthResponse>('/auth/login', data)
 
+/**
+ * 注册。
+ * HTTP POST /auth/register。
+ * 调用方：RegisterView 表单提交。
+ */
 export const register = (data: RegisterRequest) =>
   api.post<AuthResponse>('/auth/register', data)
 
@@ -82,9 +95,19 @@ export interface ChangePasswordRequest {
   newPassword: string
 }
 
+/**
+ * 更新个人资料（displayName / email / username）。
+ * HTTP PUT /auth/profile。
+ * 调用方：UserProfileView 编辑表单提交。
+ */
 export const updateProfile = (data: UpdateProfileRequest) =>
   api.put<AuthResponse>('/auth/profile', data)
 
+/**
+ * 修改密码（需提供当前密码做身份复核）。
+ * HTTP PATCH /auth/change-password。
+ * 调用方：UserProfileView 改密表单。
+ */
 export const changePassword = (data: ChangePasswordRequest) =>
   api.patch('/auth/change-password', data)
 

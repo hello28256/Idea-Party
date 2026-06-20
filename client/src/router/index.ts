@@ -10,8 +10,15 @@ const ChatView = () => import('@/views/ChatView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 
 // 应用前端路由中心。
-// 设计意图：把路由表（meta 标记 + 名称）与全局守卫抽到一处，
-// 让视图组件只关心渲染；权限/登录/管理员拦截由守卫统一把关，避免散落在组件内。
+// 路由结构按"业务域"分组：auth（login/register）、rooms/scenarios/characters（资源浏览与编辑）、
+// chat（核心聊天页）、settings、admin（管理员）、legal（公开条款）。
+// 每条路由通过 meta.requiresAuth 标记是否需要登录鉴权，meta.requiresAdmin 标记是否需要管理员权限。
+// 守卫策略：
+//   - 未登录访问受保护路由 → 踢回 /login，并在 query 上保留 redirect 以便登录后回跳；
+//   - 已登录访问 login/register → 反向跳到 /rooms，避免重复进入认证流程；
+//   - requiresAdmin 路由：除了要求登录外，还需 user.isAdmin === true（前端兜底，真正的权限拦截由后端接口保证）；
+//   - 根路径 '/' 根据 localStorage 中的 accessToken 做条件跳转（有 → /rooms，无 → /login）。
+// 设计意图：把权限/登录/管理员拦截抽到一处统一处理，让视图组件只关心渲染，不再各自写守卫逻辑。
 const router = createRouter({
   history: createWebHistory(),
   routes: [

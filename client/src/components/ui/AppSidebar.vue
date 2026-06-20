@@ -2,6 +2,7 @@
 // 通用侧边栏组件：渲染品牌区 + 父级传入的「创建」操作槽位 + 导航列表。
 // 不内嵌任何具体路由数据：每个视图（HomeView / RoomListView 等）按需传入 navItems 子集与当前 activeId，
 // 这样同一组件能服务于「发现/我的聊天/角色库/场景」等多种上下文，避免在侧边栏里硬编码路由分支。
+// 组件本身无全局单例：随父级路由一起挂载/卸载，由 HomeView / RoomListView 等各自持有。
 
 import { useRouter } from 'vue-router'
 import type { NavItem } from '@/config/sidebar'

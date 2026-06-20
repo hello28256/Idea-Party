@@ -8,12 +8,14 @@ import { Send } from 'lucide-vue-next'
 // 还是 Moderator 触发新一轮发言。
 
 const props = withDefaults(defineProps<{
+  // 父组件禁用输入：用于 AI 正在生成/未连上 WebSocket 等需要屏蔽用户输入的场景
   disabled?: boolean
 }>(), {
   disabled: false
 })
 
 const emit = defineEmits<{
+  // 发送事件：载荷为已 trim 的纯文本，父组件（ChatRoomPanel）决定是普通消息还是触发 Moderator 新一轮发言
   send: [content: string]
 }>()
 

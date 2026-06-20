@@ -10,10 +10,13 @@ import { charactersApi } from '@/api/characters'
  */
 export const useCharacterStore = defineStore('character', () => {
   // State
-  // characters: 当前用户可见的全部角色（混合预设与自建）；presets: 仅系统预设角色，独立缓存便于场景快速选取。
+  // 当前用户可见的全部角色（混合预设与自建），供房间、场景、角色管理界面复用同一份数据
   const characters = ref<Character[]>([])
+  // 仅系统预设角色：独立缓存便于「创建房间」弹窗快速选择，避免每次进入都重复拉全部角色再过滤
   const presets = ref<Character[]>([])
+  // 任意一个 CRUD 请求进行中都置 true；UI 用其展示全局 Loading，避免多个按钮各自维护状态
   const loading = ref(false)
+  // 最近一次失败的错误信息；UI 在 toast/dialog 中直接读取展示，不在 action 内部消化
   const error = ref<string | null>(null)
 
   // Computed

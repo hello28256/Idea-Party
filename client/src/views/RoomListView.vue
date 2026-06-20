@@ -1,7 +1,14 @@
 <script setup lang="ts">
+// RoomListView：路由 /rooms（默认 ?tab=discover） 以及 /rooms?tab=my-rooms&roomId=xxx 等
 // RoomListView 是应用的核心"中枢"页面：
 // 通过 URL query (?tab=...&roomId=...) 同时承载「发现/角色库/场景/我的聊天」多个视图，
 // 并在 my-rooms tab 下用三栏布局（房间列表 + 聊天面板 + 角色面板）替代独立 /chat 路由。
+// 关键依赖：
+//   - roomStore / characterStore / scenarioStore / authStore：领域数据源
+//   - charactersApi / scenariosApi：纯 HTTP 通道（场景 prompt 生成、简历解析、JD OCR）
+//   - ChatRoomPanel：在 my-rooms tab 中以 embedded 模式渲染（替代 /chat/:roomId 路由）
+//   - CreateRoomModal / CreateCharacterModal / ConfirmDialog：复用弹窗
+//   - useToast：统一提示（删除成功/失败等）
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
 import { scenariosApi } from '@/api/scenarios'

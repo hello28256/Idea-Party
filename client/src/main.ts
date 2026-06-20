@@ -6,14 +6,18 @@ import './style.css'
 
 const app = createApp(App)
 
-// 顺序固定：Pinia 必须先于 router 和任何 store 消费者注册，否则 router 守卫 / 组件中
-// useStore() 会因 activePinia 为空而抛错；router 紧跟其后，确保首屏路由守卫可访问 store。
+// Vue 应用初始化顺序固定为：Pinia → Router → Theme → mount，每一步都有强约束：
+//   1) Pinia 必须先于 router：全局 beforeEach 守卫与首屏组件会 useStore()，
+//      若 activePinia 不存在会抛 "getActivePinia()" was called with no active Pinia。
+//   2) Router 紧随其后：保证首屏 beforeEach 守卫能拿到 auth store 里的 token / user。
+//   3) Theme 在 mount 前同步应用：避免 Vue 接管 DOM 后再切换 <html class="dark">
+//      导致首屏闪一帧默认主题（FOUC），影响视觉稳定性。
+//   4) 最后才 mount：此时 store / router / theme 全部就绪，首屏组件渲染时上下文完备。
 app.use(createPinia())
 app.use(router)
 
 // 主题初始化故意放在 mount 之前：若等组件挂载后再切换 class，浏览器会先以默认主题
 // 渲染一帧再切换，导致首屏闪屏（FOUC）。必须在 Vue 接管 DOM 前应用 data-theme。
-// Initialize theme after Pinia is set up
 import { useThemeStore } from './stores/theme'
 const themeStore = useThemeStore()
 themeStore.applyTheme()

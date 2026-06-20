@@ -25,12 +25,28 @@ export interface MessageSignals {
   uniqueUsers: number
 }
 
+// 消息交互埋点 REST 客户端，对接后端 MessageEventController（/messages/{id}/events）
+// 与 AdminMessageSignalController（/admin/messages/{id}/signals）。
+// 职责：上报用户对 AI 回复的隐式行为（重写/复制/读完整/编辑/聚焦），
+// 并在管理端聚合查询曝光/停留等指标，反哺 Moderator Agent 的发言编排与质量评估。
+// 上报与聚合查询拆成两条独立接口，避免一个失败拖垮另一条调用链。
+
 // record 走用户态接口（任意登录用户可触发），adminSignals 走 /admin 前缀
 // 由后端做角色校验，调用方需确保只在管理员页面调用后者。
 export const messageEventsApi = {
+  /**
+   * 上报单条消息的一次用户行为事件。
+   * HTTP POST /messages/{messageId}/events。
+   * 调用方：MessageList 的「改写/复制/读完/聚焦」事件回调。
+   */
   record: (messageId: string, body: RecordEventBody) =>
     api.post(`/messages/${messageId}/events`, body).then(res => res.data),
 
+  /**
+   * 管理端拉取单条消息的聚合信号（各事件计数 + 平均停留 + 独立用户数）。
+   * HTTP GET /admin/messages/{messageId}/signals。
+   * 调用方：管理端消息详情面板。
+   */
   adminSignals: (messageId: string) =>
     api.get<MessageSignals>(`/admin/messages/${messageId}/signals`).then(res => res.data)
 }

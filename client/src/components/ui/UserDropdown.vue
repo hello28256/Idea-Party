@@ -8,6 +8,7 @@ import ConfirmLogoutModal from './ConfirmLogoutModal.vue'
 // UserDropdown 是侧边栏底部的用户卡片+弹出菜单组合。
 // 用户卡 click 触发弹窗；弹窗承担「设置入口 / 管理后台入口 / 退出登录」三类用户级操作。
 // 与 authStore（取当前用户与 isAdmin）、settingsStore（打开设置抽屉）、router（跳转）协作。
+// 单一实例：仅在 AppSidebar 底部挂载一次，随侧边栏生命周期复用。
 
 const authStore = useAuthStore()
 const router = useRouter()

@@ -10,10 +10,15 @@ import type { ChatMessage } from '@/composables/useSocket'
 import type { Character } from '@/types'
 
 const props = defineProps<{
+  // 必填：已落库的历史消息列表（store 维护）
   messages: ChatMessage[]
+  // 当前正在"思考"的角色 ID：非 null 时挂载 ThinkingIndicator
   thinkingCharacterId: string | null
+  // 房间内的角色列表：用于流式片段反查展示名、空态头像展示
   characters: Character[]
+  // 流式增量：key=characterId, value=已累计的字符流；空对象时跳过流式渲染
   streamingMessages?: Record<string, string>
+  // 当前登录用户 ID：用于判断某条 USER 消息是否属于"自己"以决定气泡方向
   currentUserId?: string | null
 }>()
 

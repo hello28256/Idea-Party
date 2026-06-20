@@ -2,9 +2,13 @@
 // 角色列表中的单个角色卡片：负责展示角色基础信息（头像/名称/描述），
 // 并向父列表反馈"选中"事件。由 CharacterListView 之类容器按数组渲染，
 // 通过 isActive 区分当前正在对话的角色，通过 isThinking 展示正在发言动画。
+// 父组件：CharacterListView（角色库）、CharacterSidebar（聊天室侧栏）等按数组 v-for 渲染。
 import type { Character } from '@/types'
 import Avatar from '@/components/ui/Avatar.vue'
 
+// character：必填，显示卡片主信息
+// isActive：是否处于选中/激活态，控制左边框高亮
+// isThinking：当前角色是否正在发言（用于显示三点动画）
 interface Props {
   character: Character
   isActive?: boolean
@@ -17,6 +21,7 @@ const props = withDefaults(defineProps<Props>(), {
   isThinking: false
 })
 
+// select：点击整张卡片时抛给父组件，由父级决定切换对话、加入房间等具体业务
 const emit = defineEmits<{
   select: [character: Character]
 }>()

@@ -18,12 +18,19 @@ const messageStore = useMessageStore()
 // Props 设计：以"消息组"为单位控制展示，避免每条消息都重复渲染头像/用户名；
 // 由父组件（消息列表）按发送者+时间窗聚合后再下发 group 标记。
 interface Props {
+  // 必填：原始消息对象（来自 store 或流式包装的虚拟消息）
   message: ChatMessage
+  // 是否是当前登录用户自己发的消息：决定气泡方向（左 AI / 右 USER）
   isOwn?: boolean
+  // 是否正在流式输出：影响打字动画、反馈按钮显隐、曝光埋点资格
   isStreaming?: boolean
+  // 控制头像显示（连续消息时隐藏）
   showAvatar?: boolean      // 控制头像显示（连续消息时隐藏）
+  // 控制用户名显示（连续消息时隐藏）
   showName?: boolean       // 控制用户名显示（连续消息时隐藏）
+  // 是否是消息组的第一条：用于调整顶部间距与头像显隐
   isFirstOfGroup?: boolean // 是否是消息组的第一条
+  // 是否是消息组的最后一条：时间戳和反馈按钮仅在最后一条展示
   isLastOfGroup?: boolean  // 是否是消息组的最后一条
 }
 

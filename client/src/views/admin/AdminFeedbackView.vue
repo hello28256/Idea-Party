@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// AdminFeedbackView：路由 /admin/feedbacks（管理后台域）
 // AdminFeedbackView：管理员后台的「消息反馈总览」页
 // 从后端聚合视图拉取所有 AI 回复消息 + 反馈汇总，支持按状态/用户筛选、
 // 分页浏览、点击行打开反馈详情。配合 AdminFeedbackDetailModal 展示单条反馈。

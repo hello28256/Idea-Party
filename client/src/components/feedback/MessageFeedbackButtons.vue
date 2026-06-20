@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: '其他'
 }
 
+// feedback：父组件传入的当前反馈状态，null 表示无反馈
 interface Props {
   feedback: MessageFeedbackPayload | null | undefined
 }

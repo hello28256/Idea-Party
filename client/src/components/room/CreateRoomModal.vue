@@ -11,11 +11,13 @@ import { useAuthStore } from '@/stores/auth'
 import { charactersApi } from '@/api/characters'
 import type { Character } from '@/types'
 
+// show：父组件 v-model 控制弹窗显隐
 interface Props {
   show: boolean
 }
 
-// created 把新/复用房间 id 抛给父组件；不直接 router.push 是为了把「创建」与「导航」解耦，
+// close：用户取消或主动关闭弹窗
+// created：创建/复用房间成功后抛出房间 id；不直接 router.push 是为了把「创建」与「导航」解耦，
 // 父组件可决定跳转到 /rooms/:id 还是更新 my-rooms 当前选中项等。
 interface Emits {
   close: []

@@ -1,6 +1,13 @@
 <script setup lang="ts">
 // 通用按钮 UI 原子组件
 // 全站统一按钮外观与交互（提交/取消/危险/次级），封装 loading 态以避免每个调用方重复实现 disabled + spinner 联动。
+// 非全局单例：在每个使用按钮的位置（表单、弹窗、卡片）实例化。
+//
+// Variant 设计意图：
+//   primary      —— 品牌主色（深蓝渐变 + 金色字），用于最重要的正向操作（创建、确认提交）
+//   secondary    —— 米色系弱化层级，用于次级操作（取消、辅助按钮）
+//   destructive  —— 红色，用于不可逆的破坏性操作（删除、清空）
+//   outline      —— 透明背景 + 描边，用于在密集区域降低视觉重量（如卡片底部次级动作）
 interface Props {
   type?: 'button' | 'submit' | 'reset'
   variant?: 'primary' | 'secondary' | 'destructive' | 'outline'

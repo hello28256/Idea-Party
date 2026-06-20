@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// SettingsView：路由 /settings
 // SettingsView 是一个"路由触发器"页面：/settings 路由的唯一作用是打开全局
 // SettingsModal（由 App.vue 挂载），然后立即跳回上一页，避免覆盖用户当前的
 // 浏览上下文。真正的设置 UI 不在页面里，而在浮层里。

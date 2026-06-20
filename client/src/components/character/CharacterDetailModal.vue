@@ -5,7 +5,10 @@ import Avatar from '@/components/ui/Avatar.vue'
 // 角色详情弹窗：只读展示角色信息（头像/简介/Prompt/预设标识），不提供编辑入口。
 // 设计为受控组件：父组件通过 show 控制可见性，character 为 null 时不渲染，
 // 避免父组件在弹窗打开期间清空数据时残留旧内容。
+// 父组件：CharacterSidebar（侧栏「查看详情」图标）、CharacterListView（列表中点击角色）等。
 
+// show：父组件控制显隐
+// character：null 时不渲染（template 守卫），避免空数据
 interface Props {
   show: boolean
   character: Character | null
@@ -13,6 +16,7 @@ interface Props {
 
 defineProps<Props>()
 
+// close：遮罩点击 / 关闭按钮 / 底部按钮三处共用，父组件收到后置 show=false
 const emit = defineEmits<{
   close: []
 }>()

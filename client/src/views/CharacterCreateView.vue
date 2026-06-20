@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // CharacterCreateView.vue
-// 角色创建/编辑共用视图。
+// 路由：/characters/create（创建） 与 /characters/:id/edit（编辑） 共用视图。
 // 通过路由参数 /characters/:id 区分"创建"与"编辑"两种模式：
 // - 无 id：创建新角色，所有者取自当前登录用户。
 // - 有 id：从 characterStore 读取已有角色填充表单，提交走 updateCharacter。
 // 表单字段同步给后端的 Character DTO，prompt 字段支持 AI 一键生成（调用 Firecrawl + DeepSeek 后端服务）。
+// 关键依赖：characterStore（CRUD + 上传）、authStore（当前用户）、charactersApi（generatePrompt）。
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'

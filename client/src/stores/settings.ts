@@ -24,14 +24,29 @@ export const useSettingsStore = defineStore('settings', () => {
   // pendingTab 是"一次性信号"：modal 挂载时读取后立即清空，避免下次打开弹窗仍跳到上次的 tab
   const pendingTab = ref<string | null>(null)
 
+  /**
+   * 唤起全局设置弹窗，可指定打开时定位的 tab。
+   * pendingTab 是「一次性信号」：modal 挂载时通过 consumePendingTab 读取后立即清空，
+   * 避免下次打开弹窗仍跳到上次的 tab。
+   * 调用方：AppHeader 的「设置」按钮、错误提示中的「去设置」链接。
+   */
   function openSettings(tab?: string) {
     pendingTab.value = tab ?? null
     settingsModalOpen.value = true
   }
+  /**
+   * 关闭设置弹窗，同时清空 pendingTab，防止下次打开意外跳到旧 tab。
+   * 调用方：SettingsModal 的「关闭」按钮、ESC 键监听、路由切换守卫。
+   */
   function closeSettings() {
     settingsModalOpen.value = false
     pendingTab.value = null
   }
+  /**
+   * 由 SettingsModal onMount 时调用一次：读取并立即清空 pendingTab。
+   * 返回 null 表示「无指定 tab，沿用默认」或「已被前次调用消费」。
+   * 调用方：SettingsModal 的 onMounted。
+   */
   function consumePendingTab(): string | null {
     const t = pendingTab.value
     pendingTab.value = null
@@ -102,6 +117,10 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  /**
+   * 切换 API Key 明文/掩码显示。纯前端状态，不持久化——刷新即回到掩码态，避免误把 key 留在本地存储。
+   * 调用方：SettingsModal 的「眼睛」图标按钮。
+   */
   function toggleShowKey() {
     showApiKey.value = !showApiKey.value
   }

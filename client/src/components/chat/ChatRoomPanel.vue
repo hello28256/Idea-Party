@@ -18,11 +18,17 @@ import CharacterDetailModal from '@/components/character/CharacterDetailModal.vu
 import RoomSettingsModal from '@/components/room/RoomSettingsModal.vue'
 
 const props = defineProps<{
+  // 必填：当前激活房间的 ID，驱动 socket 订阅与 store 数据拉取
   roomId: string
+  // 嵌入模式：true 时不渲染独立 header 与侧栏，由父布局统一提供（用于多面板布局）
   embedded?: boolean // when true, hide header and CharacterSidebar for embedding in larger layout
+  // embedded 模式下父布局调用：用于切换「我的聊天室」抽屉
   onToggleRoomList?: () => void
+  // embedded 模式下父布局调用：用于切换右侧角色面板
   onToggleRolePanel?: () => void
+  // 是否展示「我的聊天室」抽屉切换按钮（仅 embedded + 父布局支持时显示）
   showRoomListToggle?: boolean
+  // 是否展示角色面板切换按钮（仅 embedded + 父布局支持时显示）
   showRolePanelToggle?: boolean
 }>()
 

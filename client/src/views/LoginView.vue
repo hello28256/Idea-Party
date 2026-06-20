@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// LoginView：路由 /login（默认） 与 /login?mode=register（注册模式）
 // 登录/注册合一视图：复用同一张卡片，通过 URL ?mode=register 切换。
 // 与 authStore / useRememberCredentials 协作：
 //   - authStore.login 负责真正的登录态与 token 持久化；

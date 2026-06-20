@@ -1,3 +1,6 @@
+// 认证 store：管理 JWT token、当前用户信息、登录/注册/登出、profile 同步与头像上传。
+// 协作模块：router 守卫（判 isAuthenticated）、AppSidebar（展示用户/头像）、useSocket（注入 token）、SettingsView（改昵称/邮箱/头像）。
+
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User } from '@/types'
@@ -25,7 +28,7 @@ function migrateUserData(): void {
     const users: User[] = JSON.parse(usersJson)
     let usersChanged = false
 
-    // Ensure every user has an id
+    // 给历史遗留的「无 id 用户」补一个稳定主键，否则跨页面持久化、用户列表去重都会失效
     users.forEach(u => {
       if (!u.id) {
         u.id = generateId()
@@ -37,12 +40,11 @@ function migrateUserData(): void {
       localStorage.setItem('users', JSON.stringify(users))
     }
 
-    // Migrate current user if needed
+    // 老版本本地缓存里 current user 没有 id 字段（早期 User 不带主键），从 users 列表里按 username 反查补一个稳定 id
     const currentUserJson = localStorage.getItem('user')
     if (currentUserJson) {
       const currentUser: User = JSON.parse(currentUserJson)
       if (!currentUser.id) {
-        // Find this user in the users array and use their id
         const matchedUser = users.find(u =>
           u.username?.toLowerCase() === currentUser.username?.toLowerCase() &&
           u.email?.toLowerCase() === currentUser.email?.toLowerCase()
@@ -51,7 +53,7 @@ function migrateUserData(): void {
           currentUser.id = matchedUser.id
         } else {
           currentUser.id = generateId()
-          // Also add this new user to the users array
+          // users 列表里没找到这个老用户，需要把它也加进去，否则后续「多用户登录/切换」会丢数据
           users.push(currentUser)
           localStorage.setItem('users', JSON.stringify(users))
         }
@@ -67,7 +69,7 @@ function migrateUserData(): void {
 // 认证状态中心：单点维护 user / accessToken / isAuthenticated
 // 同时承担「后端数据 → 本地 localStorage 镜像」职责，使刷新页面和路由切换能瞬时恢复登录态
 export const useAuthStore = defineStore('auth', () => {
-  // Run migration on init
+  // store 创建时立刻跑一次迁移，兼容老版本 localStorage 中没有 id 的用户数据
   migrateUserData()
 
   // State
@@ -95,19 +97,22 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
 
   // Actions
-  // 登录契约：identifier 支持用户名或邮箱（由后端/UI 区分），成功后写 token + user + users 列表三处 localStorage
-  // 头像优先保留本地缓存：后端 user 表若未持久化头像，避免每次登录都把用户头像「重置成空」
-  // localStorage 写入失败仅打印日志不抛错：网络/隐私模式下 localStorage 不可用，不应阻断登录流程本身
+  /**
+   * 登录契约：identifier 支持用户名或邮箱（由后端/UI 区分），成功后写 token + user + users 列表三处 localStorage。
+   * 头像优先保留本地缓存：后端 user 表若未持久化头像，避免每次登录都把用户头像「重置成空」。
+   * localStorage 写入失败仅打印日志不抛错：网络/隐私模式下 localStorage 不可用，不应阻断登录流程本身。
+   * 调用方：LoginView 的「登录」按钮。
+   */
   async function login(identifier: string, password: string): Promise<void> {
     const response = await loginApi({ identifier, password })
 
-    // Ensure the user has an id
+    // 后端 /auth/login 不返回 id 时（早期版本兼容场景）兜底生成一个，避免后续 localStorage 索引失败
     const userData = response.data.user
     if (!userData.id) {
       userData.id = generateId()
     }
 
-    // Preserve local avatar if backend doesn't return one
+    // 后端若没返回头像，优先沿用本地缓存里已有的——避免每次登录都把用户头像「重置成空」
     const existingUsersJson = localStorage.getItem('users')
     const existingUsers: User[] = existingUsersJson ? JSON.parse(existingUsersJson) : []
     const existingUser = existingUsers.find(u => u.id === userData.id)
@@ -121,12 +126,12 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('accessToken', response.data.accessToken)
       localStorage.setItem('user', JSON.stringify(userData))
 
-      // Also update the users list
+      // 同步刷新 users 列表缓存：让其它视图（用户列表、邀请成员）能立即看到这个最新用户
       const usersJson = localStorage.getItem('users')
       const users: User[] = usersJson ? JSON.parse(usersJson) : []
       const existingIndex = users.findIndex(u => u.id === userData.id)
       if (existingIndex !== -1) {
-        // Preserve avatar when updating existing user
+        // 已有条目：保留本地头像作为兜底（响应里可能没带），其余字段以后端为准
         if (!userData.avatarUrl && users[existingIndex].avatarUrl) {
           userData.avatarUrl = users[existingIndex].avatarUrl
         }
@@ -140,11 +145,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 注册契约：新用户直接 push 进 users 列表，不覆盖已存在条目，避免在同一浏览器多次注册时丢数据
+  /**
+   * 注册契约：新用户直接 push 进 users 列表，不覆盖已存在条目，避免在同一浏览器多次注册时丢数据。
+   * 与 login 共用同样的 localStorage 镜像逻辑，但失败处理更宽松（注册失败通常意味着后端已抛错，无需本地兜底）。
+   * 调用方：RegisterView 的「注册」按钮。
+   */
   async function register(username: string, email: string, password: string): Promise<void> {
     const response = await registerApi({ username, email, password })
 
-    // Ensure the user has an id
+    // 兜底：后端未返回 id 时本地生成一个，确保后续 localStorage 索引可用
     const userData = response.data.user
     if (!userData.id) {
       userData.id = generateId()
@@ -156,7 +165,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem('accessToken', response.data.accessToken)
       localStorage.setItem('user', JSON.stringify(userData))
 
-      // Also update the users list
+      // 第一次注册的账号要写进 users 列表缓存，否则后续「多用户登录/邀请」找不到这个用户
       const usersJson = localStorage.getItem('users')
       const users: User[] = usersJson ? JSON.parse(usersJson) : []
       const existingIndex = users.findIndex(u => u.id === userData.id)
@@ -176,9 +185,12 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  // 拉取最新 profile：刷新页面或回到设置页时同步后端数据，避免本地缓存与服务端漂移
-  // 顺带把主题偏好推给 themeStore，让「服务端保存的主题」在多端保持一致
-  // 静默吞错：调用方多为「启动期/页面回到前台」等弱关键场景，不希望失败时打断主流程
+  /**
+   * 拉取最新 profile：刷新页面或回到设置页时同步后端数据，避免本地缓存与服务端漂移。
+   * 顺带把主题偏好推给 themeStore，让「服务端保存的主题」在多端保持一致。
+   * 静默吞错：调用方多为「启动期/页面回到前台」等弱关键场景，不希望失败时打断主流程。
+   * 调用方：App.vue 的 onMounted、router.beforeEach 守卫。
+   */
   async function fetchProfile(): Promise<void> {
     try {
       const response = await getProfile()
@@ -186,7 +198,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = userData
       localStorage.setItem('user', JSON.stringify(userData))
 
-      // Sync theme mode to theme store
+      // 把后端保存的主题档位同步到 theme store，让多端切换主题保持一致
       const themeStore = useThemeStore()
       if (userData.themeMode) {
         themeStore.setThemeMode(userData.themeMode as 'system' | 'light' | 'dark')
@@ -213,7 +225,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Update user profile - calls backend API and syncs localStorage
   // 以「后端返回值」为权威源，避免本地字段与服务端冲突；同时双写 user / users 两处 localStorage
   // 保证设置页与用户列表缓存看到的字段一致（否则头像/昵称刷新后会回退）
   async function updateProfile(updates: { username?: string; displayName?: string; email?: string }): Promise<{ success: boolean; error?: string }> {
@@ -225,7 +236,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      // Call backend API to update profile in database
       const response = await updateProfileApi({
         username: updates.username,
         displayName: updates.displayName,
@@ -235,13 +245,13 @@ export const useAuthStore = defineStore('auth', () => {
       const updatedUser = response.data.user
       console.log('[settings save] backend returned user:', updatedUser)
 
-      // Update authStore with the authoritative user from backend
+      // 直接以响应体中的 user 对象覆盖本地状态：后端是单一事实源
       user.value = updatedUser
 
-      // Update localStorage['user'] as source of truth for current user
+      // 双写 user / users 两处 localStorage，让设置页与用户列表缓存保持一致
       localStorage.setItem('user', JSON.stringify(updatedUser))
 
-      // Also update localStorage['users'] for UI cache consistency
+      // 同步刷新 users 列表缓存：保证设置页与用户列表看到的字段一致（否则头像/昵称刷新后会回退）
       const usersJson = localStorage.getItem('users')
       const users: User[] = usersJson ? JSON.parse(usersJson) : []
       const userIndex = users.findIndex(u => u.id === updatedUser.id)
@@ -261,8 +271,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Get users list (for internal use)
   // 暴露只读快照而非响应式引用，避免外部组件直接篡改 users 缓存导致与 store 状态不一致
+  // 调用方：内部/调试场景，不建议外部业务组件直接消费（应改用 user state + 后端接口）
   function getUsers(): User[] {
     try {
       const usersJson = localStorage.getItem('users')

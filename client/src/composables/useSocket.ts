@@ -1,5 +1,8 @@
 import { ref, onUnmounted } from 'vue'
 
+// 单聊天室 WebSocket 客户端 composable：封装 Socket.IO 协议解析、事件分发与生命周期管理。
+// 调用方：ChatRoom 视图挂载时调用一次，isConnected 驱动 UI 状态条，sendMessage 等方法转给 ChatInput。
+
 // 用户对单条 AI 回复的点赞/点踩反馈载荷。
 // 与后端 MessageFeedback 实体对齐：category/comment 允许为空，避免前端必填校验阻塞快速反馈。
 export interface MessageFeedbackPayload {
@@ -40,10 +43,10 @@ export interface UseSocketOptions {
   onModeratorMessage?: (data: { content: string; type: string }) => void
 }
 
-// Resolve the WebSocket endpoint:
-//   1. VITE_WS_URL (build-time) — use it as a full base (e.g. wss://api.example.com)
-//   2. Otherwise — same-origin /ws (works in dev via vite proxy and in prod via nginx)
-// The 'localhost' hard-coding is removed so the same bundle works in any domain.
+// 解析 WebSocket 端点：
+//   1. 优先用 VITE_WS_URL（构建期注入）—— 完整 base，例如 wss://api.example.com
+//   2. 否则走同源 /ws —— 开发期靠 Vite proxy、生产期靠 nginx 反代，自动适配任何域名
+// 之所以去掉「localhost 硬编码」：同一份 bundle 需要在 dev / preview / 生产环境间无缝切换，硬编码 host 会破坏部署灵活性
 const WS_BASE_URL: string = (() => {
   const explicit = import.meta.env.VITE_WS_URL
   if (explicit && typeof explicit === 'string' && explicit.trim() !== '') {
@@ -73,11 +76,12 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
   } = options
 
   const ws = new WebSocket(`${WS_BASE_URL}/ws`)
+  // 连接状态：驱动 UI 顶部「连接中/已断线」提示条；与 ws.readyState 的区别是它是响应式 ref，组件可直接 watch。
   const isConnected = ref(false)
 
   ws.onopen = () => {
     isConnected.value = true
-    // Send join room message with JWT for authentication
+    // 握手成功后立即把 JWT 随 join room 一起发过去，让服务端在订阅时就能建立 userId ↔ session 映射
     sendSocketIO('join room', { roomId, token })
   }
 
@@ -98,7 +102,7 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
   // 解析失败只打日志、不抛错，避免一条坏消息把整条连接拖死。
   ws.onmessage = (event) => {
     const data = event.data
-    // Handle Socket.IO protocol messages (42 prefix)
+    // 只解析 Socket.IO 的 MESSAGE 帧（42 前缀）：其它帧（connect=40、ack、pong=3）由原生 onopen 流程处理
     if (typeof data === 'string' && data.startsWith('42')) {
       try {
         const parsed = JSON.parse(data.substring(2))
@@ -158,24 +162,43 @@ export function useSocket(roomId: string, options: UseSocketOptions = {}, token?
     }
   }
 
+  /**
+   * 发送用户聊天消息。
+   * 副作用：通过 WebSocket 发送 `chat message` 事件，roomId 自动带上（由闭包注入）。
+   * 调用方：ChatInput 的 Enter 提交。
+   */
   function sendMessage(content: string) {
     sendSocketIO('chat message', { roomId, content })
   }
 
   // stopDiscussion 与 pauseDiscussion 的区别：stop 终结本轮讨论（角色不再发言、Moderator 收尾），
   // pause 仅暂停流式输出，恢复后可继续。两者语义不同，因此分别暴露，不要合并。
+  /**
+   * 终止本轮讨论（不可恢复）。调用方：ChatRoom 顶部的「结束讨论」按钮。
+   */
   function stopDiscussion() {
     sendSocketIO('stop-discussion', { roomId })
   }
 
+  /**
+   * 暂停流式输出（不结束讨论）。调用方：ChatRoom 的暂停按钮。
+   */
   function pauseDiscussion() {
     sendSocketIO('pause-discussion', { roomId })
   }
 
+  /**
+   * 恢复被暂停的讨论。调用方：ChatRoom 的恢复按钮（暂停时显示）。
+   */
   function resumeDiscussion() {
     sendSocketIO('resume-discussion', { roomId })
   }
 
+  /**
+   * 主动离开房间：通知服务端清理订阅并关闭连接。
+   * 副作用：发送 `leave room` 事件 + 关闭 WebSocket。
+   * 调用方：组件卸载（onUnmounted）自动调用，业务层一般无需手动触发。
+   */
   function leaveRoom() {
     sendSocketIO('leave room', { roomId })
     ws.close()

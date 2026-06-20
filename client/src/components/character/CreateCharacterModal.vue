@@ -11,6 +11,12 @@ import { useToast } from '@/composables/useToast'
 
 // Props：show 控制显隐；mode 决定新建还是编辑；context 决定标题文案、是否出现 Tab、回调事件名。
 // 在 room 上下文下从角色库选角色时复用同一组件，通过 addedToRoom 事件把已有角色交给父页面挂入聊天室。
+
+// show：父组件 v-model 控制显隐
+// mode：create=新建表单，edit=编辑现有角色（编辑模式隐藏 Tab）
+// character：编辑模式下携带要回填的角色；创建模式忽略
+// context：character-library（角色库内嵌） vs room（房间内添加角色）—— 影响标题文案和 Tab
+// roomId：context=room 时由父组件传入，用于语义/校验
 interface Props {
   show: boolean
   mode?: 'create' | 'edit'
@@ -26,6 +32,11 @@ const props = withDefaults(defineProps<Props>(), {
   roomId: null
 })
 
+// close：遮罩 / 关闭按钮触发
+// created：创建模式提交成功后抛出，携带服务端返回的 Character（含 id / avatarUrl）
+// updated：编辑模式保存成功后抛出
+// deleted：编辑模式删除成功后抛出
+// addedToRoom：仅在 room 上下文从角色库挑选时抛出，父页面将其挂入聊天室
 const emit = defineEmits<{
   close: []
   created: [character: Character]

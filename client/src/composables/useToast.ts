@@ -1,3 +1,6 @@
+// 全局 Toast composable —— 模块级单例，跨组件共享一份消息队列。
+// 调用方：任何业务组件可调 useToast().success/error/info；渲染由根组件 <ToastHost> 订阅 useToasts() 完成。
+
 /**
  * 全局 Toast composable —— 模块级单例，所有组件共享同一个 ref。
  *
@@ -26,6 +29,8 @@ let nextId = 0
 
 // 契约：push 后立即渲染，duration ms 后自动从队列移除；外部调用方无需关心清理。
 // 副作用：通过 setTimeout 修改响应式数组，依赖 Vue 响应式追踪驱动 ToastHost 重渲染。
+// 注意：定时器句柄未保留——HMR/页面销毁时遗留的 timeout 不会取消，但因 toasts ref 是模块级且
+// 单次执行，结果是无害的空 filter。设计上不引入清理表以保持 composable 极轻量。
 function push(type: ToastType, message: string, duration = 2500) {
   const id = ++nextId
   toasts.value.push({ id, type, message })
@@ -35,10 +40,13 @@ function push(type: ToastType, message: string, duration = 2500) {
 }
 
 // 暴露原始 ref：供 <ToastHost> 这类需要直接遍历列表的渲染组件订阅，避免被 useToast 的方法包一层导致响应式丢失。
+// 调用方：App.vue 挂载的 <ToastHost>，遍历 toasts 渲染列表。
 export function useToasts() {
   return toasts
 }
 
+// 业务侧最常用的入口：返回 success/error/info 三个便捷方法，自动套用各类型默认 duration。
+// 调用方：任意组件中 `const toast = useToast()`，如 CharacterList、RoomListView 的删除/创建反馈。
 export function useToast() {
   return {
     success: (msg: string) => push('success', msg),

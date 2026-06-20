@@ -1,3 +1,6 @@
+// 消息 store：维护当前房间的聊天消息列表、流式缓冲、AI 思考指示、讨论模式阶段机与消息反馈乐观更新。
+// 协作模块：ChatRoomPanel（订阅）、useSocket（事件入口）、MessageList（渲染）、MessageFeedback（反馈提交）。
+
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatMessage, MessageFeedbackPayload } from '@/composables/useSocket'

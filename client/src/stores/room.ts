@@ -125,6 +125,12 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  /**
+ * 邀请成员加入当前房间：根据用户名或邮箱匹配用户并加入。
+ * 副作用：成功后自动重新拉取成员列表，让 UI 立即看到新增成员，无需调用方再次调用 fetchRoomMembers。
+ * 抛错策略：参数无效抛业务错（房间不存在 / 关键字为空），API 失败抛后端 message，供 UI toast 展示。
+ * 调用方：RoomDetailView 的「邀请成员」表单。
+ */
   async function inviteRoomMember(roomId: string | null | undefined, keyword: string) {
     if (!roomId || roomId === 'null' || roomId === 'undefined') {
       throw new Error('当前聊天室不存在，无法邀请成员')
@@ -243,6 +249,11 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  /**
+ * 记录用户进入房间：写入后端 lastEnterTime 用于跨设备 LRU 排序，同时本地立刻更新 myRooms 缓存让侧栏重排。
+ * 失败仅打印日志：进入记录是「统计/排序」类弱关键数据，不应阻塞用户进入房间的主流程。
+ * 调用方：RoomDetailView 的 onMounted、router 进入聊天页守卫。
+ */
   async function recordEnter(roomId: string) {
     try {
       await roomsApi.recordEnter(roomId)
@@ -256,6 +267,11 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  /**
+ * 显式设置 currentRoom：通常由 RoomDetailView 的 onMounted 或 router 守卫调用。
+ * 副作用：顺手把 isDiscussing 也同步上（按 room.chatMode 判断），UI 不必再单独维护讨论模式开关。
+ * 调用方：RoomDetailView 挂载、router.beforeEach。
+ */
   function setCurrentRoom(room: Room | null) {
     currentRoom.value = room
     isDiscussing.value = room?.chatMode === 'discussion'

@@ -5,6 +5,7 @@
 // 仅依赖 characterName 一个 prop：刻意保持无状态，由调用方控制显隐（v-if），
 // 这样不同角色轮次可独立挂载/卸载，也便于配合 Moderator 的发言编排节奏复用。
 defineProps<{
+  // 必填：正在"思考"的角色名，用于在占位指示器中展示「<角色名> 正在沉思...」
   characterName: string
 }>()
 </script>

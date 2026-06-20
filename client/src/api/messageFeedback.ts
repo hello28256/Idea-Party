@@ -71,22 +71,53 @@ export interface PageResponse<T> {
   size: number
 }
 
+// 消息反馈 REST 客户端，对接后端 MessageFeedbackController（/messages/{id}/feedback）
+// 与 AdminFeedbackController（/admin/feedbacks）。
+// 职责：用户对单条 AI 回复提交/查询/取消点赞点踩；管理端拉取分页列表与详情。
+// 设计目的：把后端 feedback 资源隔离在此，前端 store / 组件只通过这一层与 HTTP 交互，
+// 便于后续替换底层客户端或调整后端路径而不污染业务逻辑。
+
 // 业务侧使用的反馈 REST 客户端。每个方法返回的 Promise 已解包 .data，
 // 调用方直接拿到领域模型，组件/Store 不必关心 axios 响应包装层。
 export const messageFeedbackApi = {
+  /**
+   * 提交/覆盖对一条消息的反馈（点赞或点踩 + 分类 + 备注）。
+   * HTTP POST /messages/{messageId}/feedback。
+   * 调用方：MessageBubble 的点赞/点踩按钮、反馈分类 Modal。
+   */
   submit: (messageId: string, body: SubmitFeedbackBody) =>
     api.post<FeedbackResponse>(`/messages/${messageId}/feedback`, body).then(res => res.data),
 
+  /**
+   * 查询当前用户对指定消息的反馈。
+   * HTTP GET /messages/{messageId}/feedback。
+   * 调用方：进入聊天室时初始化消息气泡的反馈态。
+   */
   get: (messageId: string) =>
     api.get<FeedbackResponse>(`/messages/${messageId}/feedback`).then(res => res.data),
 
+  /**
+   * 取消当前用户对指定消息的反馈。
+   * HTTP DELETE /messages/{messageId}/feedback。
+   * 调用方：MessageBubble 的"撤销点赞/点踩"按钮。
+   */
   remove: (messageId: string) =>
     api.delete(`/messages/${messageId}/feedback`),
 
+  /**
+   * 管理端分页拉取反馈列表。
+   * HTTP GET /admin/feedbacks（支持 page/size/category/userId/type/from/to 多条件筛选）。
+   * 调用方：AdminFeedbackListView 表格。
+   */
   adminList: (params: AdminListParams) =>
     api.get<PageResponse<AdminFeedbackListItem>>('/admin/feedbacks', { params })
       .then(res => res.data),
 
+  /**
+   * 管理端获取单条反馈详情（含原始消息内容、房间、角色、用户提问上下文）。
+   * HTTP GET /admin/feedbacks/{id}。
+   * 调用方：AdminFeedbackDetailDrawer。
+   */
   adminGet: (id: string) =>
     api.get<AdminFeedbackDetail>(`/admin/feedbacks/${id}`).then(res => res.data)
 }
