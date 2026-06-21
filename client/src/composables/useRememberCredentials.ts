@@ -16,10 +16,14 @@ import { ref, watch } from 'vue'
 const ENABLED_KEY = 'idea-party-remember-enabled'
 const CREDS_KEY = 'idea-party-creds-v1'        // 加密凭据：base64(salt|iv|ct)
 const LEGACY_KEY = 'idea-party-remember'      // 旧明文 identifier，迁移用
+const UNLOCK_TS_KEY = 'idea-party-remember-unlocked-until'  // 免解锁到期时间戳（ms）
 
 const PBKDF2_ITERATIONS = 100_000
 const SALT_LEN = 16
 const IV_LEN = 12
+
+// 免解锁窗口：解锁成功后 7 天内再次访问登录页自动解密填表，不再弹窗
+const UNLOCK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 // 加密后落盘的凭据载荷：明文 JSON 仅存在于加密边界内，落盘即密文
 interface StoredCreds {
@@ -136,6 +140,9 @@ export function useRememberCredentials() {
   // 旧方案的明文 identifier 优先回填一次（迁移），然后清掉
   // 重要：只在 enabled 为 true 时才尝试读 identifier，避免「未勾选记住」时也从旧 key 回填出用户名。
   const identifier = ref<string>(enabled.value ? loadIdentifier() : '')
+  // 免解锁到期时间戳：unlock()/setCredentials() 成功时刷新为「现在 + 7 天」；
+  // LoginView 挂载时若发现仍在有效期内，则后台静默解密填表，跳过弹窗。
+  const unlockedUntil = ref<number>(loadUnlockedUntil())
 
   // 勾选状态变化时立即持久化；关闭时连带清掉密文与 identifier，避免「勾掉复选框但密文仍在」的隐私残留
   watch(enabled, (val) => {
@@ -144,13 +151,16 @@ export function useRememberCredentials() {
     } else {
       localStorage.removeItem(ENABLED_KEY)
       localStorage.removeItem(CREDS_KEY)
+      localStorage.removeItem(UNLOCK_TS_KEY)
       identifier.value = ''
+      unlockedUntil.value = 0
     }
   })
 
   /**
    * 登录成功后保存凭据（用登录密码作为加密密钥）
-   * 副作用：写入 localStorage(CREDS_KEY) 加密 blob，标识同时回填到 identifier ref。
+   * 副作用：写入 localStorage(CREDS_KEY) 加密 blob，标识同时回填到 identifier ref，
+   *        并刷新免解锁窗口到「现在 + 7 天」。
    * 调用方：LoginView 的 submit handler 成功分支。
    */
   async function setCredentials(identifierValue: string, password: string) {
@@ -163,6 +173,8 @@ export function useRememberCredentials() {
       const payload: StoredCreds = { identifier: identifierValue, password }
       const encrypted = await encryptJSON(payload, password)
       localStorage.setItem(CREDS_KEY, encrypted)
+      // 登录刚成功 = 用户已经过密码验证，立即开启 7 天免解锁窗口
+      markUnlocked()
     } catch (err) {
       console.error('[useRememberCredentials] encrypt failed:', err)
     }
@@ -178,7 +190,7 @@ export function useRememberCredentials() {
 
   /**
    * 用主密码（=登录密码）解锁已保存的凭据。
-   * 成功时回填 identifier + password；密码错误时返回 null。
+   * 成功时回填 identifier + password，并刷新免解锁窗口到「现在 + 7 天」；密码错误时返回 null。
    * 注意：传入的是用户当前输入的密码，与 setCredentials 时的密码必须完全一致（PBKDF2 是确定性的）
    * 调用方：LoginView 的「解锁已保存凭据」表单。
    */
@@ -190,11 +202,33 @@ export function useRememberCredentials() {
     try {
       const creds = await decryptJSON<StoredCreds>(raw, passphrase)
       identifier.value = creds.identifier
+      markUnlocked()
       return creds
     } catch {
       // 解密失败 = 密码错误
       return null
     }
+  }
+
+  /**
+   * 检查免解锁窗口是否仍在有效期内。
+   * 用途：LoginView 挂载时决定跳过弹窗还是要求用户重新输入密码。
+   */
+  function isWithinUnlockWindow(): boolean {
+    return unlockedUntil.value > Date.now()
+  }
+
+  /**
+   * 是否应该跳过「解锁」弹窗。
+   * 条件：凭据存在 + 7 天免解锁窗口未过期。
+   * 注意：由于密码用 PBKDF2+AES-GCM 加密且密钥来自用户密码，
+   * 架构上不可能「不输密码就拿到密码」—— 因此即使在免解锁窗口内，
+   * 用户仍需在登录页输入密码。我们只是不再弹出那个独立解锁框。
+   */
+  function shouldSkipUnlockDialog(): boolean {
+    if (!enabled.value) return false
+    if (!hasStoredCreds()) return false
+    return isWithinUnlockWindow()
   }
 
   /**
@@ -212,6 +246,19 @@ export function useRememberCredentials() {
     enabled.value = false
     localStorage.removeItem(CREDS_KEY)
     localStorage.removeItem(ENABLED_KEY)
+    localStorage.removeItem(UNLOCK_TS_KEY)
+    unlockedUntil.value = 0
+  }
+
+  // 刷新免解锁窗口到「现在 + 7 天」，并持久化到 localStorage
+  function markUnlocked() {
+    const until = Date.now() + UNLOCK_WINDOW_MS
+    unlockedUntil.value = until
+    try {
+      localStorage.setItem(UNLOCK_TS_KEY, String(until))
+    } catch {
+      // localStorage 不可用时静默失败，in-memory ref 仍生效
+    }
   }
 
   // 首次加载时执行一次旧数据迁移
@@ -220,11 +267,14 @@ export function useRememberCredentials() {
   return {
     enabled,
     identifier,
+    unlockedUntil,
     setCredentials,
     setIdentifier,
     unlock,
     hasStoredCreds,
     clear,
+    isWithinUnlockWindow,
+    shouldSkipUnlockDialog,
   }
 }
 
@@ -246,6 +296,18 @@ function loadIdentifier(): string {
     return loadLegacyIdentifier()
   } catch {
     return ''
+  }
+}
+
+// 读取免解锁到期时间戳；缺失或非法值按 0 处理（=已过期）
+function loadUnlockedUntil(): number {
+  try {
+    const raw = localStorage.getItem(UNLOCK_TS_KEY)
+    if (!raw) return 0
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
   }
 }
 

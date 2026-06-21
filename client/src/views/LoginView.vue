@@ -187,8 +187,9 @@ watch(() => route.query.mode, (newMode) => {
 // 在挂载时检查 URL 参数以设置初始模式
 // 初始化顺序很关键：先 resetForm 防止上一会话残留，再按优先级回填 identifier：
 //   1) 注册跳转带的 username query（最确定的用户意图）；
-//   2) 已加密的本地凭据 → 弹解锁框（不解密拿不到密码）；
-//   3) 旧版明文 identifier（迁移期兼容，后续会淘汰）。
+//   2) 已加密的本地凭据 + 在 7 天免解锁窗口内 → 跳过弹窗，只填用户名（密码框由用户输入）；
+//   3) 已加密的本地凭据 + 已过免解锁窗口 → 弹解锁框（用户必须输密码）；
+//   4) 旧版明文 identifier（迁移期兼容，后续会淘汰）。
 // 50ms 延后打开 isVisible 是为了让 CSS 过渡动画能触发。
 onMounted(async () => {
   // 重置前先保存 username
@@ -202,8 +203,13 @@ onMounted(async () => {
   // query param 优先级高于"记住我"
   if (savedUsername) {
     identifier.value = savedUsername
+  } else if (remember.shouldSkipUnlockDialog()) {
+    // 在 7 天免解锁窗口内：跳过弹窗，用户直接看到用户名预填 + 密码输入框
+    if (remember.identifier.value) {
+      identifier.value = remember.identifier.value
+    }
   } else if (remember.enabled.value && remember.hasStoredCreds()) {
-    // 存在加密凭据 → 提示解锁（identifier 需解锁后才能拿到）
+    // 已过免解锁窗口 → 弹解锁框让用户重新输入密码
     unlockDialogOpen.value = true
   } else if (remember.enabled.value && remember.identifier.value) {
     // 兼容旧明文 identifier（迁移场景）
