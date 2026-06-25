@@ -60,12 +60,14 @@ public class CharacterController {
     }
 
     /**
-     * 列出推荐角色（热门 / 高频使用），用于首页卡片流。
-     * 上限 10 是前端首页推荐位的固定容量；如需分页，后续会改为 @RequestParam + Service 层 Pageable。
+     * 列出全部推荐角色（首页推荐位）。
+     * 一次性返回所有 preset（约 36 人），由前端按 18 一批切片做"换一批"切换。
+     * 这里不再写死 limit：旧的 findRecommended(18) 保留在 Service 层供向后兼容；
+     * 此端点是"发现页推荐位"的事实入口，需要的就是全集。
      */
     @GetMapping("/recommended")
     public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters() {
-        List<CharacterResponse> recommended = characterService.findRecommended(10);
+        List<CharacterResponse> recommended = characterService.findAllRecommended();
         return ResponseEntity.ok(recommended);
     }
 

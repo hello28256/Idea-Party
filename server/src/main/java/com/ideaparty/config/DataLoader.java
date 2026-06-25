@@ -121,9 +121,7 @@ public class DataLoader implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        if (characterRepository.count() == 0) {
-            seedCharacters();
-        }
+        seedCharactersIfMissing();
         seedDefaultAdminIfNeeded();
         syncAdminWhitelist();
         backfillObservations();
@@ -208,50 +206,105 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * 写入规范的"预设"角色阵容——莎士比亚、爱因斯坦、克利奥帕特拉、孔子、居里夫人——
+     * 按名字幂等写入规范的"预设"角色阵容——18 位跨领域最具影响力的历史人物——
      * 让一个全新的数据库一上来就有值得聊的角色。每条记录都标记
      * {@code preset=true}，UI 据此把它们与用户自建角色区分开，
      * 并禁用破坏性操作。一次性批量写入，让植入事务保持紧凑。
-     * <p>头像统一使用 dicebear 全路径 URL，与 {@code data.sql} 中的中文预设角色
-     * 保持同一来源，避免 nginx 解析相对路径导致 404 显示首字母占位图的问题。
+     * <p>顺序与 {@code data.sql} 完全一致（思想宗教 6 + 科学 6 + 文化政治 6），
+     * 配合 findRecommended() 按预设顺序返回，"推荐角色"区呈现 3 排 × 6 网格。
+     * 头像统一使用 dicebear 全路径 URL，与 data.sql 同源，避免 nginx 解析
+     * 相对路径导致 404 显示首字母占位图的问题。
+     * <p>按名字幂等：已存在同名的预设角色跳过，便于老库平滑升级到新的 18 人
+     * 阵容；同时不依赖 characters.count() == 0 的空库判定，老库里也能补齐缺失的预设。
      */
-    private void seedCharacters() {
-        Character shakespeare = new Character();
-        shakespeare.setName("莎士比亚");
-        shakespeare.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=Shakespeare");
-        shakespeare.setDescription("英国文艺复兴时期的剧作家和诗人，被誉为英语文学史上最伟大的作家之一。");
-        shakespeare.setPrompt("You are William Shakespeare. Speak eloquently with poetic flair, using archaic expressions when moved. Reference celestial bodies and human nature in your writings.");
-        shakespeare.setPreset(true);
+    private void seedCharactersIfMissing() {
+        List<Character> presets = List.of(
+            buildPreset( 1, "孔子",     "中国古代思想家，儒家学派创始人，主张仁爱、礼治与有教无类，被尊为\"万世师表\"，对东亚文化圈影响逾两千年。",
+                        "Confucius", "You are Confucius (孔子). Speak in aphorisms and guide others through questions. Emphasize the power of example over force. Teach that relationships form the foundation of all virtue."),
+            buildPreset( 2, "苏格拉底", "古希腊哲学家，开创西方思辨哲学传统，主张\"认识你自己\"与通过对话（产婆术）逼近真理，对柏拉图、亚里士多德及后世哲学影响深远。",
+                        "Socrates", "You are Socrates. Question assumptions through dialogue. Admit your own ignorance. Pursue definitions of virtue, justice, and the good life."),
+            buildPreset( 3, "老子",     "中国古代哲学家，道家学派创始人，《道德经》作者，倡导\"道法自然\"与无为而治，深刻塑造中国哲学与东方思维方式。",
+                        "Laozi", "You are Laozi (老子). Speak in paradoxes about the Dao. Embrace non-action (无为) and the yielding that overcomes the rigid."),
+            buildPreset( 4, "释迦牟尼", "古印度思想家，佛教创立者，主张四圣谛、八正道与众生平等，其教义传播至东亚、东南亚及全球，影响数十亿人。",
+                        "Buddha", "You are Siddhartha Gautama, the Buddha. Teach the Middle Way, the Four Noble Truths, and compassion for all sentient beings."),
+            buildPreset( 5, "耶稣",     "公元1世纪犹太传道者，基督教创立的核心人物，宣扬爱、宽恕与救赎，基督教后成为全球最大宗教之一，影响西方文明两千余年。",
+                        "Jesus", "You are Jesus of Nazareth. Speak in parables about love, forgiveness, and the Kingdom of God. Bless the poor and the peacemakers."),
+            buildPreset( 6, "穆罕默德", "阿拉伯先知，伊斯兰教创立者，传达《古兰经》启示，统一阿拉伯半岛，伊斯兰教后成为全球第二大宗教，影响数十亿信徒。",
+                        "Muhammad", "You are Prophet Muhammad. Speak with humility before the One God (Allah). Teach submission, charity, and the straight path."),
+            buildPreset( 7, "伽利略",   "意大利科学家，现代实验科学奠基人之一，改进望远镜并支持日心说，为牛顿力学开辟道路，被誉为\"近代科学之父\"。",
+                        "Galileo", "You are Galileo Galilei. Defend observation and mathematics over received authority. The book of nature is written in the language of geometry."),
+            buildPreset( 8, "牛顿",     "英国物理学家与数学家，经典力学奠基者，《自然哲学的数学原理》作者，提出万有引力与三大运动定律，塑造现代科学世界观。",
+                        "Newton", "You are Isaac Newton. Reason from first principles and mathematical certainty. Stand on the shoulders of giants. Frame the universe with universal laws."),
+            buildPreset( 9, "达尔文",   "英国博物学家，进化论奠基人，《物种起源》作者，提出自然选择学说，重塑人类对自身起源与生命多样性的理解。",
+                        "Darwin", "You are Charles Darwin. Observe patiently, collect evidence, and follow the facts wherever they lead. Species change; life branches."),
+            buildPreset(10, "爱因斯坦", "德裔美国理论物理学家，相对论提出者，质能方程 E=mc² 作者，1921 年诺贝尔物理学奖得主，深刻改变人类对时空与宇宙的认知。",
+                        "Einstein", "You are Albert Einstein. Explain complex concepts through simple analogies. Express humility yet confidence. Use thought experiments. Imagination is more important than knowledge."),
+            buildPreset(11, "居里夫人", "波兰裔法国物理学家与化学家，放射性研究先驱，1903 年与 1911 年两度诺贝尔奖得主，唯一在两个不同科学领域获奖的人。",
+                        "MarieCurie", "You are Marie Curie. Be direct and scientific. Emphasize perseverance and curiosity. Nothing in life is to be feared, only to be understood."),
+            buildPreset(12, "特斯拉",   "塞尔维亚裔美国发明家，交流电、感应电机与特斯拉线圈的发明者，为现代电力传输与无线电技术奠定基础。",
+                        "Tesla", "You are Nikola Tesla. Visionary inventor of alternating current. Speak of wireless energy transmission and the future of electricity."),
+            buildPreset(13, "莎士比亚", "英国文艺复兴时期剧作家与诗人，《哈姆雷特》《李尔王》等传世，对英语文学与世界戏剧影响深远，被尊为\"人类文学奥林匹斯山上的宙斯\"。",
+                        "Shakespeare", "You are William Shakespeare. Speak eloquently with poetic flair. Reference celestial bodies and human nature. Mix courtly and common speech."),
+            buildPreset(14, "柏拉图",   "古希腊哲学家，苏格拉底的学生、亚里士多德的老师，创办学园（Academy），理念论与对话体哲学奠基人，西方哲学传统最重要的源头之一。",
+                        "Plato", "You are Plato. Write in dialogues. Argue for the Forms, the immortality of the soul, and the philosopher-king. Let Socrates lead the questioning."),
+            buildPreset(15, "达·芬奇", "意大利文艺复兴时期博学家，画家（《蒙娜丽莎》《最后的晚餐》）、发明家、解剖学家与工程师，艺术与科学通才的象征。",
+                        "DaVinci", "You are Leonardo da Vinci. Combine art and engineering. Observe nature with infinite curiosity. Sketch flying machines beside human anatomy."),
+            buildPreset(16, "成吉思汗", "蒙古帝国缔造者，13 世纪初统一蒙古各部，发动横跨欧亚的大规模征服，深刻重塑中世纪地缘政治与东西方交流格局。",
+                        "Genghis", "You are Genghis Khan. Speak with the discipline of a conqueror and the pragmatism of a lawgiver. Loyalty, merit, and the yurt of peoples."),
+            buildPreset(17, "拿破仑",   "法国军事家与政治家，19 世纪初建立法兰西第一帝国，重组欧洲政治版图与法律体系（《拿破仑法典》），影响现代国家治理。",
+                        "Napoleon", "You are Napoleon Bonaparte. Strategic, ambitious, reforming. Speak of glory, merit, and the Code that bears your name."),
+            buildPreset(18, "毛泽东",   "中国革命家、政治家与思想家，中国共产党与中华人民共和国的主要缔造者之一，20 世纪最具影响力的政治人物之一，深刻塑造现代中国。",
+                        "Mao", "You are Mao Zedong. Speak of class struggle, peasant revolution, and self-reliance. Blend poetic cadence with revolutionary resolve."),
+            // 扩容第二批 18 人（19-36）。prompt 留空 → 走 generatePromptFromWeb 在用户首次点选时联网生成，
+            // 与现有 18 人的"懒生成"行为一致，避免一次性触发 18 次 DeepSeek 调用拖慢启动。
+            buildPreset(19, "亚里士多德", "古希腊哲学家，柏拉图的学生、亚历山大大帝的老师，形式逻辑与生物学奠基人，著有《尼各马可伦理学》《政治学》等。", null, null),
+            buildPreset(20, "马克思",     "德国思想家、哲学家与经济学家，《资本论》与《共产党宣言》作者之一，科学社会主义奠基人，深刻塑造 19-20 世纪世界政治与思想版图。", null, null),
+            buildPreset(21, "列宁",       "俄国革命家与政治家，布尔什维克领袖，十月革命领导者，苏维埃政权缔造者，马克思主义的继承者与发展者之一。", null, null),
+            buildPreset(22, "卢梭",       "启蒙时代法国思想家，《社会契约论》《爱弥儿》作者，提出「人生而自由」、「主权在民」等理念，深刻影响法国大革命与现代民主理论。", null, null),
+            buildPreset(23, "伏尔泰",     "法国启蒙思想家、作家与哲学家，捍卫公民自由、宗教宽容与理性主义，代表作《老实人》《哲学通信》，被誉为「启蒙运动旗手」。", null, null),
+            buildPreset(24, "康德",       "德国古典哲学家，《纯粹理性批判》《实践理性批判》作者，先验哲学奠基人，提出「头顶星空与心中道德律」，深刻塑造现代哲学。", null, null),
+            buildPreset(25, "黑格尔",     "德国古典哲学家，唯心主义辩证法集大成者，《精神现象学》《逻辑学》作者，马克思哲学的重要思想来源。", null, null),
+            buildPreset(26, "尼采",       "德国哲学家、诗人与文化批评家，《查拉图斯特拉如是说》《善恶的彼岸》作者，宣告「上帝已死」，对存在主义与后现代思想影响深远。", null, null),
+            buildPreset(27, "弗洛伊德",   "奥地利心理学家，精神分析学创始人，《梦的解析》作者，提出本我/自我/超我人格结构，开创现代心理治疗体系。", null, null),
+            buildPreset(28, "伽罗瓦",     "法国数学家，伽罗瓦理论创立者，群论奠基人之一，20 岁早逝于决斗，其抽象代数思想深刻塑造现代数学。", null, null),
+            buildPreset(29, "高斯",       "德国数学家、物理学家与天文学家，「数学王子」，在数论、统计、测地学、电学等领域均有奠基性贡献。", null, null),
+            buildPreset(30, "麦克斯韦",   "英国理论物理学家，经典电磁理论奠基人，麦克斯韦方程组统一了电、磁、光，预言电磁波存在，被誉为「仅次于牛顿、爱因斯坦的物理学家」。", null, null),
+            buildPreset(31, "玻尔",       "丹麦物理学家，原子结构量子化模型提出者，哥本哈根诠释主要人物，1922 年诺贝尔物理学奖得主，量子力学奠基人之一。", null, null),
+            buildPreset(32, "海森堡",     "德国理论物理学家，量子力学矩阵力学创立者之一，不确定性原理提出者，1932 年诺贝尔物理学奖得主。", null, null),
+            buildPreset(33, "巴赫",       "德国巴洛克时期作曲家，《平均律钢琴曲集》《马太受难曲》《勃兰登堡协奏曲》作者，被誉为「西方音乐之父」。", null, null),
+            buildPreset(34, "莫扎特",     "奥地利古典主义作曲家，5 岁作曲、8 岁首演交响曲，代表作《费加罗的婚礼》《唐璜》《安魂曲》，短暂一生留下 600+ 部作品。", null, null),
+            buildPreset(35, "贝多芬",     "德国作曲家，维也纳古典与浪漫主义过渡的桥梁人物，代表作《英雄交响曲》《命运交响曲》《第九交响曲》（含《欢乐颂》），被誉为「乐圣」。", null, null),
+            buildPreset(36, "梵高",       "荷兰后印象派画家，《星夜》《向日葵》《自画像》作者，生前默默无闻身后成为现代艺术最具影响力的人物之一。", null, null)
+        );
+        // 按名字去重：仅插入 DB 中尚不存在的预设，避免老库升级时重复写入。
+        java.util.Set<String> existingNames = characterRepository.findAll().stream()
+                .map(Character::getName)
+                .collect(java.util.stream.Collectors.toSet());
+        List<Character> toInsert = presets.stream()
+                .filter(c -> !existingNames.contains(c.getName()))
+                .toList();
+        if (toInsert.isEmpty()) {
+            log.info("[PresetSeed] all {} preset characters already present, skip", presets.size());
+            return;
+        }
+        characterRepository.saveAll(toInsert);
+        log.info("[PresetSeed] inserted {} preset characters (skipped {} existing)",
+                toInsert.size(), presets.size() - toInsert.size());
+    }
 
-        Character einstein = new Character();
-        einstein.setName("爱因斯坦");
-        einstein.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=Einstein");
-        einstein.setDescription("二十世纪最伟大的理论物理学家之一，提出了相对论。");
-        einstein.setPrompt("You are Albert Einstein. Explain complex concepts through simple analogies. Express humility yet confidence. Use thought experiments to illustrate points. Believe imagination is more important than knowledge.");
-        einstein.setPreset(true);
-
-        Character cleopatra = new Character();
-        cleopatra.setName("克利奥帕特拉");
-        cleopatra.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=Cleopatra");
-        cleopatra.setDescription("古埃及托勒密王朝末代女王，以政治手腕与魅力闻名于世。");
-        cleopatra.setPrompt("You are Cleopatra VII, Queen of Egypt. Speak with regal authority and persuasive wit. Use your multilingual abilities to connect with diverse speakers. Bend empires to your will through intelligence, not just charm.");
-        cleopatra.setPreset(true);
-
-        Character confucius = new Character();
-        confucius.setName("孔子");
-        confucius.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=Confucius");
-        confucius.setDescription("中国古代思想家，儒家学派创始人，强调个人与社会的道德修养。");
-        confucius.setPrompt("You are Confucius. Speak in aphorisms and guide others through questions. Emphasize the power of example over force. Teach that relationships form the foundation of all virtue.");
-        confucius.setPreset(true);
-
-        Character mariecurie = new Character();
-        mariecurie.setName("居里夫人");
-        mariecurie.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=MarieCurie");
-        mariecurie.setDescription("波兰裔法国籍物理学家和化学家，放射性研究先驱，两度诺贝尔奖得主。");
-        mariecurie.setPrompt("You are Marie Curie. Be direct and scientific in your explanations. Emphasize perseverance and curiosity. Believe nothing in life is to be feared, only to be understood.");
-        mariecurie.setPreset(true);
-
-        characterRepository.saveAll(List.of(shakespeare, einstein, cleopatra, confucius, mariecurie));
+    // 构造预设角色：消除 seedCharacters 内大量重复字段样板代码，集中参数。
+    // 不显式 setId：交给 JPA 的 @GeneratedValue(strategy = UUID) 生成，
+    // 避免 Hibernate "unsaved-value" 误判导致 saveAll 走 UPDATE 分支。
+    // 推荐区顺序由 findByIsPresetTrueOrderByNameAsc 决定（按 name Unicode 序），
+    // 所以 List 内的写入顺序仅作为人类阅读时的"分组参考"，不依赖于此方法。
+    private Character buildPreset(int index, String name, String description, String dicebearSeed, String prompt) {
+        Character c = new Character();
+        c.setName(name);
+        c.setDescription(description);
+        c.setPrompt(prompt);
+        c.setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg?seed=" + dicebearSeed);
+        c.setPreset(true);
+        return c;
     }
 
     /**

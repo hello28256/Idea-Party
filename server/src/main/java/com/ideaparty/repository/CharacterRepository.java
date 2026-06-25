@@ -36,6 +36,14 @@ public interface CharacterRepository extends JpaRepository<Character, UUID> {
     Optional<Character> findByIdAndOwnerId(UUID id, UUID ownerId);
 
     /**
+     * 同 owner + 同名的角色查重接口，限定非预设角色。
+     * 用于 create 路径去重：避免"点 N 次推荐角色就建 N 条毛泽东"这类历史 bug。
+     * 命中时直接返回已存在那条，让前端 clone 流程天然幂等。
+     * 返回 Optional 而非 List：同名是异常状态，多条同名才是数据脏数据。
+     */
+    Optional<Character> findFirstByOwnerIdAndNameAndIsPresetFalse(UUID ownerId, String name);
+
+    /**
      * 轻量存在性判断，避免先查全字段再判断带来的不必要 IO。
      * 用在权限校验、加入聊天室前的归属校验等热路径。
      */
@@ -55,4 +63,14 @@ public interface CharacterRepository extends JpaRepository<Character, UUID> {
         LIMIT :limit
         """, nativeQuery = true)
     List<Character> findTopByUsageCount(int limit);
+
+    /**
+     * 取全部预设角色，按 name 升序稳定输出（中文按 utf8mb4 字符序）。
+     * DataLoader.seedCharactersIfMissing 按固定顺序写入 18 位历史人物，
+     * 此处按 name 排序是次优解：汉字按 Unicode code point 排序，结果与 DataLoader
+     * 写入顺序大致一致（哲/宗/科学/政治/文化等领域内基本保持稳定）。
+     * 真正"按写入顺序"的方案需要给 Character 加一个显式 sort_order 字段并写入，
+     * 当前为了避免 schema 改动，暂用 name 排序。
+     */
+    List<Character> findByIsPresetTrueOrderByNameAsc();
 }

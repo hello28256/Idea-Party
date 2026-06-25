@@ -10,6 +10,7 @@ import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
@@ -102,6 +103,20 @@ public class CharacterService {
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+        // 同 owner + 同名去重：让"反复点推荐角色 clone 副本"这条路径天然幂等，
+        // 避免每次点击都生成一条新"毛泽东"。命中已有记录时直接复用，不抛错
+        // （clone 路径对幂等性有依赖，抛错会破坏 startChat 的复用既有房间逻辑）。
+        String trimmedName = request.getName() == null ? "" : request.getName().trim();
+        if (!trimmedName.isEmpty()) {
+            Optional<Character> existing = characterRepository
+                    .findFirstByOwnerIdAndNameAndIsPresetFalse(userId, trimmedName);
+            if (existing.isPresent()) {
+                log.info("[DEBUG] Character already exists for owner {} with name '{}', reusing id: {}",
+                        userId, trimmedName, existing.get().getId());
+                return CharacterResponse.fromEntity(existing.get());
+            }
+        }
+
         // 若未提供 prompt 则生成
         String prompt = request.getPrompt();
         if (prompt == null || prompt.isBlank()) {
@@ -110,14 +125,25 @@ public class CharacterService {
         }
 
         Character character = new Character();
-        character.setName(request.getName());
+        character.setName(trimmedName);
         character.setDescription(request.getDescription());
         character.setAvatarUrl(request.getAvatarUrl());
         character.setPrompt(prompt);
         character.setOwner(owner);
         character.setPreset(false);
 
-        Character saved = characterRepository.save(character);
+        Character saved;
+        try {
+            saved = characterRepository.saveAndFlush(character);
+        } catch (DataIntegrityViolationException e) {
+            // 并发 INSERT 触发了 (owner_id, name) 唯一约束。
+            // 此刻另一个并发请求刚把同名角色插了进去，我们重新查一下拿那条真实的记录返回。
+            log.info("[DEBUG] Duplicate insert caught by unique constraint for '{}', re-fetching", trimmedName);
+            return characterRepository
+                    .findFirstByOwnerIdAndNameAndIsPresetFalse(userId, trimmedName)
+                    .map(CharacterResponse::fromEntity)
+                    .orElseThrow(() -> e);
+        }
         log.info("[DEBUG] Character created with id: {}, prompt length: {}", saved.getId(), prompt.length());
         return CharacterResponse.fromEntity(saved);
     }
@@ -773,11 +799,27 @@ public class CharacterService {
     }
 
     /**
-     * 按 usage_count 排序的热门角色列表，给"我不知该挑谁"的新用户做冷启动推荐。
-     * 用真实使用量而非运营人工配置：随着系统运转，自带飞轮效果，越用越准，省去运营维护成本。
+     * 返回"开箱即用"推荐区角色：按 name 升序输出全部预设角色，最多 {@code limit} 条。
+     * 不再按 usage_count 排序——推荐位固定展示"历史上最具影响力的 N 位人物"，
+     * 顺序由 {@code data.sql} / {@code DataLoader.seedCharacters()} 写入时的
+     * UUID 序列决定，前端按 3 排 × 6 网格渲染。
      */
     public List<CharacterResponse> findRecommended(int limit) {
-        return characterRepository.findTopByUsageCount(limit)
+        return characterRepository.findByIsPresetTrueOrderByNameAsc()
+                .stream()
+                .limit(limit)
+                .map(CharacterResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 返回全部预设角色（不带 limit）。
+     * 给"推荐位"前端一次性拉全 36 人后由前端按 18 一批做"换一批"切片，
+     * 避免每切一次就发一次 HTTP；同时与"查全部 + 客户端分页"的产品形态对齐。
+     * 排序与 {@link #findRecommended(int)} 保持一致（name 升序），保持数据稳定。
+     */
+    public List<CharacterResponse> findAllRecommended() {
+        return characterRepository.findByIsPresetTrueOrderByNameAsc()
                 .stream()
                 .map(CharacterResponse::fromEntity)
                 .collect(Collectors.toList());

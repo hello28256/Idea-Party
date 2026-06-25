@@ -40,9 +40,10 @@ public class Room {
 
     /**
      * 房间展示名:由房主在创建时填写,用于侧边栏列表与加入提示。
-     * 必填字段,DB 层 NOT NULL 约束避免出现无名房间。
+     * 可空:前端在「单角色」场景下允许留空,Service 兜底回退到角色名,DB 不再做强约束。
+     * 长度上限 100 与 DTO 校验对齐,避免 UI 列表/详情展示时超长截断。
      */
-    @Column(nullable = false)
+    @Column(length = 100)
     private String name;
 
     /**

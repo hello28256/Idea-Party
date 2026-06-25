@@ -12,7 +12,17 @@ import java.util.UUID;
  * 用户私有角色与平台预设角色共用此实体，通过 {@link #isPreset} 区分可见性与所有权。
  */
 @Entity
-@Table(name = "characters")
+@Table(
+    name = "characters",
+    // DB 层终极兜底：同 owner + 同名只能有一条非预设角色。
+    // 前端锁 + 业务层 findFirstByOwnerIdAndNameAndIsPresetFalse 都可能被绕过，
+    // 但 DB 唯一索引不会——并发插入同一条 name 的角色时，第二个请求直接报错。
+    // 配套的 CharacterService.create 会捕获 DataIntegrityViolationException 并返回已存在记录。
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_characters_owner_name",
+        columnNames = {"owner_id", "name"}
+    )
+)
 public class Character {
 
     // 主键使用 UUID 而非自增：分布式/前端可预生成 ID，避免暴露业务量；也便于未来多节点生成时不冲突。

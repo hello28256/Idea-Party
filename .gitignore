@@ -33,6 +33,13 @@ server/uploads/avatars/*
 !.vscode/extensions.json
 !.vscode/settings.json
 
+# Eclipse（项目以 Maven 为主，Eclipse 工程文件属于本地误开 IDE 残留）
+.classpath
+.factorypath
+.project
+.settings/
+server/bin/
+
 # OS
 .DS_Store
 Thumbs.db

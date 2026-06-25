@@ -12,9 +12,9 @@ import java.util.UUID;
  */
 public class CreateRoomRequest {
 
-    // 上限 100：UI 列表/详情展示需要完整可读，过长会截断并破坏一致性。
-    @jakarta.validation.constraints.NotBlank(message = "Room name is required")
-    @Size(min = 1, max = 100, message = "Room name must be between 1 and 100 characters")
+    // 名称为可选：前端在「单角色」场景下允许留空并自动用角色名作为房间名；
+    // 后端不做强校验，避免阻断该快捷流程。仅保留 100 字上限以保护 UI 展示一致性。
+    @Size(max = 100, message = "Room name must be at most 100 characters")
     private String name;
 
     // 话题为可选补充描述，500 字足以覆盖一段背景说明；过长通常意味着用户误把聊天内容粘进来。

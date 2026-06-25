@@ -74,4 +74,12 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
      */
     @Query("SELECT COUNT(r) FROM Room r JOIN r.characters c WHERE c.id = :characterId")
     long countByCharactersId(@Param("characterId") UUID characterId);
+
+    /**
+     * 加载 owner 名下全部房间并一次性 FETCH characters，
+     * 供 RoomService 在创建时做"同 owner + 同角色集合"去重时使用，
+     * 避免循环里多次懒加载触发 N+1。
+     */
+    @Query("SELECT DISTINCT r FROM Room r LEFT JOIN FETCH r.characters WHERE r.owner.id = :ownerId")
+    List<Room> findByOwnerIdFetchCharacters(@Param("ownerId") UUID ownerId);
 }

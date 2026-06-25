@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -64,8 +66,22 @@ public class RoomService {
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
 
+        // 去重：相同 owner + 相同角色集合视为同一房间，命中已有则直接返回。
+        // 修复"反复点推荐角色卡片"产生 N 条同名 room 的问题：
+        // 前端 isStartingChat 锁挡不住并发/重试/多设备，DB 也没有唯一约束，
+        // 在此处查重是最后也是最稳的兜底。空字符集合场景（手建主题房间）也走同样逻辑。
+        if (request.getCharacterIds() != null) {
+            Optional<Room> existing = findExistingRoomForOwner(
+                    owner.getId(), request.getCharacterIds());
+            if (existing.isPresent()) {
+                log.info("[DEBUG] Dedup hit, reusing existing room {} for owner {} with {} characters",
+                        existing.get().getId(), owner.getId(), existing.get().getCharacters().size());
+                return RoomResponse.fromEntity(existing.get());
+            }
+        }
+
         Room room = Room.builder()
-                .name(request.getName())
+                .name(resolveRoomName(request.getName(), request.getCharacterIds()))
                 .topic(request.getTopic())
                 .owner(owner)
                 .mode(normalizeMode(request.getMode()))
@@ -98,6 +114,40 @@ public class RoomService {
         log.info("[DEBUG] Room created with id: {} with {} characters", saved.getId(), saved.getCharacters().size());
 
         return RoomResponse.fromEntity(saved);
+    }
+
+    /**
+     * 按 owner + 角色集合查重：在 owner 名下找"已存在 + 角色集合完全一致"的房间。
+     *
+     * <p>策略：先按 ownerId 拉候选房间（典型规模 < 100），再在内存中比集合相等。
+     * 比直接写 JPA Query 简洁得多，避免 JPQL 不能做集合相等比较的限制；
+     * 候选集通常很小（单用户房间数个位数到几十），内存遍历 O(n*m) 可接受。
+     *
+     * <p>集合比较使用排序后的字符串列表 equals：规避 Set/HashSet 顺序敏感问题，
+     * 也兼容 null/空集合（视为「空房间」也参与去重）。
+     *
+     * @param ownerId      房主 user id
+     * @param characterIds 请求中的角色 ID 集合（可为 null）
+     * @return             命中的现存房间；未命中返回 Optional.empty()
+     */
+    private Optional<Room> findExistingRoomForOwner(UUID ownerId, List<UUID> characterIds) {
+        List<UUID> sortedRequested = characterIds.stream()
+                .filter(Objects::nonNull)
+                .sorted()
+                .toList();
+        // 没有任何角色 ID 的请求也走查重（避免空房间被重复创建），
+        // 但空集合候选房间极少，直接退化为"按 owner 找空房间"的小集合扫描
+        List<Room> candidates = roomRepository.findByOwnerIdFetchCharacters(ownerId);
+        for (Room candidate : candidates) {
+            List<UUID> sortedExisting = candidate.getCharacters().stream()
+                    .map(Character::getId)
+                    .sorted()
+                    .toList();
+            if (sortedExisting.equals(sortedRequested)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
     }
 
     /**
@@ -271,5 +321,26 @@ public class RoomService {
         if (requested == null) return "group";
         String lower = requested.trim().toLowerCase();
         return "single".equals(lower) ? "single" : "group";
+    }
+
+    /**
+     * 兜底解析房间名称。
+     * 优先级：用户显式填写的非空名 → 第一个角色的名字 → 「未命名聊天室」。
+     * 前端单角色场景下允许留空，由此处接管兜底，避免 NULL/空串落库影响 UI 展示。
+     */
+    private String resolveRoomName(String requestedName, List<UUID> characterIds) {
+        if (requestedName != null) {
+            String trimmed = requestedName.trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed.length() > 100 ? trimmed.substring(0, 100) : trimmed;
+            }
+        }
+        if (characterIds != null && !characterIds.isEmpty()) {
+            return characterRepository.findById(characterIds.get(0))
+                    .map(Character::getName)
+                    .filter(n -> n != null && !n.isBlank())
+                    .orElse("未命名聊天室");
+        }
+        return "未命名聊天室";
     }
 }
