@@ -8,6 +8,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { Sun, Moon } from 'lucide-vue-next'
 import { register } from '@/api/auth'
+import { isSupported as isCredentialSupported, storeCredential } from '@/composables/useCredentialStorage'
+import { evaluatePassword } from '@/composables/usePasswordStrength'
 
 const router = useRouter()
 const route = useRoute()
@@ -30,6 +32,12 @@ const password = ref('')
 const username = ref('')
 const email = ref('')
 const confirmPassword = ref('')
+
+// 「让浏览器记住密码」复选框状态。
+// 默认不勾，避免在用户不知情时把凭据写入浏览器密码管理器——只有用户主动勾选才触发 storeCredential。
+const rememberPassword = ref(false)
+// 浏览器是否支持 Credential Management API：false 时复选框 disabled 并跳过 storeCredential 调用。
+const credentialSupported = ref(isCredentialSupported())
 
 // UI 状态
 const loading = ref(false)
@@ -81,8 +89,10 @@ async function handleSubmit() {
       error.value = '请输入用户名'
       return
     }
-    if (password.value.length < 6) {
-      error.value = '密码长度至少为 6 个字符'
+    // 强度校验：与后端 @StrongPassword 完全对齐（8 字符 + 字母 + 数字 + 黑名单）。
+    // score < 3 表示未通过；具体哪条不满足由 passwordStrength.message 给出。
+    if (passwordStrength.value.score < 3) {
+      error.value = passwordStrength.value.message
       return
     }
     if (password.value !== confirmPassword.value) {
@@ -118,6 +128,11 @@ async function handleSubmit() {
       })
     } else {
       await authStore.login(identifier.value, password.value)
+      // 用户主动勾选时才触发；fire-and-forget 不阻塞跳转，storeCredential 内部已 try/catch 静默降级。
+      if (rememberPassword.value && credentialSupported.value) {
+        const displayName = authStore.user?.displayName || authStore.user?.username || ''
+        storeCredential(identifier.value, password.value, displayName)
+      }
       router.push('/rooms')
     }
   } catch (err: any) {
@@ -133,6 +148,17 @@ const submitButtonText = computed(() => {
   if (loading.value) return isRegisterMode.value ? '创建中...' : '登录中...'
   return isRegisterMode.value ? '创建账号' : '登录'
 })
+
+// 密码强度评估（注册模式使用）：实时反映当前 password.value 的强度等级 + 单行提示。
+// 评分 0=空 / 1=弱 / 3=强（无中间档，因为黑名单命中与字符不全都属于 score=1）。
+// 仅在注册模式下有意义；登录模式不展示强度条。
+const passwordStrength = computed(() => evaluatePassword(password.value))
+// 强度条色块 class：score 1→is-weak 红色；3→is-strong 绿色。空态（score 0）不挂任何 class，CSS 默认灰色底。
+const strengthBarClass = computed(() => ({
+  'is-weak': passwordStrength.value.score === 1,
+  'is-medium': passwordStrength.value.score === 2,
+  'is-strong': passwordStrength.value.score === 3
+}))
 
 // === WATCHES AND ONMOUNTED LAST ===
 // Watch route changes to clear password and pre-fill username on navigation
@@ -162,7 +188,7 @@ watch(() => route.query.mode, (newMode) => {
 //   1) 注册跳转带的 username query（最确定的用户意图）。
 // 50ms 延后打开 isVisible 是为了让 CSS 过渡动画能触发。
 onMounted(() => {
-  // 一次性清理：删除 useRememberCredentials 历史写入的 key，
+  // 一次性清理：删除老版本"记住我"功能写入的 localStorage key，
   // 防止老用户浏览器残留旧密文/时间戳，避免未来误用同名 key。
   try {
     localStorage.removeItem('idea-party-creds-v1')
@@ -315,6 +341,19 @@ onMounted(() => {
                 />
               </div>
 
+              <!-- 「让浏览器记住密码」复选框（仅登录模式；不支持的浏览器 disabled） -->
+              <div v-if="!isRegisterMode" class="remember-row">
+                <label class="remember-label">
+                  <input
+                    v-model="rememberPassword"
+                    type="checkbox"
+                    class="remember-checkbox"
+                    :disabled="!credentialSupported"
+                  />
+                  <span class="remember-text">让浏览器记住密码</span>
+                </label>
+              </div>
+
               <!-- 密码（注册） -->
               <div v-if="isRegisterMode">
                 <input
@@ -324,6 +363,14 @@ onMounted(() => {
                   class="form-input"
                   autocomplete="new-password"
                 />
+              </div>
+
+              <!-- 密码强度条（仅注册模式实时显示） -->
+              <div v-if="isRegisterMode" class="password-strength" :data-score="passwordStrength.score">
+                <div class="strength-bar">
+                  <div class="strength-bar-fill" :class="strengthBarClass"></div>
+                </div>
+                <p class="strength-hint" :class="strengthBarClass">{{ passwordStrength.message }}</p>
               </div>
 
               <!-- 确认密码（仅注册） -->
@@ -463,6 +510,19 @@ onMounted(() => {
                 />
               </div>
 
+              <!-- 「让浏览器记住密码」复选框（移动端） -->
+              <div v-if="!isRegisterMode" class="mobile-remember-row">
+                <label class="mobile-remember-label">
+                  <input
+                    v-model="rememberPassword"
+                    type="checkbox"
+                    class="mobile-remember-checkbox"
+                    :disabled="!credentialSupported"
+                  />
+                  <span class="mobile-remember-text">让浏览器记住密码</span>
+                </label>
+              </div>
+
               <!-- 密码（注册） -->
               <div v-if="isRegisterMode">
                 <input
@@ -472,6 +532,14 @@ onMounted(() => {
                   class="mobile-form-input"
                   autocomplete="new-password"
                 />
+              </div>
+
+              <!-- 密码强度条（移动端） -->
+              <div v-if="isRegisterMode" class="mobile-password-strength" :data-score="passwordStrength.score">
+                <div class="mobile-strength-bar">
+                  <div class="mobile-strength-bar-fill" :class="strengthBarClass"></div>
+                </div>
+                <p class="mobile-strength-hint" :class="strengthBarClass">{{ passwordStrength.message }}</p>
               </div>
 
               <!-- 确认密码（仅注册） -->
@@ -1104,6 +1172,224 @@ onMounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* 「让浏览器记住密码」复选框（桌面） */
+.remember-row {
+  display: flex;
+  align-items: center;
+  /* 抵消 .auth-form 的 gap:16px，让复选框与密码框间距更紧凑 */
+  margin-top: -4px;
+}
+
+.remember-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #A78BFA;
+  flex-shrink: 0;
+}
+
+.remember-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.remember-text {
+  font-size: 14px;
+  color: #71717A;
+  transition: color 0.2s;
+}
+
+.dark .remember-text {
+  color: #A1A1AA;
+}
+
+/* 「让浏览器记住密码」复选框（移动） */
+.mobile-remember-row {
+  display: flex;
+  align-items: center;
+  margin-top: -2px;
+}
+
+.mobile-remember-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mobile-remember-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #A78BFA;
+  flex-shrink: 0;
+}
+
+.mobile-remember-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.mobile-remember-text {
+  font-size: 13px;
+  color: #71717A;
+  transition: color 0.2s;
+}
+
+.dark .mobile-remember-text {
+  color: #A1A1AA;
+}
+
+/* 密码强度条（桌面）—— 横条 + 单行提示，规则与 usePasswordStrength / StrongPasswordValidator 对齐 */
+.password-strength {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 抵消 .auth-form 的 gap:16px 让强度条与密码框视觉更紧凑 */
+  margin-top: -8px;
+}
+
+.strength-bar {
+  width: 100%;
+  height: 4px;
+  background: #E5E7EB;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.dark .strength-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.strength-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #A1A1AA;
+  border-radius: 999px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+/* 弱（score=1）：红条 + 红字 */
+.strength-bar-fill.is-weak {
+  width: 33%;
+  background: #DC2626;
+}
+
+.strength-hint.is-weak {
+  color: #DC2626;
+}
+
+/* 中（score=2，预留）：黄条 + 黄字 */
+.strength-bar-fill.is-medium {
+  width: 66%;
+  background: #D97706;
+}
+
+.strength-hint.is-medium {
+  color: #D97706;
+}
+
+/* 强（score=3）：满宽绿条 + 绿字 */
+.strength-bar-fill.is-strong {
+  width: 100%;
+  background: #059669;
+}
+
+.strength-hint.is-strong {
+  color: #059669;
+}
+
+.strength-hint {
+  font-size: 12px;
+  margin: 0;
+  color: #71717A;
+  transition: color 0.2s ease;
+  min-height: 16px;
+  /* 防止空态时与下方元素"跳动"：固定最小高度 */
+}
+
+.dark .strength-hint {
+  color: #A1A1AA;
+}
+
+/* 密码强度条（移动） */
+.mobile-password-strength {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: -6px;
+}
+
+.mobile-strength-bar {
+  width: 100%;
+  height: 3px;
+  background: #E5E7EB;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.dark .mobile-strength-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mobile-strength-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #A1A1AA;
+  border-radius: 999px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.mobile-strength-bar-fill.is-weak {
+  width: 33%;
+  background: #DC2626;
+}
+
+.mobile-strength-hint.is-weak {
+  color: #DC2626;
+}
+
+.mobile-strength-bar-fill.is-medium {
+  width: 66%;
+  background: #D97706;
+}
+
+.mobile-strength-hint.is-medium {
+  color: #D97706;
+}
+
+.mobile-strength-bar-fill.is-strong {
+  width: 100%;
+  background: #059669;
+}
+
+.mobile-strength-hint.is-strong {
+  color: #059669;
+}
+
+.mobile-strength-hint {
+  font-size: 11px;
+  margin: 0;
+  color: #71717A;
+  transition: color 0.2s ease;
+  min-height: 14px;
+}
+
+.dark .mobile-strength-hint {
+  color: #A1A1AA;
 }
 
 </style>

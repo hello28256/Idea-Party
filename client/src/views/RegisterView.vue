@@ -4,9 +4,10 @@
 // 仅处理注册流程：调 register API，成功后跳回登录页并 query 携带用户名以便自动回填。
 // 不维护任何持久化状态——token 的存取由登录流程负责，避免在两处重复实现鉴权副作用。
 // 关键依赖：register()（@/api/auth）——直接调 API，不写 authStore。
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'
+import { evaluatePassword } from '@/composables/usePasswordStrength'
 
 const router = useRouter()
 
@@ -22,10 +23,20 @@ const loading = ref(false)
 // 是为了避免每个字段各管一段错误样式导致 UI 不一致。
 const error = ref('')
 
-// 注册提交处理器：先做本地校验（必填/一致/长度），再调用 register API。
-// 校验顺序按"用户最常犯的错误"排序——空字段 > 密码不一致 > 长度不足，
+// 密码强度评估：实时反映当前 password.value 的强度，与 LoginView 注册模式共用 composable，
+// 保证前后端规则严格一致（8 字符 + 字母 + 数字 + 30 条黑名单）。
+const passwordStrength = computed(() => evaluatePassword(password.value))
+const strengthBarClass = computed(() => ({
+  'is-weak': passwordStrength.value.score === 1,
+  'is-medium': passwordStrength.value.score === 2,
+  'is-strong': passwordStrength.value.score === 3
+}))
+
+// 注册提交处理器：先做本地校验（必填/一致/强度），再调用 register API。
+// 校验顺序按"用户最常犯的错误"排序——空字段 > 密码不一致 > 强度不足，
 // 让最直观的错误最先暴露，减少用户来回修改的次数。
-// 入参约束：username/password 必填，email 可选；password >= 6 字符（与后端规则一致，避免来回往返）。
+// 入参约束：username/password 必填，email 可选；密码强度由 passwordStrength.score 控制（< 3 即拒绝），
+// 与后端 @StrongPassword 完全对齐（8 字符 + 字母 + 数字 + 黑名单）。
 // 副作用：成功后清空密码字段并跳转到登录页（query 携带用户名以便自动回填），
 // 失败时展示后端 message 或兜底文案，不写任何持久化状态——token 的存取由 login 流程负责。
 async function handleSubmit() {
@@ -39,8 +50,9 @@ async function handleSubmit() {
     return
   }
 
-  if (password.value.length < 6) {
-    error.value = '密码长度至少为 6 个字符'
+  // 强度校验：与后端 @StrongPassword 一字不差；具体不满足哪条由 message 给出。
+  if (passwordStrength.value.score < 3) {
+    error.value = passwordStrength.value.message
     return
   }
 
@@ -181,10 +193,17 @@ function handleAppleLogin() {
                 <input
                   v-model="password"
                   type="password"
-                  placeholder="密码（至少6个字符）"
+                  placeholder="密码（至少 8 位，含字母和数字）"
                   class="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   autocomplete="new-password"
                 />
+                <!-- 密码强度条：实时反映 evaluatePassword 结果；与 LoginView 注册模式共用 composable 保证规则一致 -->
+                <div class="rv-strength" :data-score="passwordStrength.score">
+                  <div class="rv-strength-bar">
+                    <div class="rv-strength-bar-fill" :class="strengthBarClass"></div>
+                  </div>
+                  <p class="rv-strength-hint" :class="strengthBarClass">{{ passwordStrength.message }}</p>
+                </div>
               </div>
               <div>
                 <input
@@ -229,6 +248,65 @@ function handleAppleLogin() {
 </template>
 
 <style scoped>
+/* 密码强度条 —— 与 LoginView / usePasswordStrength / StrongPasswordValidator 严格对齐 */
+.rv-strength {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rv-strength-bar {
+  width: 100%;
+  height: 4px;
+  background: #E5E7EB;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rv-strength-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #A1A1AA;
+  border-radius: 999px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.rv-strength-bar-fill.is-weak {
+  width: 33%;
+  background: #DC2626;
+}
+
+.rv-strength-hint.is-weak {
+  color: #DC2626;
+}
+
+.rv-strength-bar-fill.is-medium {
+  width: 66%;
+  background: #D97706;
+}
+
+.rv-strength-hint.is-medium {
+  color: #D97706;
+}
+
+.rv-strength-bar-fill.is-strong {
+  width: 100%;
+  background: #059669;
+}
+
+.rv-strength-hint.is-strong {
+  color: #059669;
+}
+
+.rv-strength-hint {
+  font-size: 12px;
+  margin: 0;
+  color: #71717A;
+  transition: color 0.2s ease;
+  min-height: 16px;
+}
+
 /* Responsive for mobile */
 @media (max-width: 1024px) {
   main > div {

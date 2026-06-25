@@ -183,6 +183,15 @@ export const useAuthStore = defineStore('auth', () => {
     accessToken.value = null
     localStorage.removeItem('accessToken')
     localStorage.removeItem('user')
+    // 阻止浏览器在下次访问时自动填充已登出账号的密码（仅阻断 silent access，不影响用户主动选择已存凭据）。
+    // 能力检测 + 静默吞错：Safari / 隐私模式不应阻断登出主流程。
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.credentials &&
+      typeof navigator.credentials.preventSilentAccess === 'function'
+    ) {
+      navigator.credentials.preventSilentAccess().catch(() => { /* 静默降级 */ })
+    }
   }
 
   /**

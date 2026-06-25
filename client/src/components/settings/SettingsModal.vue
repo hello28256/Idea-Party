@@ -8,6 +8,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useSettingsStore } from '@/stores/settings'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
+import { changePassword } from '@/api/auth'
+import { evaluatePassword } from '@/composables/usePasswordStrength'
 
 // TabKey: 强类型约束，避免与 store / 模板里的字符串拼接散落。
 type TabKey = 'account' | 'preferences' | 'ai' | 'advanced'
@@ -45,6 +47,28 @@ const showClearApiKeyConfirm = ref(false)
 // API Key state
 const apiKey = ref('')
 const loading = ref(false)
+
+// 修改密码表单状态：与「个人资料」独立的两张卡片，避免表单错误相互干扰。
+// 三个字段都是 ref 而非 reactive 对象：保持与项目其他表单（如 LoginView）风格一致。
+const passwordForm = ref({
+  currentPassword: '',
+  newPassword: '',
+  confirmNewPassword: ''
+})
+// 改密提交期间禁用按钮，防止重复点击产生并发 PATCH 请求。
+const changingPassword = ref(false)
+// 改密专用的错误 message（与 saveError 独立，避免与个人资料的错误串扰）。
+const passwordChangeError = ref('')
+const passwordChangeSuccess = ref(false)
+
+// 实时评估新密码强度：复用 usePasswordStrength 与注册场景同源 composable，
+// 保证前后端校验规则（8 字符 + 字母 + 数字 + 30 条黑名单）严格一致。
+const newPasswordStrength = computed(() => evaluatePassword(passwordForm.value.newPassword))
+const strengthBarClass = computed(() => ({
+  'is-weak': newPasswordStrength.value.score === 1,
+  'is-medium': newPasswordStrength.value.score === 2,
+  'is-strong': newPasswordStrength.value.score === 3
+}))
 
 // Theme state
 const selectedTheme = ref<'system' | 'light' | 'dark'>('system')
@@ -217,6 +241,57 @@ async function confirmClearApiKey() {
   }
 }
 
+// handleChangePassword: 三道本地校验 → 调 changePassword → 强制重登。
+// 校验顺序按「用户最容易犯错」排列：空字段 > 两次不一致 > 强度不足，让最直观的错误先暴露。
+// 改密成功后调用 authStore.logout()：触发上一轮已实现的 navigator.credentials.preventSilentAccess，
+// 同时清掉 localStorage 中的 token，避免旧会话被劫持后还能继续操作。
+async function handleChangePassword() {
+  passwordChangeError.value = ''
+
+  if (!passwordForm.value.currentPassword) {
+    passwordChangeError.value = '请输入当前密码'
+    return
+  }
+  if (!passwordForm.value.newPassword) {
+    passwordChangeError.value = '请输入新密码'
+    return
+  }
+  if (passwordForm.value.newPassword !== passwordForm.value.confirmNewPassword) {
+    passwordChangeError.value = '两次输入的新密码不一致'
+    return
+  }
+  // 强度校验：与后端 @StrongPassword 对齐；score<3 即拒绝
+  if (newPasswordStrength.value.score < 3) {
+    passwordChangeError.value = newPasswordStrength.value.message
+    return
+  }
+
+  changingPassword.value = true
+
+  try {
+    await changePassword({
+      currentPassword: passwordForm.value.currentPassword,
+      newPassword: passwordForm.value.newPassword
+    })
+    // 成功：清空表单 + toast + 强制重登（authStore.logout 内已含 preventSilentAccess）
+    passwordForm.value = { currentPassword: '', newPassword: '', confirmNewPassword: '' }
+    passwordChangeSuccess.value = true
+    setTimeout(() => { passwordChangeSuccess.value = false }, 2000)
+    toast.success('密码修改成功，请重新登录')
+    // 短暂延迟让用户看到 toast 再跳走；同步清掉 store 状态与跳转
+    setTimeout(() => {
+      authStore.logout()
+      settingsStore.closeSettings()
+      router.push('/login')
+    }, 800)
+  } catch (e: any) {
+    // 优先展示后端 message（如「当前密码错误」/「密码强度不足…」），其次通用兜底
+    passwordChangeError.value = e?.response?.data?.message || '密码修改失败，请稍后重试'
+  } finally {
+    changingPassword.value = false
+  }
+}
+
 const emit = defineEmits<{
   close: []
 }>()
@@ -363,6 +438,74 @@ function handleClose() {
                 </Transition>
                 <Transition name="fade">
                   <div v-if="saveError" class="toast error">{{ saveError }}</div>
+                </Transition>
+              </div>
+
+              <!-- 修改密码（独立卡片，与个人资料表单解耦，避免错误信息互相覆盖） -->
+              <div class="section-card">
+                <h3 class="card-title">修改密码</h3>
+                <p class="card-desc">修改成功后需要重新登录。新密码需至少 8 位、含字母和数字。</p>
+
+                <!-- 当前密码 -->
+                <div class="field-group">
+                  <label class="field-label">当前密码</label>
+                  <input
+                    v-model="passwordForm.currentPassword"
+                    type="password"
+                    class="field-input"
+                    placeholder="请输入当前密码"
+                    autocomplete="current-password"
+                  />
+                </div>
+
+                <!-- 新密码 -->
+                <div class="field-group">
+                  <label class="field-label">新密码</label>
+                  <input
+                    v-model="passwordForm.newPassword"
+                    type="password"
+                    class="field-input"
+                    placeholder="至少 8 位，含字母和数字"
+                    autocomplete="new-password"
+                  />
+                  <!-- 实时强度条：复用 usePasswordStrength composable，颜色规则与 LoginView 注册模式一致 -->
+                  <div class="pwd-strength" :data-score="newPasswordStrength.score">
+                    <div class="pwd-strength-bar">
+                      <div class="pwd-strength-bar-fill" :class="strengthBarClass"></div>
+                    </div>
+                    <p class="pwd-strength-hint" :class="strengthBarClass">{{ newPasswordStrength.message }}</p>
+                  </div>
+                </div>
+
+                <!-- 确认新密码 -->
+                <div class="field-group">
+                  <label class="field-label">确认新密码</label>
+                  <input
+                    v-model="passwordForm.confirmNewPassword"
+                    type="password"
+                    class="field-input"
+                    placeholder="再次输入新密码"
+                    autocomplete="new-password"
+                  />
+                </div>
+
+                <!-- 改密按钮 -->
+                <div class="form-actions">
+                  <button
+                    class="btn-save"
+                    @click="handleChangePassword"
+                    :disabled="changingPassword"
+                  >
+                    {{ changingPassword ? '修改中...' : '修改密码' }}
+                  </button>
+                </div>
+
+                <!-- 改密提示消息 -->
+                <Transition name="fade">
+                  <div v-if="passwordChangeSuccess" class="toast success">密码修改成功，正在跳转登录…</div>
+                </Transition>
+                <Transition name="fade">
+                  <div v-if="passwordChangeError" class="toast error">{{ passwordChangeError }}</div>
                 </Transition>
               </div>
             </div>
@@ -1150,6 +1293,75 @@ function handleClose() {
   background: rgba(127, 29, 29, 0.95);
   color: #fecaca;
   border-color: #991b1b;
+}
+
+/* 改密卡片的强度条 —— 复用与 LoginView / RegisterView 相同的色阶 token，
+   但用 .pwd- 前缀避免与已有 .password-input-wrapper 等类名混淆 */
+.pwd-strength {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pwd-strength-bar {
+  width: 100%;
+  height: 4px;
+  background: #E5E7EB;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.dark .pwd-strength-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pwd-strength-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #A1A1AA;
+  border-radius: 999px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.pwd-strength-bar-fill.is-weak {
+  width: 33%;
+  background: #DC2626;
+}
+
+.pwd-strength-hint.is-weak {
+  color: #DC2626;
+}
+
+.pwd-strength-bar-fill.is-medium {
+  width: 66%;
+  background: #D97706;
+}
+
+.pwd-strength-hint.is-medium {
+  color: #D97706;
+}
+
+.pwd-strength-bar-fill.is-strong {
+  width: 100%;
+  background: #059669;
+}
+
+.pwd-strength-hint.is-strong {
+  color: #059669;
+}
+
+.pwd-strength-hint {
+  font-size: 12px;
+  margin: 0;
+  color: #71717A;
+  transition: color 0.2s ease;
+  min-height: 16px;
+  /* 防止空态时与下方输入框"跳动" */
+}
+
+.dark .pwd-strength-hint {
+  color: #A1A1AA;
 }
 
 .fade-enter-active,
