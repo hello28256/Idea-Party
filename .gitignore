@@ -23,6 +23,8 @@ server/*.jar
 server/HELP.md
 server/logs/
 server/uploads/avatars/*
+!server/uploads/avatars/presets/
+!server/uploads/avatars/presets/*
 *.class
 *.war
 
