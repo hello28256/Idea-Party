@@ -1527,23 +1527,21 @@ async function handleInviteMember() {
       <!-- 场景视图 -->
       <template v-if="isScenariosView">
         <header class="content-header">
-          <h1 class="page-title">场景</h1>
-          <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
-        </header>
-        <div class="scenarios-grid">
-          <!-- 首位「+ 自定义场景」卡片：用户进入 tab 就能看到 -->
+          <div class="content-header-text">
+            <h1 class="page-title">场景</h1>
+            <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
+          </div>
+          <!-- 右上角「+ 自定义场景」按钮：和"场景"标题同行，最显眼位置 -->
           <button
             type="button"
-            class="scenario-card scenario-card-add"
+            class="btn-create-scenario"
             @click="openCreateCustomScenario"
           >
-            <div class="scenario-add-icon">＋</div>
-            <div class="scenario-body">
-              <h3 class="scenario-title">自定义场景</h3>
-              <p class="scenario-desc">把常用的对话模板沉淀下来，下次一键开始</p>
-            </div>
+            <span class="btn-create-icon">＋</span>
+            自定义场景
           </button>
-
+        </header>
+        <div class="scenarios-grid">
           <div
             v-for="s in scenarioStore.scenarios"
             :key="s.id"
@@ -3423,27 +3421,38 @@ async function handleInviteMember() {
   border-color: #ef4444;
 }
 
-/* 「+ 自定义场景」占位卡片 */
-.scenario-card-add {
-  border-style: dashed;
-  border-color: var(--border-color, #d1d5db);
-  background: transparent;
+/* 「+ 自定义场景」按钮（content-header 右上角） */
+.content-header-text {
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
+}
+
+.btn-create-scenario {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  min-height: 110px;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.scenario-card-add:hover {
-  border-color: #0f172a;
-  background: var(--input-bg, #f9fafb);
+.btn-create-scenario:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.25);
 }
-.scenario-add-icon {
-  font-size: 2.2rem;
+.btn-create-icon {
+  font-size: 1.1rem;
   line-height: 1;
-  color: var(--text-secondary, #6b7280);
-  margin-bottom: 0.5rem;
+  font-weight: 600;
 }
 .scenario-emoji {
   font-size: 32px;
