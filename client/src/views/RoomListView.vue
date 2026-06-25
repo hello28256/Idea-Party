@@ -3431,13 +3431,13 @@ async function handleInviteMember() {
 .btn-create-scenario {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 1rem;
+  gap: 0.5rem;
+  padding: 0.85rem 1.5rem;
   background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   color: #ffffff;
   border: none;
-  border-radius: 10px;
-  font-size: 0.875rem;
+  border-radius: 12px;
+  font-size: 1rem;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -3450,7 +3450,7 @@ async function handleInviteMember() {
   box-shadow: 0 4px 12px rgba(24, 24, 27, 0.25);
 }
 .btn-create-icon {
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   line-height: 1;
   font-weight: 600;
 }
