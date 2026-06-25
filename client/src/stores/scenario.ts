@@ -119,6 +119,51 @@ const SEED_SCENARIOS: Scenario[] = [
     userInputLabel: '这次要审什么稿子？',
     userInputPlaceholder: '例如：一篇关于远程办公的技术博客 / 一份 SaaS 产品上线公告',
     mode: 'single'
+  },
+  {
+    id: 'socratic-coach',
+    emoji: '🤔',
+    title: '苏格拉底式提问',
+    description: '不给你答案，只用问题带你找到答案。适合自我反思、决策、写作灵感。',
+    promptTemplate: '',
+    suggestedCharacterIds: [],
+    requiresUserInput: true,
+    userInputLabel: '你想探讨的话题',
+    userInputPlaceholder: '例如：我是否应该辞职读研 / 如何判断一段关系是否值得继续 / 我真正想做的事是什么',
+    // 走通用 generatePrompt 流程，角色名由 finalizeScenario 中的三元链映射为「苏格拉底」
+    dynamicPrompt: false,
+    mode: 'single'
+  },
+  {
+    id: 'thesis-defense',
+    emoji: '🎓',
+    title: '论文答辩模拟',
+    description: '把摘要交给 1 位虚拟答辩委员会主席，演练 5 个高频答辩问题并得到改进建议。',
+    promptTemplate: `你是一位严谨的论文答辩委员会主席。基于我提交的论文摘要，模拟一场真实的答辩。
+
+【答辩流程】
+1. 让我先提交摘要（≤500 字），你阅读后用 2-3 句话复述核心论点，验证你理解了
+2. 提出 5 个可能的问题：
+   - 研究动机：为什么这个问题值得研究？与现有工作有何区别？
+   - 方法论：你的方法有什么新颖性？是否考虑了 X 替代方案？
+   - 实验：样本量是否足够？baseline 选得合理吗？
+   - 结论：你的结果能推广到什么场景？有什么局限？
+   - 写作：摘要是否清晰？贡献是否被充分强调？
+3. 每个问题给我 30 秒思考时间，再听我回答，给 1-2 条改进建议
+4. 最后给一个综合评分（通过/修改后通过/不通过）+ 3 条最关键的修改意见
+
+【风格要求】
+- 像真正的答辩委员一样严格，不要客套
+- 问题要尖锐但不刁难，假设我是认真做研究的人
+- 涉及方法论时，追问 1-2 层，避免流于表面
+- 给修改示例，不只给批评`,
+    suggestedCharacterIds: [],
+    requiresUserInput: true,
+    userInputLabel: '论文标题或摘要',
+    userInputPlaceholder: '例如：基于注意力机制的图像描述生成研究 / 我的论文是关于 Transformer 在长文本摘要中的应用',
+    // 走通用 generatePrompt 流程；用 group 模式方便用户后续邀请更多评委
+    dynamicPrompt: false,
+    mode: 'group'
   }
 ]
 

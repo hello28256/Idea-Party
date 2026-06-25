@@ -51,6 +51,10 @@ const mounted = ref(false)
 // Selected room for chat panel (my-rooms tab two-column layout)
 const selectedRoomId = ref<string | null>(null)
 
+// 标记下一次 tab 切换到 my-rooms 时跳过 fetchMyRooms（已被 startChat 等调用方预热过）
+// 用一次性标志而不是全局禁 watch，避免正常浏览时也跳过刷新。
+const skipNextMyRoomsFetch = ref(false)
+
 // Three-way collapsible layout state
 // localStorage key：保存三栏折叠状态，让刷新后仍能恢复用户偏好的布局
 const SIDEBAR_STATE_KEY = 'idea-party-chat-layout-state'
@@ -75,6 +79,12 @@ const deletingRoomId = ref<string | null>(null)
 const deletingRoomName = ref('')
 const deletingRoomLoading = ref(false)
 const menuRefs = ref<Record<string, HTMLElement | null>>({})
+
+// startChat 跨并发的"正在 clone 的角色 name"锁。
+// 后端去重只在"事务内"有效——若用户点 N 次同一推荐，前端会同时发 N 个 create 请求，
+// 每个请求都 SELECT 查重（都查不到，因首次还没 INSERT）→ 全部走 INSERT → 重复入库。
+// 前端用这层锁把"同名 + in-flight"的状态截下来：第二次点击直接忽略，避免并发穿透。
+const cloningCharacterNames = ref<Set<string>>(new Set())
 
 function toggleRoomMenu(roomId: string, event: MouseEvent) {
   event.stopPropagation()
@@ -615,7 +625,11 @@ async function finalizeScenario() {
         ? 'Emma · English Tutor'
         : scenario.id === 'writing-coach'
           ? '资深写作编辑'
-          : scenario.title + ' 助手'
+          : scenario.id === 'socratic-coach'
+            ? '苏格拉底'
+            : scenario.id === 'thesis-defense'
+              ? '答辩委员会主席'
+              : scenario.title + ' 助手'
     const promptResp = await charactersApi.generatePrompt({
       name: characterName,
       description
@@ -655,6 +669,12 @@ watch(
   () => route.query.tab as string | undefined,
   (tab) => {
     if (tab === 'my-rooms' || tab === 'recent') {
+      // startChat 等调用方已经在 router 切换前 await 过 fetchMyRooms，
+      // 跳过这一次避免进入房间时多打一次 GET /rooms。
+      if (skipNextMyRoomsFetch.value) {
+        skipNextMyRoomsFetch.value = false
+        return
+      }
       roomStore.fetchMyRooms()
     }
   },
@@ -707,31 +727,115 @@ function handleCharacterUpdated(updatedCharacter: any) {
   closeEditCharacterModal()
 }
 
-// Start chat with a character - creates/joins a single-person chat room
+// Start chat with a character — creates/joins a chat room (mode='group') seeded with this character.
+// 与之前"单角色单聊"的差别：
+//   1) 现在点推荐角色是创建一个群聊房间（mode='group'，包含 1 个初始角色），用户进入后可点"+ 邀请"继续扩充角色。
+//   2) 如果点击的是 preset 角色（ownerId=null / isPreset=true），先在当前用户的角色库下 clone 一份副本
+//      （同名同描述同 prompt），再以副本建群聊——这样角色就"加入了我的角色库"，可在「角色库」页管理。
+//      已经 clone 过的（ownerId=currentUser）跳过 clone 直接复用。
 // 幂等保证：每次先 fetchMyRooms 再查找已有房间，避免跨页面/跨设备创建重复会话。
+// 防止重复点击的护栏：同一角色在请求进行中时直接忽略后续点击
+const isStartingChat = ref(false)
+
 async function startChat(character: any) {
+  if (isStartingChat.value) {
+    console.log('[DEBUG] startChat already in progress, ignoring click on:', character?.name)
+    return
+  }
+  isStartingChat.value = true
   try {
     console.log('[DEBUG] startChat called with character:', character)
 
-    // 刷新 myRooms 以获取最新数据
-    await roomStore.fetchMyRooms()
+    // 增量拉取：仅在 store 还没数据时才拉，避免每次点推荐角色都重打两次 GET。
+    // 这里保留"找到既有房间"的能力（依赖 myRooms），但跳过没必要的 characters 重拉——
+    // preset 角色的 clone 走的是后端 owner+name 去重，前端缓存不命中也不会破坏正确性。
+    if (roomStore.myRooms.length === 0) {
+      await roomStore.fetchMyRooms()
+    }
+    // 标记接下来一次 my-rooms tab 切换由 router push 引起，watch 应跳过 fetchMyRooms
+    skipNextMyRoomsFetch.value = true
 
-    console.log('[DEBUG] myRooms after fetch:', JSON.stringify(roomStore.myRooms.map(r => ({
-      id: r.id,
-      name: r.name,
-      characters: r.characters
-    }))))
+    // 1) 决定用哪个 character.id 建房间
+    //    - preset（ownerId=null）→ 先 clone 到当前用户的角色库，再用副本 id
+    //    - 已属于当前用户 → 直接用
+    //    - 属于别的用户 → 不能加入，跳过 clone 仅尝试复用已有房间（一般不会有）
+    const myUserId = authStore.user?.id
+    const isMine = character.ownerId && myUserId && character.ownerId === myUserId
+    const isPreset = !character.ownerId
 
-    // Check if this character already has a chat room in my-rooms
-    const existingRoom = roomStore.myRooms.find(room =>
-      room.characters?.some(c => c.id === character.id)
-    )
+    let characterIdForRoom = character.id
 
-    console.log('[DEBUG] looking for character.id:', character.id)
-    console.log('[DEBUG] existingRoom:', existingRoom)
+    if (isPreset) {
+      // 在我的角色库里查重名/同源角色（避免重复 clone）
+      const dup = characterStore.characters.find(c =>
+        c.ownerId === myUserId && c.name === character.name
+      )
+      if (dup) {
+        characterIdForRoom = dup.id
+        console.log('[DEBUG] Reusing already-cloned character:', dup.id)
+      } else {
+        // 并发去重锁：若同名已经在 clone 中（典型场景：用户快速点击同一个推荐卡片），
+        // 直接拦截。否则会发出 N 个并发 create 请求穿透后端查重：
+        // 后端 create() 内的"先查重 → 联网 → AI → INSERT"有 10s+ 的窗口，
+        // 第一个请求还没 INSERT 时，后续 N-1 个请求都查不到，都会走 INSERT → 重复入库。
+        // 这层锁保证同一时刻同一个角色名只有 1 个请求在飞。
+        if (cloningCharacterNames.value.has(character.name)) {
+          console.log('[DEBUG] Already cloning character, skipping duplicate click:', character.name)
+          return
+        }
+        cloningCharacterNames.value.add(character.name)
+        try {
+          const cloned = await characterStore.createCharacter({
+            name: character.name,
+            description: character.description || '',
+            avatarUrl: character.avatarUrl || '',
+            prompt: character.prompt || ''
+          })
+          if (!cloned) {
+            // 加入角色库失败（典型原因：后端 AI prompt 生成慢/超时）。
+            // 不弹 alert 打断用户——静默 fallback，用原始 preset id 继续建房间。
+            // 用户先进入对话，"加入我的角色库"是辅助功能，失败不应阻塞主流程。
+            // 后端 RoomService.create 不校验角色所有权（见 Service 代码注释），所以 preset id 也能建房间。
+            console.warn('[DEBUG] clone failed for', character.name, '- falling back to preset id for room creation')
+          } else {
+            // 后端 CharacterService.create 会按 owner+name 去重：
+            // 若服务端已经存在同名角色，会返回那条已存在记录的 id（不是新建的 id）。
+            // 此时要把刚返回的"多余副本"从 store 移除，并使用真实已有那条的 id，
+            // 避免下次再点击又落到新建分支、且 existingRoom 查询因 id 不匹配而漏掉既有房间。
+            const serverId = cloned.id
+            const localExisting = characterStore.characters.find(c =>
+              c.ownerId === myUserId && c.name === character.name && c.id !== serverId
+            )
+            if (localExisting) {
+              console.log('[DEBUG] Server dedup returned existing character, merging local store')
+              characterIdForRoom = localExisting.id
+              const staleIdx = characterStore.characters.findIndex(c => c.id === serverId)
+              if (staleIdx !== -1) characterStore.characters.splice(staleIdx, 1)
+            } else {
+              characterIdForRoom = serverId
+              console.log('[DEBUG] Cloned preset character to my library:', serverId)
+            }
+          }
+        } finally {
+          cloningCharacterNames.value.delete(character.name)
+        }
+      }
+    } else if (!isMine) {
+      // 属于别的用户：不能 clone 到我的库（避免越权），只能尝试复用既有房间
+      console.log('[DEBUG] Character belongs to another user, cannot clone')
+    }
+
+    // 2) 检查该角色是否已经有群聊房间（用副本 id 找，因为房间 members 是按副本绑定的）
+    // 匹配规则必须与后端 RoomService.create 的查重保持一致："角色集合完全相等"才算同一房间。
+    // 旧实现用 .some() 会把"孔子+老子"命中为孔子的房间，造成跳错房间或误判已存在。
+    const sortedRequested = [characterIdForRoom].slice().sort()
+    const existingRoom = roomStore.myRooms.find(room => {
+      const ids = (room.characters ?? []).map(c => c.id).sort()
+      return ids.length === sortedRequested.length &&
+        ids.every((id, i) => id === sortedRequested[i])
+    })
 
     if (existingRoom) {
-      // 跳转到已有房间
       router.replace({
         path: '/rooms',
         query: {
@@ -741,10 +845,13 @@ async function startChat(character: any) {
         }
       })
     } else {
-      // 为该角色创建一个新房间
-      const room = await roomStore.createRoom(character.name)
-      await roomStore.addCharacterToRoom(room.id, character.id)
-      // Navigate to my-rooms tab with the room selected
+      // 3) 创建一个群聊房间（mode='group'），副本角色作为初始成员
+      const room = await roomStore.createRoom(
+        character.name,
+        undefined,
+        [characterIdForRoom],
+        'group'
+      )
       router.replace({
         path: '/rooms',
         query: {
@@ -757,6 +864,8 @@ async function startChat(character: any) {
   } catch (e) {
     console.error('[DEBUG] Failed to start chat:', e)
     alert('创建对话失败，请重试')
+  } finally {
+    isStartingChat.value = false
   }
 }
 
@@ -795,6 +904,36 @@ const categories = [
 // Featured characters - loaded from API
 const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
+
+// 「推荐角色」分批展示状态机：
+// - BATCH_SIZE: 每批展示多少个，与后端 /recommended 数据规模保持一致（当前共 36 人）。
+// - showAll: 折叠态 = false（仅展示第 1 批 18 个，与改动前视觉一致）；
+//            展开态 = true（露出「换一批」按钮，在多批间循环）。
+// - currentBatch: 仅在 showAll=true 时生效；点击「换一批」+1 后对总批数取模。
+// 这里采用"前端一次性拉全 + 客户端分批"而非每次切换发 HTTP，
+// 因为「换一批」是纯展示态切换，不需要后端重算或重新鉴权。
+const BATCH_SIZE = 18
+const showAllFeatured = ref(false)
+const currentFeaturedBatch = ref(0)
+const featuredTotalBatches = computed(() =>
+  Math.max(1, Math.ceil(featuredCharacters.value.length / BATCH_SIZE))
+)
+// 当前页内实际渲染的角色列表（折叠态 = 第 1 批；展开态 = currentBatch 那一批）。
+const displayedFeatured = computed(() => {
+  if (!showAllFeatured.value) {
+    return featuredCharacters.value.slice(0, BATCH_SIZE)
+  }
+  const start = currentFeaturedBatch.value * BATCH_SIZE
+  return featuredCharacters.value.slice(start, start + BATCH_SIZE)
+})
+function toggleShowAllFeatured() {
+  showAllFeatured.value = !showAllFeatured.value
+  // 展开时把 currentBatch 重置到 0，避免停留在一个"折叠态下不可见"的批上让用户困惑
+  currentFeaturedBatch.value = 0
+}
+function shuffleFeaturedBatch() {
+  currentFeaturedBatch.value = (currentFeaturedBatch.value + 1) % featuredTotalBatches.value
+}
 
 // 发现页"推荐角色"列表的拉取与兜底：头像缺失时用 DiceBear SVG 生成确定性占位（seed=name），
 // 这样同一角色无论何时显示都是同一张图，提升品牌识别一致性。
@@ -912,6 +1051,150 @@ const roomCardsData = [
     messageCount: 945,
     category: 'star',
     isHot: false
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000007',
+    title: '幸福的定义是什么？',
+    cover: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=400&h=225&fit=crop',
+    participants: ['苏格拉底', '孔子', '佛陀'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Buddha&backgroundColor=fde68a'
+    ],
+    latestMessage: { sender: '孔子', text: '知之者不如好之者...' },
+    onlineCount: 215,
+    messageCount: 1238,
+    category: 'philosopher',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000008',
+    title: '人类应该殖民火星吗？',
+    cover: 'https://images.unsplash.com/photo-1614728263952-84ea256f9679?w=400&h=225&fit=crop',
+    participants: ['马斯克', '霍金', '爱因斯坦'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Hawking&backgroundColor=c4b5fd',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+    ],
+    latestMessage: { sender: '霍金', text: '我们必须成为多行星物种...' },
+    onlineCount: 421,
+    messageCount: 2876,
+    category: 'scientist',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000009',
+    title: '商业是最大的公益吗？',
+    cover: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&h=225&fit=crop',
+    participants: ['马斯克', '乔布斯', '孔子'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Jobs&backgroundColor=fdba74',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa'
+    ],
+    latestMessage: { sender: '乔布斯', text: '把产品做到极致...' },
+    onlineCount: 178,
+    messageCount: 1052,
+    category: 'entrepreneur',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000010',
+    title: '艺术需要被理解吗？',
+    cover: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?w=400&h=225&fit=crop',
+    participants: ['梵高', '毕加索', '莎士比亚'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=VanGogh&backgroundColor=fde68a',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Picasso&backgroundColor=fca5a5',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc'
+    ],
+    latestMessage: { sender: '梵高', text: '我画的不是眼前所见...' },
+    onlineCount: 134,
+    messageCount: 678,
+    category: 'artist',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000011',
+    title: '教育的本质是什么？',
+    cover: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&h=225&fit=crop',
+    participants: ['孔子', '苏格拉底', '爱因斯坦'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+    ],
+    latestMessage: { sender: '孔子', text: '学而不思则罔...' },
+    onlineCount: 287,
+    messageCount: 1689,
+    category: 'philosopher',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000012',
+    title: '自由意志是幻觉吗？',
+    cover: 'https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400&h=225&fit=crop',
+    participants: ['尼采', '弗洛伊德', '爱因斯坦'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Nietzsche&backgroundColor=a5b4fc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Freud&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+    ],
+    latestMessage: { sender: '尼采', text: '当你凝视深渊时...' },
+    onlineCount: 203,
+    messageCount: 1421,
+    category: 'philosopher',
+    isHot: false
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000013',
+    title: '领导力的核心是什么？',
+    cover: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&h=225&fit=crop',
+    participants: ['乔布斯', '孔子', '拿破仑'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Jobs&backgroundColor=fdba74',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Napoleon&backgroundColor=fca5a5'
+    ],
+    latestMessage: { sender: '乔布斯', text: '领袖要做对的事...' },
+    onlineCount: 156,
+    messageCount: 892,
+    category: 'leader',
+    isHot: true
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000014',
+    title: '数学是发现的还是发明的？',
+    cover: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=400&h=225&fit=crop',
+    participants: ['牛顿', '欧拉', '爱因斯坦'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Euler&backgroundColor=a5b4fc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+    ],
+    latestMessage: { sender: '牛顿', text: '自然之书以数学书写...' },
+    onlineCount: 98,
+    messageCount: 534,
+    category: 'scientist',
+    isHot: false
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000015',
+    title: '文学应该教人向善吗？',
+    cover: 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=400&h=225&fit=crop',
+    participants: ['莎士比亚', '孔子', '鲁迅'],
+    participantAvatars: [
+      'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=LuXun&backgroundColor=fde68a'
+    ],
+    latestMessage: { sender: '鲁迅', text: '揭出病苦，引起疗救...' },
+    onlineCount: 142,
+    messageCount: 763,
+    category: 'artist',
+    isHot: true
   },
 ]
 
@@ -1219,7 +1502,9 @@ async function handleInviteMember() {
                   <!-- 第一步：填岗位 / JD -->
                   <template v-if="scenarioStep === 'input'">
                     <div v-if="activeScenario.requiresUserInput">
-                      <label class="scenario-modal-label">岗位 / 行业 *</label>
+                      <label class="scenario-modal-label">
+                        {{ activeScenario.id === 'interview-coach' ? '岗位 / 行业' : (activeScenario.userInputLabel || '输入') }} *
+                      </label>
                       <textarea
                         v-model="userInput"
                         class="scenario-modal-input"
@@ -1780,7 +2065,25 @@ async function handleInviteMember() {
         <section class="featured-section">
           <div class="section-header">
             <h2 class="section-title">推荐角色</h2>
-            <a href="#" class="see-all" @click.prevent>查看全部</a>
+            <div class="section-actions">
+              <!-- 「查看全部 / 收起」入口：始终显示，点击在折叠态与展开态间切换 -->
+              <a
+                href="#"
+                class="see-all"
+                @click.prevent="toggleShowAllFeatured"
+              >{{ showAllFeatured ? '收起' : '查看全部' }}</a>
+              <!-- 「换一批」：与查看全部并排，点击在多批间循环 -->
+              <button
+                type="button"
+                class="shuffle-batch-btn"
+                :disabled="featuredTotalBatches <= 1"
+                @click="shuffleFeaturedBatch"
+                :title="featuredTotalBatches <= 1 ? '当前只有 1 批' : '换一批'"
+              >
+                <span class="shuffle-batch-label">换一批</span>
+                <span class="shuffle-batch-count">{{ currentFeaturedBatch + 1 }}/{{ featuredTotalBatches }}</span>
+              </button>
+            </div>
           </div>
           <div v-if="featuredCharactersLoading" class="featured-loading">
             <div class="loading-spinner"></div>
@@ -1788,11 +2091,16 @@ async function handleInviteMember() {
           <div v-else-if="featuredCharacters.length === 0" class="featured-empty">
             暂无推荐角色
           </div>
-          <div v-else class="featured-scroll">
+          <div v-else class="featured-grid">
             <div
-              v-for="char in featuredCharacters.slice(0, 6)"
+              v-for="char in displayedFeatured"
               :key="char.id"
               class="character-card"
+              :class="{ 'is-loading': isStartingChat }"
+              role="button"
+              tabindex="0"
+              @click="startChat(char)"
+              @keyup.enter="startChat(char)"
             >
               <div class="character-avatar-wrap">
                 <img :src="char.avatar" :alt="char.name" class="character-avatar" />
@@ -2342,7 +2650,10 @@ async function handleInviteMember() {
 /* ===== Main Content ===== */
 .main-content {
   padding: 1.5rem 2rem;
-  /* 不在这里滚动，让 rooms-list-scroll 自己滚（避免左右两栏跟着滚） */
+  /* 发现/角色库/场景 tab 在这里自己滚动；
+     my-rooms tab 由下方 :has 分支接管，让 .rooms-list-scroll 内部滚 */
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .main-content:has(.rooms-chat-shell) {
@@ -2437,18 +2748,57 @@ async function handleInviteMember() {
   text-decoration: underline;
 }
 
-/* Featured Scroll */
-.featured-scroll {
+/* 推荐角色 section 标题右侧操作区：把"查看全部"和"换一批"统一放在同一槽位，
+   互斥显示——折叠态展示"查看全部"入口，展开态展示"换一批"按钮。
+   .section-actions 是右对齐的容器，避免修改 .section-header 的 flex 布局。 */
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 「换一批」按钮：与 .see-all 视觉重量相近（链接感），但带圆角和轻微背景便于识别为可点击操作。
+   右上角的 1/3 是当前/总批数提示，让用户清楚知道这是"多批之一"，避免以为内容是无限滚动。 */
+.shuffle-batch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #18181b;
+  background: rgba(24, 24, 27, 0.04);
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.shuffle-batch-btn:hover:not(:disabled) {
+  background: rgba(24, 24, 27, 0.08);
+  border-color: rgba(24, 24, 27, 0.16);
+}
+.shuffle-batch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.shuffle-batch-count {
+  font-size: 0.75rem;
+  color: rgba(24, 24, 27, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Featured Grid — 3 rows × 6 columns of preset characters */
+.featured-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 1rem;
   padding: 0.5rem 0;
 }
 @media (max-width: 1100px) {
-  .featured-scroll { grid-template-columns: repeat(4, 1fr); }
+  .featured-grid { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 700px) {
-  .featured-scroll { grid-template-columns: repeat(3, 1fr); }
+  .featured-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 .featured-loading {
@@ -2481,6 +2831,15 @@ async function handleInviteMember() {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
   border-color: #27272a;
+}
+
+/* startChat 进行中：所有推荐卡片置灰，提示用户等待；防止用户重复点击造成请求堆积 */
+.character-card.is-loading {
+  opacity: 0.55;
+  cursor: progress;
+  pointer-events: none;
+  transform: none;
+  box-shadow: none;
 }
 
 .character-avatar-wrap {
@@ -4575,9 +4934,9 @@ async function handleInviteMember() {
 
 .character-info-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   flex: 1;
-  gap: 12px;
   min-width: 0;
   overflow: hidden;
 }
@@ -4586,23 +4945,24 @@ async function handleInviteMember() {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  max-width: calc(100% - 80px);
 }
 
 .edit-char-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid;
+  border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 8px;
   background: var(--button-bg);
-  border-color: var(--button-bg);
   color: var(--button-text);
   cursor: pointer;
   transition: all 0.15s ease;
+  align-self: flex-end;
+  margin-top: 8px;
   flex-shrink: 0;
 }
 
@@ -4622,7 +4982,7 @@ async function handleInviteMember() {
 }
 
 .character-chip-card span {
-  display: block;
+  display: -webkit-box;
   margin-top: 3px;
   font-size: 12px;
   color: #94a3b8;
@@ -4630,7 +4990,6 @@ async function handleInviteMember() {
   text-overflow: ellipsis;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  display: -webkit-box;
   word-break: break-word;
 }
 
