@@ -8,6 +8,7 @@
 //   - charactersApi / scenariosApi：纯 HTTP 通道（场景 prompt 生成、简历解析、JD OCR）
 //   - ChatRoomPanel：在 my-rooms tab 中以 embedded 模式渲染（替代 /chat/:roomId 路由）
 //   - CreateRoomModal / CreateCharacterModal / ConfirmDialog：复用弹窗
+//   - CustomScenarioModal：用户私有场景创建/编辑弹窗（场景 tab 末尾的 + 卡片触发）
 //   - useToast：统一提示（删除成功/失败等）
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
@@ -20,6 +21,7 @@ import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import CustomScenarioModal from '@/components/scenario/CustomScenarioModal.vue'
 import { useToast } from '@/composables/useToast'
 import AppSidebar from '@/components/ui/AppSidebar.vue'
 import { MINIMAL_NAV_ITEMS } from '@/config/sidebar'
@@ -339,6 +341,14 @@ const jobDescription = ref('')
 const scenarioStep = ref<'input' | 'preview'>('input')
 const creatingScenario = ref(false)
 const createError = ref<string | null>(null)
+// ===== 用户私有场景弹窗状态 =====
+// 控制 CustomScenarioModal 显示；editingScenario 决定是创建还是编辑
+const showCustomScenarioModal = ref(false)
+const editingScenario = ref<Scenario | null>(null)
+// 删除确认（用户私有场景）
+const deletingScenarioId = ref<string | null>(null)
+const deletingScenarioTitle = ref('')
+const deletingScenarioLoading = ref(false)
 // 动态生成的 prompt + 角色名（面试场景第二步展示用）
 const generatedPrompt = ref('')
 const generatedCharacterName = ref('')
@@ -386,6 +396,60 @@ function closeScenario() {
   jdImageUploading.value = false
   jdImageError.value = null
   createError.value = null
+}
+
+// ===== 用户私有场景 CRUD 入口 =====
+// 打开「+」卡片：创建模式
+function openCreateCustomScenario() {
+  editingScenario.value = null
+  showCustomScenarioModal.value = true
+}
+
+// 打开用户私有场景的「编辑」按钮：编辑模式（@click.stop 阻止冒泡到外层 card）
+function openEditCustomScenario(s: Scenario, e: Event) {
+  e.stopPropagation()
+  editingScenario.value = s
+  showCustomScenarioModal.value = true
+}
+
+// 打开用户私有场景的「删除」按钮：先弹 ConfirmDialog 二次确认（@click.stop 防冒泡）
+function openDeleteCustomScenario(s: Scenario, e: Event) {
+  e.stopPropagation()
+  deletingScenarioId.value = s.id
+  deletingScenarioTitle.value = s.title
+}
+
+// CustomScenarioModal saved 事件回调：弹窗内部已经 toast 成功/失败提示，
+// 这里只需关闭弹窗（弹窗已自动 close）。保留 handler 是为了 future hook
+// （如埋点、自动选中刚创建的场景等）。
+function onCustomScenarioSaved(_scenario: Scenario) {
+  // store 已经在 createUserScenario / updateUserScenario 内部更新 userScenarios
+  // computed scenarios 会自动响应，无需手动刷新
+  // 弹窗已自动关闭，无需手动处理 showCustomScenarioModal
+}
+
+// 确认删除：调 store action。失败由 store 内部捕获并写 error.value
+async function confirmDeleteCustomScenario() {
+  if (!deletingScenarioId.value) return
+  deletingScenarioLoading.value = true
+  try {
+    const success = await scenarioStore.removeUserScenario(deletingScenarioId.value)
+    if (success) {
+      toast.success(`已删除场景「${deletingScenarioTitle.value}」`)
+      deletingScenarioId.value = null
+      deletingScenarioTitle.value = ''
+    } else {
+      const msg = scenarioStore.error || '删除失败'
+      toast.error(msg)
+      deletingScenarioId.value = null
+    }
+  } catch (e: any) {
+    console.error('[DEBUG] confirmDeleteCustomScenario failed:', e)
+    toast.error(e.message || '删除失败')
+    deletingScenarioId.value = null
+  } finally {
+    deletingScenarioLoading.value = false
+  }
 }
 
 // 简历上传：选择文件或拖拽
@@ -667,6 +731,10 @@ watch(
         return
       }
       roomStore.fetchMyRooms()
+    } else if (tab === 'scenarios') {
+      // 进入场景 tab 时拉取用户私有场景。
+      // fetchUserScenarios 失败时不动 userScenarios.value，确保预设场景仍可见。
+      scenarioStore.fetchUserScenarios()
     }
   },
   { immediate: true }
@@ -896,48 +964,35 @@ const categories = [
 const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
 
-// 「推荐角色」分批展示状态机：
+// 「推荐角色」展示状态机：
 // - BATCH_SIZE: 每批展示多少个。36 ÷ 12 = 3 批，3 列 4 行的网格刚好放下。
-// - showAll: 折叠态 = false（仅展示第 1 批 12 个，与改动前视觉一致）；
-//            展开态 = true（露出「换一批」按钮，在多批间循环）。
-// - currentBatch: 仅在 showAll=true 时生效；点击「换一批」+1 后对总批数取模。
-// 这里采用"前端一次性拉全 + 客户端分批"而非每次切换发 HTTP，
-// 因为「换一批」是纯展示态切换，不需要后端重算或重新鉴权。
+// - showAllFeatured: false（分批态，默认）= 按当前批次展示 12 人 + 「换一批」按钮可点；
+//                    true（显示全部态）= 一次性铺全部 36 人 + 「换一批」禁用，
+//                    按钮文案切换为「收起」让用户能回到分批态。
+// 之前试过"始终展示当前批 + 换一批"的纯单层交互，但 36/12=3 批切换时
+// 用户容易感觉"卡住"——所以加了"显示全部"作为兜底，36 人一目了然。
 const BATCH_SIZE = 12
 const showAllFeatured = ref(false)
 const currentFeaturedBatch = ref(0)
 const featuredTotalBatches = computed(() =>
   Math.max(1, Math.ceil(featuredCharacters.value.length / BATCH_SIZE))
 )
-// 当前页内实际渲染的角色列表（折叠态 = 第 1 批；展开态 = currentBatch 那一批）。
+// 当前页内实际渲染的角色列表。
+//   分批态：按 currentFeaturedBatch 切片 12 人
+//   显示全部态：返回全集
 const displayedFeatured = computed(() => {
-  if (!showAllFeatured.value) {
-    return featuredCharacters.value.slice(0, BATCH_SIZE)
+  if (showAllFeatured.value) {
+    return featuredCharacters.value
   }
   const start = currentFeaturedBatch.value * BATCH_SIZE
   return featuredCharacters.value.slice(start, start + BATCH_SIZE)
 })
-// 当前批次的首尾角色名（用于在头部加「A → B」范围提示，让用户一眼看出换一批真的换了）。
-const currentBatchRange = computed(() => {
-  const list = displayedFeatured.value
-  if (list.length === 0) return ''
-  const first = list[0]?.name ?? ''
-  const last = list[list.length - 1]?.name ?? ''
-  return `${first} → ${last}`
-})
 function toggleShowAllFeatured() {
-  console.log('[DEBUG] toggleShowAllFeatured CLICKED, before=', showAllFeatured.value)
   showAllFeatured.value = !showAllFeatured.value
-  // 展开时把 currentBatch 重置到 0，避免停留在一个"折叠态下不可见"的批上让用户困惑
-  currentFeaturedBatch.value = 0
-  console.log('[DEBUG] toggleShowAllFeatured AFTER, showAllFeatured=', showAllFeatured.value,
-    'displayedFeatured.length=', displayedFeatured.value.length,
-    'totalChars=', featuredCharacters.value.length)
 }
 function shuffleFeaturedBatch() {
-  console.log('[DEBUG] shuffleFeaturedBatch before:', currentFeaturedBatch.value, '/', featuredTotalBatches.value)
+  if (showAllFeatured.value) return
   currentFeaturedBatch.value = (currentFeaturedBatch.value + 1) % featuredTotalBatches.value
-  console.log('[DEBUG] shuffleFeaturedBatch after:', currentFeaturedBatch.value)
 }
 
 // 发现页"推荐角色"列表的拉取与兜底：头像缺失时用 DiceBear SVG 生成确定性占位（seed=name），
@@ -1476,17 +1531,50 @@ async function handleInviteMember() {
           <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
         </header>
         <div class="scenarios-grid">
-          <button
+          <div
             v-for="s in scenarioStore.scenarios"
             :key="s.id"
-            type="button"
-            class="scenario-card"
-            @click="openScenario(s)"
+            class="scenario-card-wrap"
+            :class="{ 'is-user': !s.isPreset }"
           >
-            <div class="scenario-emoji">{{ s.emoji }}</div>
+            <button
+              type="button"
+              class="scenario-card"
+              @click="openScenario(s)"
+            >
+              <div class="scenario-emoji">{{ s.emoji }}</div>
+              <div class="scenario-body">
+                <h3 class="scenario-title">{{ s.title }}</h3>
+                <p class="scenario-desc">{{ s.description }}</p>
+              </div>
+            </button>
+            <!-- 用户私有场景：右上角 hover 出现编辑/删除按钮 -->
+            <div v-if="!s.isPreset" class="scenario-actions">
+              <button
+                type="button"
+                class="scenario-action-btn"
+                title="编辑"
+                @click="openEditCustomScenario(s, $event)"
+              >✏️</button>
+              <button
+                type="button"
+                class="scenario-action-btn scenario-action-danger"
+                title="删除"
+                @click="openDeleteCustomScenario(s, $event)"
+              >🗑️</button>
+            </div>
+          </div>
+
+          <!-- 末尾「+ 自定义场景」卡片 -->
+          <button
+            type="button"
+            class="scenario-card scenario-card-add"
+            @click="openCreateCustomScenario"
+          >
+            <div class="scenario-add-icon">＋</div>
             <div class="scenario-body">
-              <h3 class="scenario-title">{{ s.title }}</h3>
-              <p class="scenario-desc">{{ s.description }}</p>
+              <h3 class="scenario-title">自定义场景</h3>
+              <p class="scenario-desc">把常用的对话模板沉淀下来，下次一键开始</p>
             </div>
           </button>
         </div>
@@ -2068,26 +2156,24 @@ async function handleInviteMember() {
         <section class="featured-section">
           <div class="section-header">
             <h2 class="section-title">推荐角色</h2>
-            <!-- 当前批次范围提示（如「亚里士多德 → 海森堡」），让换一批的视觉变化一眼可辨 -->
-            <span v-if="showAllFeatured && currentBatchRange" class="batch-range">{{ currentBatchRange }}</span>
             <div class="section-actions">
-              <!-- 「换一批」：左侧，点击在多批间循环 -->
+              <!-- 「换一批」：点击在多批间循环（仅分批态可见，"显示全部"态时禁用） -->
               <button
                 type="button"
                 class="shuffle-batch-btn"
-                :disabled="featuredTotalBatches <= 1"
+                :disabled="featuredTotalBatches <= 1 || showAllFeatured"
                 @click="shuffleFeaturedBatch"
                 :title="featuredTotalBatches <= 1 ? '当前只有 1 批' : '换一批'"
               >
                 <span class="shuffle-batch-label">换一批</span>
                 <span class="shuffle-batch-count">{{ currentFeaturedBatch + 1 }}/{{ featuredTotalBatches }}</span>
               </button>
-              <!-- 「查看全部 / 收起」入口：右侧，始终显示，点击在折叠态与展开态间切换 -->
-              <a
-                href="#"
-                class="see-all"
-                @click.prevent="toggleShowAllFeatured"
-              >{{ showAllFeatured ? '收起' : '查看全部' }}</a>
+              <!-- 「显示全部 / 收起」：右侧，把全部 36 人一次性铺出来 -->
+              <button
+                type="button"
+                class="show-all-btn"
+                @click="toggleShowAllFeatured"
+              >{{ showAllFeatured ? '收起' : '显示全部' }}</button>
             </div>
           </div>
           <div v-if="featuredCharactersLoading" class="featured-loading">
@@ -2279,6 +2365,27 @@ async function handleInviteMember() {
       :loading="deletingRoomLoading"
       @confirm="confirmDeleteRoom"
       @cancel="showDeleteRoomConfirm = false"
+    />
+
+    <!-- 自定义场景弹窗（创建/编辑） -->
+    <CustomScenarioModal
+      :show="showCustomScenarioModal"
+      :scenario="editingScenario"
+      @close="showCustomScenarioModal = false"
+      @saved="onCustomScenarioSaved"
+    />
+
+    <!-- 删除用户私有场景确认 -->
+    <ConfirmDialog
+      :show="!!deletingScenarioId"
+      title="删除场景"
+      :message="`确定删除自定义场景「${deletingScenarioTitle}」？历史房间不受影响。`"
+      confirm-text="删除"
+      cancel-text="取消"
+      :loading="deletingScenarioLoading"
+      danger
+      @confirm="confirmDeleteCustomScenario"
+      @cancel="deletingScenarioId = null"
     />
   </div>
 </template>
@@ -2769,9 +2876,29 @@ async function handleInviteMember() {
    .section-actions 是右对齐的容器，避免修改 .section-header 的 flex 布局。 */
 .section-actions {
   display: flex;
-  display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* 「显示全部 / 收起」按钮：与 .shuffle-batch-btn 同款视觉（一对成对的次要按钮），
+   让用户清楚这是与"换一批"并列的另一种视图切换，不是主操作。 */
+.show-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #18181b;
+  background: transparent;
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.show-all-btn:hover {
+  background: rgba(24, 24, 27, 0.04);
+  border-color: rgba(24, 24, 27, 0.16);
 }
 
 /* 「换一批」按钮：与 .see-all 视觉重量相近（链接感），但带圆角和轻微背景便于识别为可点击操作。
@@ -3246,11 +3373,77 @@ async function handleInviteMember() {
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s ease;
+  width: 100%;
 }
 .scenario-card:hover {
   border-color: #0f172a;
   transform: translateY(-1px);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* 卡片外层 wrap：用于承载右上角 actions（编辑/删除按钮） */
+.scenario-card-wrap {
+  position: relative;
+}
+.scenario-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+.scenario-card-wrap.is-user:hover .scenario-actions {
+  opacity: 1;
+}
+.scenario-action-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  padding: 0;
+}
+.scenario-action-btn:hover {
+  background: #f3f4f6;
+  border-color: #0f172a;
+  transform: scale(1.05);
+}
+.scenario-action-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+/* 「+ 自定义场景」占位卡片 */
+.scenario-card-add {
+  border-style: dashed;
+  border-color: var(--border-color, #d1d5db);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 110px;
+}
+.scenario-card-add:hover {
+  border-color: #0f172a;
+  background: var(--input-bg, #f9fafb);
+}
+.scenario-add-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 0.5rem;
 }
 .scenario-emoji {
   font-size: 32px;
