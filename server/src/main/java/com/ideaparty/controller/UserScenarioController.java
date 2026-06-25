@@ -1,7 +1,10 @@
 package com.ideaparty.controller;
 
+import com.ideaparty.dto.GeneratePromptRequest;
+import com.ideaparty.dto.GeneratePromptResponse;
 import com.ideaparty.dto.UserScenarioRequest;
 import com.ideaparty.dto.UserScenarioResponse;
+import com.ideaparty.service.CharacterService;
 import com.ideaparty.service.UserScenarioService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -32,9 +35,12 @@ public class UserScenarioController {
     private static final Logger log = LoggerFactory.getLogger(UserScenarioController.class);
 
     private final UserScenarioService userScenarioService;
+    // 用于 generate-prompt 端点：复用 CharacterService.generatePrompt 的联网检索 + LLM 合成能力
+    private final CharacterService characterService;
 
-    public UserScenarioController(UserScenarioService userScenarioService) {
+    public UserScenarioController(UserScenarioService userScenarioService, CharacterService characterService) {
         this.userScenarioService = userScenarioService;
+        this.characterService = characterService;
     }
 
     /**
@@ -83,5 +89,22 @@ public class UserScenarioController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 根据 characterName + description 调用 AI 生成场景 prompt 模板。
+     *
+     * 复用 CharacterService.generatePrompt 的能力（Firecrawl 联网检索 + DeepSeek LLM 合成）。
+     * 用户填好「标题/描述/角色名」后点「AI 自动生成」即可获得一份可直接用的 system prompt，
+     * 再按需微调后保存——避免从零写的门槛。
+     *
+     * 失败时由 CharacterService 内部兜底（"你是{name}..."），调用方不会收到 500。
+     */
+    @PostMapping("/generate-prompt")
+    @ResponseBody
+    public GeneratePromptResponse generateScenarioPrompt(Authentication auth, @RequestBody GeneratePromptRequest request) {
+        UUID userId = UUID.fromString(auth.getName());
+        String prompt = characterService.generatePrompt(userId, request.getName(), request.getDescription());
+        return new GeneratePromptResponse(prompt);
     }
 }
