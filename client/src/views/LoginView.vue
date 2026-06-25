@@ -1,15 +1,11 @@
 <script setup lang="ts">
 // LoginView：路由 /login（默认） 与 /login?mode=register（注册模式）
 // 登录/注册合一视图：复用同一张卡片，通过 URL ?mode=register 切换。
-// 与 authStore / useRememberCredentials 协作：
-//   - authStore.login 负责真正的登录态与 token 持久化；
-//   - useRememberCredentials 用登录密码派生密钥 AES 加密本地凭据，
-//     二次访问时需用户输入密码解锁（不解密拿不到 password）。
+// authStore.login 负责真正的登录态与 token 持久化。
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
-import { useRememberCredentials } from '@/composables/useRememberCredentials'
 import { Sun, Moon } from 'lucide-vue-next'
 import { register } from '@/api/auth'
 
@@ -17,7 +13,6 @@ const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
-const remember = useRememberCredentials()
 
 // === ALL REF DECLARATIONS FIRST (before any usage) ===
 
@@ -42,12 +37,6 @@ const error = ref('')
 const usernameError = ref('')
 const usernameAvailable = ref<boolean | null>(null)
 
-// Unlock dialog (用于「记住我」已勾选但凭据已加密的场景)
-const unlockDialogOpen = ref(false)
-const unlockPassword = ref('')
-const unlockError = ref('')
-const unlocking = ref(false)
-
 // === FUNCTIONS AFTER ALL REFS ARE DECLARED ===
 
 // Reset form function - clears all sensitive fields
@@ -60,16 +49,6 @@ function resetForm() {
   error.value = ''
   usernameError.value = ''
   usernameAvailable.value = null
-}
-
-// Try to unlock previously stored credentials. Resolves true on success.
-// 解锁凭据后顺手把 identifier/password 写入当前表单，省去用户再次输入。
-async function tryUnlockStoredCreds(passphrase: string): Promise<boolean> {
-  const creds = await remember.unlock(passphrase)
-  if (!creds) return false
-  identifier.value = creds.identifier
-  password.value = creds.password
-  return true
 }
 
 // 在登录与注册模式之间切换
@@ -139,10 +118,6 @@ async function handleSubmit() {
       })
     } else {
       await authStore.login(identifier.value, password.value)
-      // 「记住我」勾选时，用登录密码作为主密码加密保存凭据
-      if (remember.enabled.value) {
-        await remember.setCredentials(identifier.value, password.value)
-      }
       router.push('/rooms')
     }
   } catch (err: any) {
@@ -169,11 +144,9 @@ watch(() => route.fullPath, () => {
     // 只清空密码，保留已经填写的 identifier
     password.value = ''
     confirmPassword.value = ''
-    // 如果 query 里带 username 则预填 identifier
+    // 如果 query 里带 username 则预填 identifier（注册完跳登录的场景）
     if (route.query.username) {
       identifier.value = route.query.username as string
-    } else if (remember.enabled.value && remember.identifier.value && !identifier.value) {
-      identifier.value = remember.identifier.value
     }
   }
 }, { immediate: true })
@@ -186,12 +159,18 @@ watch(() => route.query.mode, (newMode) => {
 
 // 在挂载时检查 URL 参数以设置初始模式
 // 初始化顺序很关键：先 resetForm 防止上一会话残留，再按优先级回填 identifier：
-//   1) 注册跳转带的 username query（最确定的用户意图）；
-//   2) 已加密的本地凭据 + 在 7 天免解锁窗口内 → 跳过弹窗，只填用户名（密码框由用户输入）；
-//   3) 已加密的本地凭据 + 已过免解锁窗口 → 弹解锁框（用户必须输密码）；
-//   4) 旧版明文 identifier（迁移期兼容，后续会淘汰）。
+//   1) 注册跳转带的 username query（最确定的用户意图）。
 // 50ms 延后打开 isVisible 是为了让 CSS 过渡动画能触发。
-onMounted(async () => {
+onMounted(() => {
+  // 一次性清理：删除 useRememberCredentials 历史写入的 key，
+  // 防止老用户浏览器残留旧密文/时间戳，避免未来误用同名 key。
+  try {
+    localStorage.removeItem('idea-party-creds-v1')
+    localStorage.removeItem('idea-party-remember-enabled')
+    localStorage.removeItem('idea-party-remember-unlocked-until')
+    localStorage.removeItem('idea-party-remember')
+  } catch { /* 忽略 */ }
+
   // 重置前先保存 username
   const savedUsername = route.query.username as string || ''
   // 重置表单，如果 identifier 等于 query 中的 username 则保留
@@ -200,47 +179,13 @@ onMounted(async () => {
     isRegisterMode.value = true
   }
   // 从 query 参数预填 identifier（例如刚完成注册）
-  // query param 优先级高于"记住我"
   if (savedUsername) {
     identifier.value = savedUsername
-  } else if (remember.shouldSkipUnlockDialog()) {
-    // 在 7 天免解锁窗口内：跳过弹窗，用户直接看到用户名预填 + 密码输入框
-    if (remember.identifier.value) {
-      identifier.value = remember.identifier.value
-    }
-  } else if (remember.enabled.value && remember.hasStoredCreds()) {
-    // 已过免解锁窗口 → 弹解锁框让用户重新输入密码
-    unlockDialogOpen.value = true
-  } else if (remember.enabled.value && remember.identifier.value) {
-    // 兼容旧明文 identifier（迁移场景）
-    identifier.value = remember.identifier.value
   }
   setTimeout(() => {
     isVisible.value = true
   }, 50)
 })
-
-async function handleUnlock() {
-  // 解锁对话框的提交逻辑：密码错时不弹后端错误，统一用「密码错误」文案
-  // 避免泄漏后端密钥派生/解密失败的细节给攻击者。
-  if (!unlockPassword.value) {
-    unlockError.value = '请输入密码'
-    return
-  }
-  unlocking.value = true
-  unlockError.value = ''
-  try {
-    const ok = await tryUnlockStoredCreds(unlockPassword.value)
-    if (ok) {
-      unlockDialogOpen.value = false
-      unlockPassword.value = ''
-    } else {
-      unlockError.value = '密码错误，无法解锁已保存的凭据'
-    }
-  } finally {
-    unlocking.value = false
-  }
-}
 </script>
 
 <template>
@@ -399,21 +344,6 @@ async function handleUnlock() {
                 </div>
               </Transition>
 
-              <!-- 记住我（仅登录） -->
-              <label
-                v-if="!isRegisterMode"
-                class="remember-me"
-              >
-                <input
-                  type="checkbox"
-                  class="remember-checkbox"
-                  :checked="remember.enabled.value"
-                  @change="(e: Event) => { remember.enabled.value = (e.target as HTMLInputElement).checked }"
-                />
-                <span class="remember-label">记住我</span>
-                <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
-              </label>
-
               <!-- 提交按钮 -->
               <button
                 type="submit"
@@ -562,21 +492,6 @@ async function handleUnlock() {
                 </div>
               </Transition>
 
-              <!-- 记住我（仅登录） -->
-              <label
-                v-if="!isRegisterMode"
-                class="mobile-remember-me"
-              >
-                <input
-                  type="checkbox"
-                  class="remember-checkbox"
-                  :checked="remember.enabled.value"
-                  @change="(e: Event) => { remember.enabled.value = (e.target as HTMLInputElement).checked }"
-                />
-                <span class="remember-label">记住我</span>
-                <span class="remember-hint">用登录密码加密保存到本机，下次输入密码即可解锁</span>
-              </label>
-
               <!-- 提交按钮 -->
               <button
                 type="submit"
@@ -612,46 +527,6 @@ async function handleUnlock() {
         </div>
       </section>
     </main>
-
-    <!-- 解锁弹窗：解锁「记住我」保存的加密凭据 -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="unlockDialogOpen" class="unlock-overlay" @click.self="unlockDialogOpen = false">
-          <div class="unlock-dialog">
-            <h3 class="unlock-title">解锁已保存的账号</h3>
-            <p class="unlock-subtitle">输入你的登录密码以自动填充表单</p>
-            <input
-              v-model="unlockPassword"
-              type="password"
-              class="form-input"
-              placeholder="登录密码"
-              autocomplete="current-password"
-              autocapitalize="off"
-              spellcheck="false"
-              @keyup.enter="handleUnlock"
-            />
-            <p v-if="unlockError" class="unlock-error">{{ unlockError }}</p>
-            <div class="unlock-actions">
-              <button
-                type="button"
-                class="unlock-btn-secondary"
-                @click="unlockDialogOpen = false"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                class="unlock-btn-primary"
-                :disabled="unlocking"
-                @click="handleUnlock"
-              >
-                {{ unlocking ? '解锁中...' : '解锁' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
   </div>
 </template>
 
@@ -1231,179 +1106,4 @@ async function handleUnlock() {
   opacity: 0;
 }
 
-/* Remember me checkbox */
-.remember-me {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 4px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 13px;
-  color: #52525B;
-}
-
-.dark .remember-me {
-  color: #A1A1AA;
-}
-
-.remember-checkbox {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  accent-color: var(--color-gold, #A78BFA);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.remember-label {
-  font-weight: 500;
-}
-
-.remember-hint {
-  font-size: 12px;
-  color: #A1A1AA;
-  margin-left: auto;
-}
-
-.dark .remember-hint {
-  color: #71717A;
-}
-
-.mobile-remember-me {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 12px;
-  color: #52525B;
-}
-
-.dark .mobile-remember-me {
-  color: #A1A1AA;
-}
-
-.mobile-remember-me .remember-hint {
-  font-size: 11px;
-}
-
-/* Unlock Dialog */
-.unlock-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  padding: 24px;
-}
-
-.unlock-dialog {
-  width: 100%;
-  max-width: 400px;
-  background: #FFFFFF;
-  border-radius: 20px;
-  padding: 28px 24px 24px;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.dark .unlock-dialog {
-  background: #18181B;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.unlock-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #18181b;
-  margin: 0;
-}
-
-.dark .unlock-title {
-  color: #FFFFFF;
-}
-
-.unlock-subtitle {
-  font-size: 13px;
-  color: #71717a;
-  margin: 0 0 4px;
-}
-
-.dark .unlock-subtitle {
-  color: #A1A1AA;
-}
-
-.unlock-error {
-  font-size: 13px;
-  color: #DC2626;
-  margin: 0;
-}
-
-.unlock-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.unlock-btn-primary,
-.unlock-btn-secondary {
-  flex: 1;
-  height: 44px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-}
-
-.unlock-btn-primary {
-  background: #18181b;
-  color: white;
-}
-
-.unlock-btn-primary:hover:not(:disabled) {
-  background: #27272a;
-}
-
-.unlock-btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dark .unlock-btn-primary {
-  background: #FAFAFA;
-  color: #18181B;
-}
-
-.dark .unlock-btn-primary:hover:not(:disabled) {
-  background: #E4E4E7;
-}
-
-.unlock-btn-secondary {
-  background: transparent;
-  color: #52525B;
-  border: 1px solid #E5E7EB;
-}
-
-.unlock-btn-secondary:hover {
-  background: #F4F4F5;
-}
-
-.dark .unlock-btn-secondary {
-  color: #A1A1AA;
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.dark .unlock-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
 </style>
