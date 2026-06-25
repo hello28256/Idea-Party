@@ -2887,16 +2887,16 @@ async function handleInviteMember() {
   padding: 0.25rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 500;
-  color: #18181b;
+  color: var(--text-primary, #18181b);
   background: transparent;
-  border: 1px solid rgba(24, 24, 27, 0.08);
+  border: 1px solid var(--border-color, rgba(24, 24, 27, 0.08));
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 .show-all-btn:hover {
-  background: rgba(24, 24, 27, 0.04);
-  border-color: rgba(24, 24, 27, 0.16);
+  background: var(--input-bg, rgba(24, 24, 27, 0.04));
+  border-color: var(--text-secondary, rgba(24, 24, 27, 0.16));
 }
 
 /* 「换一批」按钮：与 .see-all 视觉重量相近（链接感），但带圆角和轻微背景便于识别为可点击操作。
@@ -2908,16 +2908,16 @@ async function handleInviteMember() {
   padding: 0.25rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 500;
-  color: #18181b;
-  background: rgba(24, 24, 27, 0.04);
-  border: 1px solid rgba(24, 24, 27, 0.08);
+  color: var(--text-primary, #18181b);
+  background: var(--input-bg, rgba(24, 24, 27, 0.04));
+  border: 1px solid var(--border-color, rgba(24, 24, 27, 0.08));
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 .shuffle-batch-btn:hover:not(:disabled) {
-  background: rgba(24, 24, 27, 0.08);
-  border-color: rgba(24, 24, 27, 0.16);
+  background: var(--card-bg, rgba(24, 24, 27, 0.08));
+  border-color: var(--text-secondary, rgba(24, 24, 27, 0.16));
 }
 .shuffle-batch-btn:disabled {
   opacity: 0.5;
@@ -2925,7 +2925,7 @@ async function handleInviteMember() {
 }
 .shuffle-batch-count {
   font-size: 0.75rem;
-  color: rgba(24, 24, 27, 0.55);
+  color: var(--text-secondary, rgba(24, 24, 27, 0.55));
   font-variant-numeric: tabular-nums;
 }
 
