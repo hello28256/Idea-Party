@@ -1,5 +1,6 @@
 package com.ideaparty.dto;
 
+import com.ideaparty.validation.StrongPassword;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -22,9 +23,12 @@ public class RegisterRequest {
     @Email(message = "Invalid email format")
     private String email;
 
-    // 6 位下限是对齐早期账号迁移策略的最小复杂度；服务端再做 BCrypt 哈希，不在此处做强度策略
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
+    // 密码：非空 → 不超长 → 无空格 → 满足强度（长度/字符/黑名单），
+    // 四道关卡由 jakarta validation 在 Controller 入口一次性完成，Service 层不再重复校验。
+    @NotBlank(message = "密码不能为空")
+    @Size(max = 64, message = "密码长度不能超过 64 位")
+    @Pattern(regexp = "^\\S+$", message = "密码不能包含空格")
+    @StrongPassword(message = "密码强度不足：需至少 8 位、含字母和数字，且不能是常见弱密码")
     private String password;
 
     // 限定字母数字下划线：避免后续用于 @ 提及、URL slug、文件路径时出现需要转义的字符

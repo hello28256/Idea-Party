@@ -93,8 +93,10 @@ public class AuthController {
      * @return 200 + 空体
      */
     // 改密返回 200 + 空体：操作是幂等的（重复请求结果相同），无需返回新 token。
+    // 入口加 @Valid：触发 ChangePasswordRequest 上 @StrongPassword 等注解校验，
+    // 失败由 GlobalExceptionHandler 转 400 + 中文 message 返回前端。
     @PatchMapping("/change-password")
-    public ResponseEntity<Void> changePassword(@RequestHeader("Authorization") String authHeader, @RequestBody ChangePasswordRequest request) {
+    public ResponseEntity<Void> changePassword(@RequestHeader("Authorization") String authHeader, @Valid @RequestBody ChangePasswordRequest request) {
         UUID userId = extractUserIdFromToken(authHeader);
         log.info("[DEBUG] [change password] extracted userId = {}", userId);
         authService.changePassword(userId, request);
