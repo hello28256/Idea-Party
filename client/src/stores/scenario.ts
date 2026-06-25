@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { userScenariosApi, type UserScenarioRequest, type UserScenarioResponse } from '@/api/scenarios'
 
 // 场景模板：用户进入「创建房间」弹窗时看到的预设剧本。
 // 一个 Scenario 描述一次会话的"上下文 + 引导语 + 角色池"，与底层 Character 解耦——
@@ -26,6 +27,15 @@ export interface Scenario {
   // 场景在创建角色时使用的固定角色名；缺省时回退到 title + ' 助手'
   // dynamicPrompt=true 场景不需要此字段（由后端动态生成）
   characterName?: string
+  // ===== 以下为用户私有场景专用字段（预设场景不填）=====
+  // 场景所有者 UUID；undefined = 系统预设
+  ownerId?: string
+  // 标记是否平台预设；undefined 视同 true（向前兼容旧消费方）
+  isPreset?: boolean
+  // 服务端写入时间（仅用户场景）
+  createdAt?: string
+  // 服务端更新时间（仅用户场景）
+  updatedAt?: string
 }
 
 // 初始的 4 个示例场景。先在前端写死；将来可改为后端 API
@@ -700,9 +710,26 @@ const SEED_SCENARIOS: Scenario[] = [
 // 当前不持久化、不写后端：仅作为路由 / 弹窗之间的「共享只读数据源」，
 // 避免在多个组件里各自 import SEED_SCENARIOS 造成耦合。
 // 协作模块：CreateRoomDialog（场景卡片）、RoomDetailView（场景提示词渲染）。
+//
+// 自定义场景支持（2026-06 新增）：
+// - 预设场景保留在 SEED_SCENARIOS 常量中（22 条）
+// - 用户私有场景走 userScenariosApi + 后端 user_scenarios 表
+// - computed `scenarios` 合并两者为统一列表，RoomListView 现有代码零改动
+// - 失败回退：fetchUserScenarios 失败时只写 error.value，不动 userScenarios，
+//   确保预设场景仍可见（避免"网络抖动整个 tab 空白"）
 export const useScenarioStore = defineStore('scenario', () => {
   // 用展开运算符拷贝一份：防御 SEED_SCENARIOS 被外部引用修改（例如单测里 mock 状态时）。
-  const scenarios = ref<Scenario[]>([...SEED_SCENARIOS])
+  const presetScenarios = ref<Scenario[]>([...SEED_SCENARIOS])
+  // 用户私有场景：默认空数组，fetchUserScenarios 成功后填充
+  const userScenarios = ref<Scenario[]>([])
+  // 任意一个用户场景 CRUD 请求进行中都置 true；UI 用其展示全局 Loading
+  const loading = ref(false)
+  // 最近一次失败的错误信息；UI 在 toast 中直接读取展示
+  const error = ref<string | null>(null)
+
+  // 合并后的统一列表：预设 + 用户私有（用户在私有场景卡上可看到 ✏️ / 🗑️）
+  // RoomListView 现有 v-for="s in scenarioStore.scenarios" 零改动
+  const scenarios = computed(() => [...presetScenarios.value, ...userScenarios.value])
 
   // 单纯的 O(n) 查表；场景数量在个位数级别，无需上 Map / 索引。
   // 返回引用（而非深拷贝）：调用方应当只读消费，修改需要走明确的 mutation action。
@@ -710,5 +737,154 @@ export const useScenarioStore = defineStore('scenario', () => {
     return scenarios.value.find(s => s.id === id)
   }
 
-  return { scenarios, getById }
+  // ===== 用户私有场景 CRUD =====
+
+  /**
+   * 拉取当前用户全部私有场景，按 updatedAt DESC。
+   * 失败时只写 error.value，不动 userScenarios.value，
+   * 避免"网络抖动导致整个场景 tab 空白"。
+   * 调用方：RoomListView 进入 /scenarios tab 时触发。
+   */
+  async function fetchUserScenarios() {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await userScenariosApi.list()
+      userScenarios.value = response.data.map(mapResponseToScenario)
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to fetch scenarios'
+      console.error('[DEBUG] fetchUserScenarios failed:', e)
+      // 关键：失败时不动 userScenarios，保留旧值或空数组，确保预设场景仍可见
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 创建用户私有场景。成功后立即追加到 userScenarios 列表头部。
+   * 返回值：成功为新场景，失败为 null（不抛错，错误写入 error）。
+   */
+  async function createUserScenario(req: UserScenarioRequest): Promise<Scenario | null> {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await userScenariosApi.create(req)
+      const newScenario = mapResponseToScenario(response.data)
+      // 后端按 (owner_id, title) 幂等：响应可能是新建的也可能是已存在的。
+      // 用 id 查重避免 push 重复。
+      const existingIndex = userScenarios.value.findIndex(s => s.id === newScenario.id)
+      if (existingIndex !== -1) {
+        userScenarios.value[existingIndex] = newScenario
+      } else {
+        userScenarios.value.unshift(newScenario)
+      }
+      return newScenario
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to create scenario'
+      console.error('[DEBUG] createUserScenario failed:', e)
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 更新用户私有场景。本地用 findIndex 定位后原地替换（保留数组顺序与引用稳定的 UI）。
+   * 若本地不存在该 id（极端并发：被其他端删除），静默忽略并直接返回服务端最新实体。
+   */
+  async function updateUserScenario(id: string, req: UserScenarioRequest): Promise<Scenario | null> {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await userScenariosApi.update(id, req)
+      const updated = mapResponseToScenario(response.data)
+      const index = userScenarios.value.findIndex(s => s.id === id)
+      if (index !== -1) {
+        userScenarios.value[index] = updated
+      }
+      return updated
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to update scenario'
+      console.error('[DEBUG] updateUserScenario failed:', e)
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 删除用户私有场景。本地立即从 userScenarios 移除（乐观更新），
+   * 失败时回滚并写 error.value。
+   */
+  async function removeUserScenario(id: string): Promise<boolean> {
+    // 乐观更新：先本地删除
+    const index = userScenarios.value.findIndex(s => s.id === id)
+    if (index === -1) {
+      // 本地不存在但服务端可能存在（其他端创建的），先尝试直接 DELETE
+    }
+    const removed = index !== -1 ? userScenarios.value.splice(index, 1)[0] : null
+
+    try {
+      await userScenariosApi.remove(id)
+      return true
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to delete scenario'
+      console.error('[DEBUG] removeUserScenario failed:', e)
+      // 失败回滚：把移除的场景插回原位置
+      if (removed) {
+        userScenarios.value.splice(index, 0, removed)
+      }
+      return false
+    }
+  }
+
+  /**
+   * 检查用户是否已存在同 title 的私有场景。
+   * excludeId 用于编辑场景下排除自身，避免"未改名也判重"的假阳性。
+   */
+  function hasDuplicateTitle(title: string, excludeId?: string): boolean {
+    return userScenarios.value.some(s =>
+      s.title === title && s.id !== excludeId
+    )
+  }
+
+  return {
+    scenarios,
+    userScenarios,
+    loading,
+    error,
+    getById,
+    fetchUserScenarios,
+    createUserScenario,
+    updateUserScenario,
+    removeUserScenario,
+    hasDuplicateTitle
+  }
 })
+
+/**
+ * 把后端 UserScenarioResponse 映射为前端 Scenario。
+ * 集中处理 isPreset 标记、derived 字段（requiresUserInput）等，
+ * 避免在多个 action 中重复转换逻辑。
+ */
+function mapResponseToScenario(resp: UserScenarioResponse): Scenario {
+  return {
+    id: resp.id,
+    emoji: resp.emoji,
+    title: resp.title,
+    description: resp.description,
+    promptTemplate: resp.promptTemplate,
+    suggestedCharacterIds: [],
+    // 根据 userInputLabel 是否非空推导 requiresUserInput（不暴露给用户编辑的"硬编码行为字段"）
+    requiresUserInput: !!resp.userInputLabel,
+    userInputLabel: resp.userInputLabel,
+    userInputPlaceholder: resp.userInputPlaceholder,
+    // 用户私有场景默认走 single 模式（与 22 个预设中的 single 场景对齐）
+    mode: 'single',
+    characterName: resp.characterName,
+    ownerId: resp.ownerId,
+    isPreset: false,
+    createdAt: resp.createdAt,
+    updatedAt: resp.updatedAt
+  }
+}

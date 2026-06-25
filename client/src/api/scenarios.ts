@@ -76,3 +76,63 @@ export const scenariosApi = {
     })
   }
 }
+
+// ===== 用户私有场景（UserScenario）CRUD =====
+//
+// 用户通过 /scenarios 网格上的 "+ 自定义场景" 卡片创建私有场景模板。
+// 与预设场景（前端 SEED_SCENARIOS 常量）不同：用户场景由后端 user_scenarios 表持久化。
+// CRUD endpoint 前缀 /api/scenarios/user，由 UserScenarioController 提供。
+//
+// 字段集合与后端 UserScenarioRequest 一一对应：
+// - emoji/title/description/characterName/promptTemplate 必填
+// - userInputLabel/userInputPlaceholder 可选；前端 store 在最终消费时根据 label 是否
+//   非空推导 requiresUserInput，避免让用户直接编辑硬编码行为字段
+export interface UserScenarioRequest {
+  emoji: string
+  title: string
+  description: string
+  characterName: string
+  userInputLabel?: string
+  userInputPlaceholder?: string
+  promptTemplate: string
+}
+
+// 后端 UserScenarioResponse：除上述字段外 + id/ownerId/isPreset/createdAt/updatedAt
+// isPreset 恒为 false（预设场景由前端常量维护），保留字段便于前端 store 用 Scenario 单一接口消费
+export interface UserScenarioResponse extends UserScenarioRequest {
+  id: string
+  ownerId: string
+  isPreset: false
+  createdAt: string
+  updatedAt: string
+}
+
+export const userScenariosApi = {
+  /**
+   * 列出当前用户全部私有场景，按 updatedAt DESC。
+   * 调用方：RoomListView 进入 /scenarios tab 时触发 fetchUserScenarios。
+   */
+  list: () =>
+    api.get<UserScenarioResponse[]>('/scenarios/user'),
+
+  /**
+   * 创建用户私有场景。后端按 (owner_id, title) 幂等：命中时返回已存在那条。
+   * 返回 201 + 完整实体表示，前端直接追加到 userScenarios 列表。
+   */
+  create: (data: UserScenarioRequest) =>
+    api.post<UserScenarioResponse>('/scenarios/user', data),
+
+  /**
+   * 更新用户私有场景。后端校验 ownerId：不存在或非 owner 一律 403。
+   * 成功返回完整最新实体，前端原地替换本地缓存。
+   */
+  update: (id: string, data: UserScenarioRequest) =>
+    api.put<UserScenarioResponse>(`/scenarios/user/${id}`, data),
+
+  /**
+   * 删除用户私有场景。成功 204；不存在/非 owner 403。
+   * 不级联影响历史房间——Room 只通过 character_id 引用 Character。
+   */
+  remove: (id: string) =>
+    api.delete(`/scenarios/user/${id}`)
+}
