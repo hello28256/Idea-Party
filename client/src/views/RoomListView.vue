@@ -619,17 +619,8 @@ async function finalizeScenario() {
 
     // 兼容旧场景：走通用生成路径
     const description = scenario.requiresUserInput ? input : scenario.description
-    const characterName = scenario.id === 'product-brainstorm'
-      ? '产品顾问'
-      : scenario.id === 'english-tutor'
-        ? 'Emma · English Tutor'
-        : scenario.id === 'writing-coach'
-          ? '资深写作编辑'
-          : scenario.id === 'socratic-coach'
-            ? '苏格拉底'
-            : scenario.id === 'thesis-defense'
-              ? '答辩委员会主席'
-              : scenario.title + ' 助手'
+    // 角色名直接从 scenario 配置中读取（dynamicPrompt=true 场景无 characterName，由 finalizeScenario 上方分支处理）
+    const characterName = scenario.characterName || scenario.title + ' 助手'
     const promptResp = await charactersApi.generatePrompt({
       name: characterName,
       description
@@ -906,13 +897,13 @@ const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
 
 // 「推荐角色」分批展示状态机：
-// - BATCH_SIZE: 每批展示多少个，与后端 /recommended 数据规模保持一致（当前共 36 人）。
-// - showAll: 折叠态 = false（仅展示第 1 批 18 个，与改动前视觉一致）；
+// - BATCH_SIZE: 每批展示多少个。36 ÷ 12 = 3 批，3 列 4 行的网格刚好放下。
+// - showAll: 折叠态 = false（仅展示第 1 批 12 个，与改动前视觉一致）；
 //            展开态 = true（露出「换一批」按钮，在多批间循环）。
 // - currentBatch: 仅在 showAll=true 时生效；点击「换一批」+1 后对总批数取模。
 // 这里采用"前端一次性拉全 + 客户端分批"而非每次切换发 HTTP，
 // 因为「换一批」是纯展示态切换，不需要后端重算或重新鉴权。
-const BATCH_SIZE = 18
+const BATCH_SIZE = 12
 const showAllFeatured = ref(false)
 const currentFeaturedBatch = ref(0)
 const featuredTotalBatches = computed(() =>
@@ -935,10 +926,13 @@ const currentBatchRange = computed(() => {
   return `${first} → ${last}`
 })
 function toggleShowAllFeatured() {
+  console.log('[DEBUG] toggleShowAllFeatured CLICKED, before=', showAllFeatured.value)
   showAllFeatured.value = !showAllFeatured.value
   // 展开时把 currentBatch 重置到 0，避免停留在一个"折叠态下不可见"的批上让用户困惑
   currentFeaturedBatch.value = 0
-  console.log('[DEBUG] toggleShowAllFeatured, showAllFeatured=', showAllFeatured.value)
+  console.log('[DEBUG] toggleShowAllFeatured AFTER, showAllFeatured=', showAllFeatured.value,
+    'displayedFeatured.length=', displayedFeatured.value.length,
+    'totalChars=', featuredCharacters.value.length)
 }
 function shuffleFeaturedBatch() {
   console.log('[DEBUG] shuffleFeaturedBatch before:', currentFeaturedBatch.value, '/', featuredTotalBatches.value)
@@ -1514,14 +1508,12 @@ async function handleInviteMember() {
                   <template v-if="scenarioStep === 'input'">
                     <div v-if="activeScenario.requiresUserInput">
                       <label class="scenario-modal-label">
-                        {{ activeScenario.id === 'interview-coach' ? '岗位 / 行业' : (activeScenario.userInputLabel || '输入') }} *
+                        {{ activeScenario.userInputLabel || '输入' }} *
                       </label>
                       <textarea
                         v-model="userInput"
                         class="scenario-modal-input"
-                        :placeholder="activeScenario.id === 'interview-coach'
-                          ? '例如：高级前端工程师 / SaaS / 5年'
-                          : activeScenario.userInputPlaceholder"
+                        :placeholder="activeScenario.userInputPlaceholder"
                         rows="2"
                         :disabled="creatingScenario"
                       ></textarea>
