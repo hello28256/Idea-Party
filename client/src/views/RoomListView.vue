@@ -1531,6 +1531,19 @@ async function handleInviteMember() {
           <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
         </header>
         <div class="scenarios-grid">
+          <!-- 首位「+ 自定义场景」卡片：用户进入 tab 就能看到 -->
+          <button
+            type="button"
+            class="scenario-card scenario-card-add"
+            @click="openCreateCustomScenario"
+          >
+            <div class="scenario-add-icon">＋</div>
+            <div class="scenario-body">
+              <h3 class="scenario-title">自定义场景</h3>
+              <p class="scenario-desc">把常用的对话模板沉淀下来，下次一键开始</p>
+            </div>
+          </button>
+
           <div
             v-for="s in scenarioStore.scenarios"
             :key="s.id"
@@ -1564,19 +1577,6 @@ async function handleInviteMember() {
               >🗑️</button>
             </div>
           </div>
-
-          <!-- 末尾「+ 自定义场景」卡片 -->
-          <button
-            type="button"
-            class="scenario-card scenario-card-add"
-            @click="openCreateCustomScenario"
-          >
-            <div class="scenario-add-icon">＋</div>
-            <div class="scenario-body">
-              <h3 class="scenario-title">自定义场景</h3>
-              <p class="scenario-desc">把常用的对话模板沉淀下来，下次一键开始</p>
-            </div>
-          </button>
         </div>
 
         <!-- 内嵌模板预览弹窗（Teleport 到 body） -->

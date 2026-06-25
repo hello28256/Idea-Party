@@ -134,5 +134,17 @@ export const userScenariosApi = {
    * 不级联影响历史房间——Room 只通过 character_id 引用 Character。
    */
   remove: (id: string) =>
-    api.delete(`/scenarios/user/${id}`)
+    api.delete(`/scenarios/user/${id}`),
+
+  /**
+   * 调用 AI 自动生成场景的 system prompt 模板。
+   * 复用后端 CharacterService.generatePrompt 的能力（联网检索 + LLM 合成）。
+   * 用户填好"标题/描述/角色名"后点"AI 自动生成"即可获得一份可直接用的 prompt。
+   * 失败时由后端 fallback 返回"你是{name}..."，调用方不会收到 500。
+   */
+  generatePrompt: (data: { name: string; description?: string }) =>
+    api.post<{ prompt: string }>('/scenarios/user/generate-prompt', {
+      name: data.name,
+      description: data.description
+    })
 }

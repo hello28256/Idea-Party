@@ -16,6 +16,7 @@ import type { Scenario } from '@/stores/scenario'
 import { useScenarioStore } from '@/stores/scenario'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { userScenariosApi } from '@/api/scenarios'
 import { EMOJI_CANDIDATES, isValidEmoji } from './emojiData'
 
 interface Props {
@@ -57,6 +58,8 @@ const showCustomEmojiInput = ref(false)
 // 加载与错误
 const loading = ref(false)
 const error = ref<string | null>(null)
+// AI 自动生成 prompt 状态
+const generatingPrompt = ref(false)
 
 // 字段级错误（用于 inline 校验提示）
 const fieldErrors = ref<Record<string, string>>({})
@@ -200,6 +203,44 @@ function selectEmoji(e: string) {
     delete fieldErrors.value.emoji
   }
 }
+
+/**
+ * AI 自动生成 system prompt 模板。
+ * 触发条件：用户至少填了「角色名」或「描述」其中一个（与 CreateCharacterModal 同语义）。
+ * 行为：调后端 userScenariosApi.generatePrompt（复用 CharacterService 的联网检索 + LLM 合成能力），
+ * 把返回的 prompt 填入 promptTemplate textarea，用户可继续微调后保存。
+ * 失败时由后端 fallback 兜底，前端不会收到 500——仅在网络异常时 toast 错误。
+ */
+async function handleGeneratePrompt() {
+  if (!characterName.value.trim() && !description.value.trim()) {
+    error.value = '请先填写角色名或描述'
+    return
+  }
+  generatingPrompt.value = true
+  error.value = null
+  try {
+    const response = await userScenariosApi.generatePrompt({
+      name: characterName.value.trim() || '自定义场景',
+      description: description.value.trim() || undefined
+    })
+    const generated = response.data?.prompt
+    if (generated) {
+      promptTemplate.value = generated
+      toast.success('已生成 prompt，可继续微调')
+      // 清除字段错误
+      if (fieldErrors.value.promptTemplate) {
+        delete fieldErrors.value.promptTemplate
+      }
+    } else {
+      error.value = '生成失败：返回为空'
+    }
+  } catch (e: any) {
+    console.error('[CustomScenarioModal] generatePrompt failed:', e)
+    error.value = e.response?.data?.message || e.message || '生成失败，请稍后重试'
+  } finally {
+    generatingPrompt.value = false
+  }
+}
 </script>
 
 <template>
@@ -319,11 +360,22 @@ function selectEmoji(e: string) {
 
               <!-- 提示词模板 -->
               <div class="form-group">
-                <label class="form-label required">系统提示词（system prompt）</label>
+                <div class="prompt-label-row">
+                  <label class="form-label">系统提示词（system prompt）</label>
+                  <button
+                    type="button"
+                    class="btn-ai-generate"
+                    :disabled="generatingPrompt || loading"
+                    @click="handleGeneratePrompt"
+                  >
+                    <span v-if="generatingPrompt">生成中…</span>
+                    <span v-else>✨ AI 自动生成</span>
+                  </button>
+                </div>
                 <textarea
                   v-model="promptTemplate"
                   class="form-textarea form-textarea-tall"
-                  placeholder="你扮演一位...&#10;&#10;【对话流程】&#10;1. ...&#10;2. ...&#10;&#10;【风格】&#10;..."
+                  placeholder="可以点上方「✨ AI 自动生成」自动合成；也可以直接手写。&#10;&#10;例如：&#10;你扮演一位...&#10;&#10;【对话流程】&#10;1. ...&#10;2. ...&#10;&#10;【风格】&#10;..."
                   rows="10"
                   maxlength="2000"
                 ></textarea>
@@ -522,6 +574,62 @@ function selectEmoji(e: string) {
   padding: 0.5rem 0.75rem;
   background: rgba(239, 68, 68, 0.08);
   border-radius: 8px;
+}
+
+/* ===== AI 生成按钮 ===== */
+
+.prompt-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  gap: 0.5rem;
+}
+
+.prompt-label-row .form-label {
+  margin-bottom: 0;
+}
+
+.btn-ai-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.75rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border: 1px solid #7dd3fc;
+  border-radius: 8px;
+  color: #0369a1;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.btn-ai-generate:hover:not(:disabled) {
+  background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+  border-color: #0ea5e9;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.15);
+}
+
+.btn-ai-generate:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+:global(html[data-theme="dark"]) .btn-ai-generate,
+:global(.dark) .btn-ai-generate {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+  border-color: #3b82f6;
+  color: #bfdbfe;
+}
+
+:global(html[data-theme="dark"]) .btn-ai-generate:hover:not(:disabled),
+:global(.dark) .btn-ai-generate:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+  border-color: #60a5fa;
 }
 
 /* ===== Emoji 选择器 ===== */
