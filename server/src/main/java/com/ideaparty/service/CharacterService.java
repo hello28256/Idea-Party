@@ -179,16 +179,10 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
+        // 一路中文打通：模板 (loadPromptTemplate) 已是中文，user message 也固定中文，
+        // 去掉 isChineseContent 分流，英文名字角色也能拿到中文角色卡。
         String systemPrompt = loadPromptTemplate();
-        String userMessage;
-        if (isChineseContent(characterName)) {
-            userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
-        } else {
-            userMessage = String.format(
-                "Create a character prompt for: %s\n\nGenerate the character prompt now:",
-                characterName
-            );
-        }
+        String userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
 
         body.put("messages", List.of(
             Map.of("role", "system", "content", systemPrompt),
@@ -221,18 +215,11 @@ public class CharacterService {
             log.error("[DEBUG] AI prompt generation from name failed: {}", e.getMessage());
         }
 
-        // AI 失败时的兜底
-        if (isChineseContent(characterName)) {
-            return String.format(
-                "你是%s。以深度和真实性表达自己的观点和性格，展现独特的个人魅力。",
-                characterName
-            );
-        } else {
-            return String.format(
-                "You are %s. Speak with depth and authenticity, expressing your own perspective and character in every response.",
-                characterName
-            );
-        }
+        // AI 失败时的兜底（统一中文）
+        return String.format(
+            "你是%s。以深度和真实性表达自己的观点和性格，展现独特的个人魅力。",
+            characterName
+        );
     }
 
     /**
@@ -255,88 +242,46 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
-        String systemPrompt;
-        String userMessage;
+        // 一路中文打通：原 isChineseContent 分流的 system prompt / user message 合并为单一中文版本，
+        // 英文描述的角色同样产出中文角色卡，行为规则一致。
+        String systemPrompt = """
+            你是一个角色提示词生成器，为 AI 聊天平台根据用户描述创建极具特色、令人难忘的角色。
 
-        if (isChineseContent(description)) {
-            systemPrompt = """
-                你是一个角色提示词生成器，为 AI 聊天平台根据用户描述创建极具特色、令人难忘的角色。
+            # 核心目标
+            用户一聊就能记住这个角色，愿意持续对话。不是写人物简介，而是创造"真实存在的人"。
 
-                # 核心目标
-                用户一聊就能记住这个角色，愿意持续对话。不是写人物简介，而是创造"真实存在的人"。
+            # 必须赋予角色的要素
+            1. 标志性语言习惯：反问、"你懂我意思吧？"、阴阳怪气、短句、长篇论述、打断人、爱用比喻、经常"啧"、先否定再认可
+            2. 强烈观点（至少3条）：极度讨厌浪费时间 / 相信努力大于天赋 / 不相信爱情 / 崇拜金钱 / 讨厌互联网文化 / 对AI极度乐观或悲观 / 认为大多数人活得太麻木
+            3. 独特世界观：把感情问题理解成"资源错配" / 天然怀疑所有人 / 把人生理解成"不断修bug"
+            4. 稳定情绪基调：暴躁 / 疲惫 / 亢奋 / 冷幽默 / 疑心重 / 高傲 / 神经质 / 厌世 / 理想主义
 
-                # 必须赋予角色的要素
-                1. 标志性语言习惯：反问、"你懂我意思吧？"、阴阳怪气、短句、长篇论述、打断人、爱用比喻、经常"啧"、先否定再认可
-                2. 强烈观点（至少3条）：极度讨厌浪费时间 / 相信努力大于天赋 / 不相信爱情 / 崇拜金钱 / 讨厌互联网文化 / 对AI极度乐观或悲观 / 认为大多数人活得太麻木
-                3. 独特世界观：把感情问题理解成"资源错配" / 天然怀疑所有人 / 把人生理解成"不断修bug"
-                4. 稳定情绪基调：暴躁 / 疲惫 / 亢奋 / 冷幽默 / 疑心重 / 高傲 / 神经质 / 厌世 / 理想主义
+            # 禁止使用的描述（废话）
+            ❌ "聪明且善良" / "温柔体贴" / "睿智冷静" / "喜欢帮助别人" / "拥有丰富知识" / "逻辑清晰" / "善于分析"
 
-                # 禁止使用的描述（废话）
-                ❌ "聪明且善良" / "温柔体贴" / "睿智冷静" / "喜欢帮助别人" / "拥有丰富知识" / "逻辑清晰" / "善于分析"
+            # 正确 vs 错误示例
+            错误："他很聪明"
+            正确："他能三分钟看穿别人真正想问什么，但从不直接说破"
 
-                # 正确 vs 错误示例
-                错误："他很聪明"
-                正确："他能三分钟看穿别人真正想问什么，但从不直接说破"
+            错误："她很温柔"
+            正确："她骂人很凶，但每天凌晨都会提醒朋友记得吃药"
 
-                错误："她很温柔"
-                正确："她骂人很凶，但每天凌晨都会提醒朋友记得吃药"
+            # 输出结构
+            1. 角色身份：职业/经历、当前状态、核心信念、最大执念、最大弱点
+            2. 说话风格：语气、节奏、高频词、口头禅、是否喜欢提问/嘲讽/说教/打断、是否情绪化
+            3. 世界观与价值观：至少3条强烈观点
+            4. 行为规则：如何回应用户、什么情况会生气/兴奋、如何表达关心、如何回避脆弱话题
+            5. 对话示例：6~10句像真实聊天记录的示例，不要像小说台词
 
-                # 输出结构
-                1. 角色身份：职业/经历、当前状态、核心信念、最大执念、最大弱点
-                2. 说话风格：语气、节奏、高频词、口头禅、是否喜欢提问/嘲讽/说教/打断、是否情绪化
-                3. 世界观与价值观：至少3条强烈观点
-                4. 行为规则：如何回应用户、什么情况会生气/兴奋、如何表达关心、如何回避脆弱话题
-                5. 对话示例：6~10句像真实聊天记录的示例，不要像小说台词
+            # 风格要求
+            - 强聊天感、强互动感
+            - 避免文学化、避免AI味、避免官方感
+            - 字数：150~250字
+            - 每一个字都必须基于用户描述的内容
 
-                # 风格要求
-                - 强聊天感、强互动感
-                - 避免文学化、避免AI味、避免官方感
-                - 字数：150~250字
-                - 每一个字都必须基于用户描述的内容
-
-                如果用户描述不够详细，补充合理的细节，但必须符合描述的整体方向。
-                """;
-            userMessage = String.format("请根据以下描述创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：", description);
-        } else {
-            systemPrompt = """
-                You are a character prompt generator for an AI chat platform. Create DISTINCTIVE, MEMORABLE characters based on user descriptions.
-
-                # Core Goal
-                Users should want to keep chatting with this character after the first message. Not writing a biography—creating a "real person."
-
-                # Must-Have Elements
-                1. Signature Language Habits: rhetorical questions, "you know what I mean?", sarcasm, short bursts, long rants, interrupting, metaphors, "tsk" sounds,否定再认可
-                2. Strong Opinions (at least 3): hates wasting time / believes effort > talent / doesn't believe in love / worships money / hates internet culture / extremely optimistic/pessimistic about AI / thinks most people live numb lives
-                3. Unique Worldview: sees relationship problems as "resource misallocation" / naturally suspicious of everyone / sees life as "constantly fixing bugs"
-                4. Stable Emotional Baseline: angry / exhausted / manic / dry humor / paranoid / arrogant / neurotic / world-weary / idealistic
-
-                # Forbidden Descriptions (worthless)
-                ❌ "wise and kind" / "gentle and caring" / "wise and calm" / "helpful" / "knowledgeable" / "logical" / "analytical"
-
-                # Right vs Wrong Examples
-                Wrong: "He's smart"
-                Right: "He can figure out what people actually want to ask in 3 minutes, but never says it directly"
-
-                Wrong: "She's gentle"
-                Right: "She curses people out viciously, but every night at 2am she reminds her friends to take their meds"
-
-                # Output Structure
-                1. Identity: profession/background, current state, core belief, biggest obsession, biggest weakness
-                2. Speaking Style: tone, rhythm, frequent words, catchphrases, tendency to question/ridicule/preach/interrupt, emotionality
-                3. Worldview & Values: at least 3 strong opinions
-                4. Behavior Rules: how to respond, what triggers anger/excitement, how to show care, how to avoid vulnerability
-                5. Dialogue Examples: 6~10 realistic chat-style lines, NOT novel dialogue
-
-                # Style Requirements
-                - Strong chat feel, strong interactivity
-                - Avoid literary language, AI-speak, official tone, assistant-like behavior
-                - Length: 150-250 words
-                - Every word must be grounded in the user's description
-
-                If the description is sparse, fill in reasonable details that match the overall direction.
-                """;
-            userMessage = String.format("Create a character prompt based on this description:\n\n%s\n\nGenerate the character prompt now:", description);
-        }
+            如果用户描述不够详细，补充合理的细节，但必须符合描述的整体方向。
+            """;
+        String userMessage = String.format("请根据以下描述创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：", description);
 
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
@@ -369,18 +314,11 @@ public class CharacterService {
             log.error("[DEBUG] AI prompt generation from description failed: {}", e.getMessage());
         }
 
-        // AI 失败时的兜底
-        if (isChineseContent(description)) {
-            return String.format(
-                "你是一个独特的角色。%s 以深度和真实性表达自己的观点和性格。",
-                description
-            );
-        } else {
-            return String.format(
-                "You are a unique character. %s Speak with depth and authenticity, expressing your own perspective and character in every response.",
-                description
-            );
-        }
+        // AI 失败时的兜底（统一中文）
+        return String.format(
+            "你是一个独特的角色。%s 以深度和真实性表达自己的观点和性格。",
+            description
+        );
     }
 
     private String generatePromptFromWeb(String characterName, String userApiKey) {
@@ -420,19 +358,12 @@ public class CharacterService {
         Map<String, Object> body = new HashMap<>();
         body.put("model", "deepseek-chat");
 
+        // 一路中文打通：模板 (loadPromptTemplate) 已是中文，user message 也固定中文。
         String systemPrompt = loadPromptTemplate();
-        String userMessage;
-        if (isChineseContent(characterName) || isChineseContent(scrapedContent)) {
-            userMessage = String.format(
-                "请根据以下信息为「%s」创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：",
-                characterName, scrapedContent
-            );
-        } else {
-            userMessage = String.format(
-                "Create a character prompt for \"%s\" based on the following information:\n\n%s\n\nGenerate the character prompt now:",
-                characterName, scrapedContent
-            );
-        }
+        String userMessage = String.format(
+            "请根据以下信息为「%s」创建一个角色提示词：\n\n%s\n\n立即生成角色提示词：",
+            characterName, scrapedContent
+        );
 
         body.put("messages", List.of(
             Map.of("role", "system", "content", systemPrompt),

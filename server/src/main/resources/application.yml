@@ -16,7 +16,11 @@ spring:
       max-file-size: 25MB
       max-request-size: 25MB
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/ideaparty?useSSL=${DB_USE_SSL:false}&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    # useUnicode + characterEncoding=UTF-8 强制客户端用 UTF-8 与服务端通信，
+    # 避免 latin1↔utf8 来回切换导致"双重编码"乱码（如英文/西文角色名变 å…‹<å°©@å¥¶）。
+    # connectionCollation 锁住连接级排序规则，与服务端 default collation 保持一致。
+    # 注意：MySQL 服务端 character_set_server 必须是 utf8mb4，characters 表/列也需 utf8mb4 才能彻底生效。
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ideaparty?useSSL=${DB_USE_SSL:false}&serverTimezone=UTC&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -85,6 +89,12 @@ app:
     # without having to UPDATE users manually.
     # Get your UUID by hitting GET /api/user/profile after logging in.
     user-ids: ${APP_ADMIN_USER_IDS:}
+    # 默认管理员用户名；DataLoader 在全新库按此名幂等创建管理员账号
+    # 默认值 admin123 与产品文档"开箱即用管理员"约定保持一致
+    default-username: ${APP_ADMIN_USERNAME:admin123}
+    # 默认管理员密码（明文仅在首次创建时使用一次，立即 BCrypt 哈希后落库）
+    # 生产环境务必通过环境变量覆盖，避免使用默认值 admin123
+    default-password: ${APP_ADMIN_PASSWORD:admin123}
 
 # =============================================================================
 # ENCRYPTION_KEY: Base64-encoded 32-byte key for AES-256-GCM encryption
