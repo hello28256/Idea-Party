@@ -335,9 +335,9 @@ async function handleCharacterAdded(character: Character) {
           </svg>
         </button>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
           <div class="w-1 h-6 bg-gradient-to-b from-[var(--color-gold-dark)] to-[var(--color-gold)] rounded-full"></div>
-          <div>
+          <div class="min-w-0 flex-1">
             <h1 class="text-base font-semibold text-[var(--color-navy)] truncate font-['Playfair_Display']">
               {{ currentRoom?.name || '聊天室' }}
             </h1>
@@ -633,6 +633,7 @@ async function handleCharacterAdded(character: Character) {
 .chat-main-header {
   height: 64px;
   flex-shrink: 0;          /* 关键：flex 容器空间不足时不要压缩 header */
+  min-width: 0;            /* flex item 默认 min-width:auto 会撑开容器，必须显式置 0 才能让 truncate 生效 */
   padding: 0 1rem;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
   background: rgba(255, 255, 255, 0.86);
@@ -653,6 +654,18 @@ async function handleCharacterAdded(character: Character) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* 左侧标题区允许收缩，标题文本 truncate 后才不会被右侧图标推出可视区 */
+.chat-header-left {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 右侧操作图标始终完整可见，不参与收缩 */
+.chat-header-right {
+  flex-shrink: 0;
 }
 
 .chat-header-icon-button {

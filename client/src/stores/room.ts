@@ -161,10 +161,27 @@ export const useRoomStore = defineStore('room', () => {
     loading.value = true
     error.value = null
     try {
+      // 前端去重：本地缓存里找到"同 owner + 同角色集合"的房间，直接复用。
+      // 这层在前端做可以让用户重复点击时立刻跳转（不发请求、不等后端返回），
+      // 即便绕过前端 guard，后端 RoomService.create 也有同样查重兜底。
+      const sortedIds = (characterIds ?? []).slice().sort()
+      const existing = myRooms.value.find(r =>
+        r.characters &&
+        r.characters.map(c => c.id).sort().join('|') === sortedIds.join('|')
+      )
+      if (existing) {
+        console.log('[DEBUG] createRoom dedup hit, reusing:', existing.id)
+        return existing
+      }
       const request: CreateRoomRequest = { name, topic, characterIds, mode }
       const room = await roomsApi.create(request)
-      rooms.value.push(room)
-      myRooms.value.unshift(room)
+      // 后端可能因为"同 owner + 同角色集合"去重返回已有房间，
+      // 此时不能再 push/unshift，避免 store 里出现重复条目。
+      const existingIdx = myRooms.value.findIndex(r => r.id === room.id)
+      if (existingIdx === -1) {
+        rooms.value.push(room)
+        myRooms.value.unshift(room)
+      }
       return room
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to create room'

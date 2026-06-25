@@ -222,10 +222,12 @@ function formatDate(dateStr: string): string {
 .page-layout {
   display: grid;
   grid-template-columns: 260px 1fr;
-  min-height: 100vh;
+  /* 固定高度让 main-content 内部能滚，否则 grid 子项会被内容撑高，
+     min-height: 100vh 时整个 layout 跟着内容长，body 出现滚动条（很窄 6px 易被忽略） */
+  height: 100vh;
   background: var(--app-bg);
   opacity: 0;
-  overflow: visible;
+  overflow: hidden;
   transition: opacity 0.4s ease;
 }
 
@@ -236,6 +238,8 @@ function formatDate(dateStr: string): string {
 .main-content {
   padding: 2rem;
   overflow-y: auto;
+  /* grid 子项默认 min-height: auto，会按内容撑高无法触发 overflow-y:auto */
+  min-height: 0;
 }
 
 .content-header {
@@ -453,6 +457,7 @@ function formatDate(dateStr: string): string {
 
   .main-content {
     padding: 1rem;
+    min-height: 0;
   }
 }
 </style>

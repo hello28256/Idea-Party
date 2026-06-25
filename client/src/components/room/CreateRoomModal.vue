@@ -1,15 +1,15 @@
 <script setup lang="ts">
-// 创建聊天室的统一入口弹窗：
-// 同时承载「单人对话」与「多人对话」两种模式，由父组件通过 v-model 风格控制 show。
-// 由父组件（如 RoomListView）监听 created 事件获取新房间 id 并跳转，不在本组件内做路由跳转，
-// 以便复用同一个弹窗组件、避免耦合具体路由路径。
+// 创建聊天室的弹窗（仅多人模式）：
+// 用户填写聊天室名称/主题并选择≥1 个角色，发起多人讨论（"群聊"）；
+// 选 1 个角色仍按多人模式建群，由用户在聊天室内通过"+ 邀请"按钮决定是否扩充角色，
+// 不再在创建环节提供"单人对话"分支——保持单一创建入口，语义更清晰。
+// 父组件通过 v-model 风格控制 show；监听 created 事件获取新房间 id 并跳转，
+// 不在本组件内做路由跳转，以便复用同一个弹窗组件、避免耦合具体路由路径。
 
 import { ref, watch, computed } from 'vue'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
-import { charactersApi } from '@/api/characters'
-import type { Character } from '@/types'
 
 // show：父组件 v-model 控制弹窗显隐
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
 }
 
 // close：用户取消或主动关闭弹窗
-// created：创建/复用房间成功后抛出房间 id；不直接 router.push 是为了把「创建」与「导航」解耦，
+// created：创建房间成功后抛出房间 id；不直接 router.push 是为了把「创建」与「导航」解耦，
 // 父组件可决定跳转到 /rooms/:id 还是更新 my-rooms 当前选中项等。
 interface Emits {
   close: []
@@ -31,83 +31,10 @@ const roomStore = useRoomStore()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
-// Mode: 'single' (单人对话) or 'group' (多人对话)
-const dialogMode = ref<'single' | 'group'>('single')
-
-// Group mode form (多人对话)
+// 多人模式表单
 const name = ref('')
 const topic = ref('')
 const selectedCharacterIds = ref<Set<string>>(new Set())
-
-// Single mode: 'select' (选择角色) or 'create' (创建角色)
-const singleTab = ref<'select' | 'create'>('select')
-
-// 单人模式下当前选中的角色
-const selectedCharacter = ref<Character | null>(null)
-
-// Duplicate-room confirmation dialog (replaces ugly browser confirm())
-const dupDialog = ref<{
-  characterName: string
-  existingRoomId: string
-} | null>(null)
-const dupDialogLoading = ref(false)
-
-// 当用户在 single 模式下选了一个角色，但已存在与之相关的 single 房间时，
-// 不直接复用也不直接新建，而是弹此 dialog 让用户在「进入已有」/「仍要新建」之间选择，
-// 避免静默跳转到旧房间造成困惑，也避免重复创建难以清理。
-
-function openDupDialog(name: string, id: string) {
-  dupDialog.value = { characterName: name, existingRoomId: id }
-}
-function closeDupDialog() {
-  // 提交进行中禁止关闭：避免用户在异步创建中途关闭弹窗导致状态不一致
-  if (dupDialogLoading.value) return
-  dupDialog.value = null
-}
-function confirmGoExisting() {
-  if (!dupDialog.value) return
-  dupDialogLoading.value = true
-  const id = dupDialog.value.existingRoomId
-  dupDialog.value = null
-  dupDialogLoading.value = false
-  emit('created', id)
-  emit('close')
-}
-function confirmCreateNew() {
-  if (!dupDialog.value || !selectedCharacter.value) {
-    dupDialog.value = null
-    return
-  }
-  dupDialogLoading.value = true
-  const char = selectedCharacter.value
-  dupDialog.value = null
-  // Fire-and-forget: actually create the new room
-  roomStore
-    .createRoom(char.name, undefined, [char.id], 'single')
-    .then((room) => {
-      emit('created', room.id)
-      emit('close')
-    })
-    .catch((e) => {
-      error.value = e instanceof Error ? e.message : '创建失败'
-    })
-    .finally(() => {
-      dupDialogLoading.value = false
-    })
-}
-
-// Create character form (单人对话模式下的创建角色表单)
-const createForm = ref({
-  name: '',
-  description: '',
-  avatarUrl: '',
-  prompt: ''
-})
-const creatingCharacter = ref(false)
-const generatingPrompt = ref(false)
-const avatarPreview = ref<string | null>(null)
-const uploadingAvatar = ref(false)
-const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -119,31 +46,29 @@ const myCharacters = computed(() => {
   )
 })
 
+// 名称是否必填：单角色场景下可省略名称（自动用角色名），多角色场景必须显式命名以避免混淆
+const isNameRequired = computed(() => selectedCharacterIds.value.size >= 2)
+
+// 单角色场景下，默认回填该角色名作为占位提示；用户留空即直接用此名
+const singleCharacterName = computed(() => {
+  if (selectedCharacterIds.value.size !== 1) return null
+  const id = [...selectedCharacterIds.value][0]
+  return myCharacters.value.find(c => c.id === id)?.name ?? null
+})
+
 // 每次 show 切换时同步状态：false 时重置所有表单字段，防止残留上次填写；true 时若角色未加载则拉取
 watch(() => props.show, (newShow) => {
   if (!newShow) {
-    // 重置为默认状态
-    dialogMode.value = 'single'
-    singleTab.value = 'select'
     name.value = ''
     topic.value = ''
-    selectedCharacter.value = null
     selectedCharacterIds.value = new Set()
-    createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
-    avatarPreview.value = null
     error.value = null
   } else {
-    // 加载角色列表
     if (characterStore.characters.length === 0) {
       characterStore.fetchCharacters()
     }
   }
 })
-
-function selectCharacter(character: Character) {
-  selectedCharacter.value = character
-  error.value = null
-}
 
 function toggleGroupCharacter(characterId: string) {
   const next = new Set(selectedCharacterIds.value)
@@ -156,194 +81,43 @@ function toggleGroupCharacter(characterId: string) {
   error.value = null
 }
 
-function switchToSelectTab() {
-  singleTab.value = 'select'
-  error.value = null
-}
-
-function switchToCreateTab() {
-  singleTab.value = 'create'
-  error.value = null
-}
-
-// Trigger avatar upload
-function triggerAvatarUpload() {
-  fileInputRef.value?.click()
-}
-
-// 头像上传：前端先做 MIME + 大小校验，避免无意义请求打到后端；5MB 限制与后端上传接口对齐
-async function handleAvatarFileChange(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-  if (!allowedTypes.includes(file.type)) {
-    error.value = '只支持 JPEG、PNG、GIF、WebP 格式的图片'
-    return
-  }
-
-  if (file.size > 5 * 1024 * 1024) {
-    error.value = '图片大小不能超过 5MB'
-    return
-  }
-
-  uploadingAvatar.value = true
-  error.value = null
-
-  try {
-    const url = await characterStore.uploadAvatar(file)
-    if (url) {
-      createForm.value.avatarUrl = url
-      avatarPreview.value = url
-    } else {
-      error.value = '头像上传失败'
-    }
-  } finally {
-    uploadingAvatar.value = false
-    if (fileInputRef.value) {
-      fileInputRef.value.value = ''
-    }
-  }
-}
-
-// 调用后端 AI 接口生成角色 prompt：name 和 description 至少有一个非空才有意义，
-// 因此两者都为空时直接拒绝请求，避免浪费 AI 调用配额。
-async function handleGeneratePrompt() {
-  if (!createForm.value.name.trim() && !createForm.value.description.trim()) {
-    error.value = '请输入角色名称或描述'
-    return
-  }
-
-  generatingPrompt.value = true
-  error.value = null
-
-  try {
-    const response = await charactersApi.generatePrompt({
-      name: createForm.value.name.trim() || undefined,
-      description: createForm.value.description.trim() || undefined
-    })
-    createForm.value.prompt = response.data.prompt
-  } catch (e: any) {
-    error.value = e.response?.data?.message || '生成提示词失败'
-  } finally {
-    generatingPrompt.value = false
-  }
-}
-
-// 创建完角色后自动选中并切回「选择角色」tab，让用户无需再点一次即可继续创建房间；
-// 这是 UX 上的「一键到位」：创建 → 选中 → 进入下一步 保持最短路径。
-async function handleCreateCharacter() {
-  if (!createForm.value.name.trim()) {
-    error.value = '请输入角色名称'
-    return
-  }
-
-  creatingCharacter.value = true
-  error.value = null
-
-  try {
-    const character = await characterStore.createCharacter({
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim(),
-      avatarUrl: createForm.value.avatarUrl,
-      prompt: createForm.value.prompt,
-      ownerId: authStore.user?.id
-    })
-
-    if (character) {
-      // 选中刚创建的角色
-      selectedCharacter.value = character
-      // 切回「选择角色」tab 以显示选中的角色
-      singleTab.value = 'select'
-      // 重置创建表单
-      createForm.value = { name: '', description: '', avatarUrl: '', prompt: '' }
-      avatarPreview.value = null
-    } else {
-      error.value = characterStore.error || '创建角色失败'
-    }
-  } catch (e: any) {
-    error.value = e.message || '创建角色失败'
-  } finally {
-    creatingCharacter.value = false
-  }
-}
-
-// 总入口：根据 dialogMode 分派到 single / group 两条创建路径。
-// single 模式特殊：在创建前会先查「是否已存在与该角色相关的 single 房间」，
-// 若已存在则弹出 dupDialog 让用户主动选择复用或新建，避免静默跳转/重复创建。
+// 总入口：直接走多人模式（mode='group'），提交逻辑统一：
+// - 多角色（≥2）时名称必填；单角色时名称可省略，自动用角色名
+// - 至少选 1 个角色
 async function handleSubmit() {
-  if (dialogMode.value === 'single') {
-    // 单人对话 validation
-    if (!selectedCharacter.value) {
-      error.value = '请选择一个角色'
-      return
-    }
+  if (selectedCharacterIds.value.size === 0) {
+    error.value = '请至少选择一个角色'
+    return
+  }
 
-    loading.value = true
-    error.value = null
-
-    try {
-      const charId = selectedCharacter.value.id
-      const charName = selectedCharacter.value.name
-
-      // 检查该角色是否已有 single 模式的房间
-      // 注意：只在"已经存在"时弹提示 + 复用，避免重复创建
-      // 但不偷偷跳转 —— 用户确认后才进入
-      await roomStore.fetchMyRooms()
-      const existingRoom = roomStore.myRooms.find(room =>
-        room.mode === 'single' &&
-        room.characters?.some(c => c.id === charId)
-      )
-
-      if (existingRoom) {
-        loading.value = false
-        openDupDialog(charName, existingRoom.id)
-        return
-      }
-
-      // 没有已有房间 → 创建新房间
-      const room = await roomStore.createRoom(
-        selectedCharacter.value.name,
-        undefined,
-        [selectedCharacter.value.id],
-        'single'
-      )
-      emit('created', room.id)
-      emit('close')
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '创建失败'
-    } finally {
-      loading.value = false
-    }
+  // 单角色场景：留空则回退到角色名；多角色场景：必须显式命名
+  const trimmedName = name.value.trim()
+  let finalName: string
+  if (trimmedName) {
+    finalName = trimmedName
+  } else if (singleCharacterName.value) {
+    finalName = singleCharacterName.value
   } else {
-    // 多人对话 validation
-    if (!name.value.trim()) {
-      error.value = '请输入聊天室名称'
-      return
-    }
-    if (selectedCharacterIds.value.size === 0) {
-      error.value = '请至少选择一个角色'
-      return
-    }
+    error.value = '请输入聊天室名称'
+    return
+  }
 
-    loading.value = true
-    error.value = null
+  loading.value = true
+  error.value = null
 
-    try {
-      const room = await roomStore.createRoom(
-        name.value.trim(),
-        topic.value.trim() || undefined,
-        [...selectedCharacterIds.value],
-        'group'
-      )
-      emit('created', room.id)
-      emit('close')
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : '创建失败'
-    } finally {
-      loading.value = false
-    }
+  try {
+    const room = await roomStore.createRoom(
+      finalName,
+      topic.value.trim() || undefined,
+      [...selectedCharacterIds.value],
+      'group'
+    )
+    emit('created', room.id)
+    emit('close')
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '创建失败'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -365,24 +139,7 @@ function handleClose() {
           <!-- 头部 -->
           <header class="room-modal-header">
             <div class="header-content">
-              <h2 class="room-modal-title">创建对话</h2>
-              <!-- 模式切换 -->
-              <div class="mode-tabs">
-                <button
-                  class="mode-tab"
-                  :class="{ active: dialogMode === 'single' }"
-                  @click="dialogMode = 'single'"
-                >
-                  单人对话
-                </button>
-                <button
-                  class="mode-tab"
-                  :class="{ active: dialogMode === 'group' }"
-                  @click="dialogMode = 'group'"
-                >
-                  多人对话
-                </button>
-              </div>
+              <h2 class="room-modal-title">创建聊天室</h2>
             </div>
             <button class="modal-close" @click="handleClose">
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -393,171 +150,18 @@ function handleClose() {
 
           <!-- 主体 -->
           <div class="room-modal-body">
-            <!-- 单人模式表单（单人对话） -->
-            <div v-if="dialogMode === 'single'" class="room-form">
-              <p class="form-description">选择一个角色，发起一对一交流</p>
-
-              <!-- 单人模式：选择/创建 切换 -->
-              <div class="single-tabs">
-                <button
-                  class="single-tab"
-                  :class="{ active: singleTab === 'select' }"
-                  @click="switchToSelectTab"
-                >
-                  选择角色
-                </button>
-                <button
-                  class="single-tab"
-                  :class="{ active: singleTab === 'create' }"
-                  @click="switchToCreateTab"
-                >
-                  创建角色
-                </button>
-              </div>
-
-              <!-- 选择 tab -->
-              <div v-if="singleTab === 'select'" class="select-section">
-                <!-- 角色列表 -->
-                <div class="character-list">
-                  <div
-                    v-for="character in myCharacters"
-                    :key="character.id"
-                    class="character-item"
-                    :class="{ selected: selectedCharacter?.id === character.id }"
-                    @click="selectCharacter(character)"
-                  >
-                    <div class="character-avatar">
-                      <img v-if="character.avatarUrl" :src="character.avatarUrl" :alt="character.name" />
-                      <span v-else>{{ character.name.charAt(0) }}</span>
-                    </div>
-                    <div class="character-info">
-                      <span class="character-item-name">{{ character.name }}</span>
-                      <span class="character-item-desc">{{ character.description || '暂无描述' }}</span>
-                    </div>
-                    <div v-if="selectedCharacter?.id === character.id" class="check-icon">
-                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div v-if="myCharacters.length === 0" class="character-empty">
-                    暂无可用角色，请先创建角色
-                  </div>
-                </div>
-              </div>
-
-              <!-- 创建 tab -->
-              <div v-if="singleTab === 'create'" class="create-section">
-                <!-- 头像上传 -->
-                <div class="form-group">
-                  <label class="form-label">头像</label>
-                  <input
-                    ref="fileInputRef"
-                    type="file"
-                    accept="image/jpeg,image/png,image/gif,image/webp"
-                    class="hidden"
-                    @change="handleAvatarFileChange"
-                  />
-                  <div class="avatar-upload">
-                    <div
-                      class="avatar-preview"
-                      :class="{ 'has-avatar': avatarPreview }"
-                      @click="triggerAvatarUpload"
-                    >
-                      <img v-if="avatarPreview" :src="avatarPreview" alt="avatar" />
-                      <svg v-else class="upload-icon" width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                      </svg>
-                    </div>
-                    <div class="avatar-actions">
-                      <button
-                        type="button"
-                        class="upload-btn"
-                        @click="triggerAvatarUpload"
-                        :disabled="uploadingAvatar"
-                      >
-                        {{ uploadingAvatar ? '上传中...' : '上传头像' }}
-                      </button>
-                      <p class="avatar-hint">支持 JPEG、PNG、GIF、WebP，不超过 5MB</p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 名称 -->
-                <div class="form-group">
-                  <label class="form-label">
-                    角色名称 <span class="required">*</span>
-                  </label>
-                  <input
-                    v-model="createForm.name"
-                    type="text"
-                    placeholder="请输入角色名称"
-                    class="form-input"
-                  />
-                </div>
-
-                <!-- 描述 -->
-                <div class="form-group">
-                  <label class="form-label">角色描述</label>
-                  <textarea
-                    v-model="createForm.description"
-                    rows="2"
-                    placeholder="请输入角色描述"
-                    class="form-textarea"
-                  ></textarea>
-                </div>
-
-                <!-- 角色设定 Prompt -->
-                <div class="form-group">
-                  <label class="form-label">角色设定 (Prompt)</label>
-                  <textarea
-                    v-model="createForm.prompt"
-                    rows="3"
-                    placeholder="输入角色设定，用于定义 AI 角色的行为和风格"
-                    class="form-textarea"
-                  ></textarea>
-                  <button
-                    type="button"
-                    class="generate-btn"
-                    @click="handleGeneratePrompt"
-                    :disabled="generatingPrompt"
-                  >
-                    <svg v-if="generatingPrompt" class="spin-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>{{ generatingPrompt ? '生成中...' : 'AI 生成提示词' }}</span>
-                  </button>
-                </div>
-
-                <!-- 创建角色按钮 -->
-                <button
-                  type="button"
-                  class="create-character-btn"
-                  @click="handleCreateCharacter"
-                  :disabled="creatingCharacter || !createForm.name.trim()"
-                >
-                  {{ creatingCharacter ? '创建中...' : '创建角色' }}
-                </button>
-              </div>
-
-              <!-- 错误提示 -->
-              <p v-if="error" class="form-error">{{ error }}</p>
-            </div>
-
-            <!-- 群聊模式表单（多人对话） -->
-            <div v-else class="room-form">
-              <p class="form-description">设置聊天室名称和主题，选择多个角色发起讨论</p>
+            <div class="room-form">
+              <p class="form-description">设置聊天室名称和主题，选择多个角色发起讨论（选 1 个角色也能创建群聊，名称留空时将用该角色命名，后续可点「+ 邀请」继续扩充角色）</p>
 
               <!-- 名称 -->
               <div class="form-group">
                 <label class="form-label">
-                  聊天室名称 <span class="required">*</span>
+                  聊天室名称 <span v-if="isNameRequired" class="required">*</span>
                 </label>
                 <input
                   v-model="name"
                   type="text"
-                  placeholder="例如：哲学讨论群"
+                  :placeholder="singleCharacterName ? `留空将使用「${singleCharacterName}」` : '例如：哲学讨论群'"
                   class="form-input"
                 />
               </div>
@@ -601,7 +205,7 @@ function handleClose() {
                     </div>
                   </div>
                   <div v-if="myCharacters.length === 0" class="character-empty">
-                    暂无可用角色，请先创建角色
+                    暂无可用角色，请先在「角色库」创建角色
                   </div>
                 </div>
               </div>
@@ -626,59 +230,12 @@ function handleClose() {
                 type="button"
                 class="footer-submit-btn"
                 @click="handleSubmit"
-                :disabled="loading || (dialogMode === 'single' ? !selectedCharacter : selectedCharacterIds.size === 0)"
+                :disabled="loading || selectedCharacterIds.size === 0"
               >
-                {{ loading ? '创建中...' : (dialogMode === 'single' ? '开始对话' : '创建') }}
+                {{ loading ? '创建中...' : '创建聊天室' }}
               </button>
             </div>
           </footer>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- 重复创建聊天室确认弹窗（项目风格，替代浏览器原生 confirm） -->
-    <Transition name="modal">
-      <div v-if="dupDialog" class="modal-overlay" @click.self="closeDupDialog">
-        <div class="modal-container" role="alertdialog" aria-modal="true" aria-labelledby="dup-title">
-          <!-- 关闭按钮 -->
-          <button class="close-btn" @click="closeDupDialog" :disabled="dupDialogLoading">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-
-          <!-- 图标 -->
-          <div class="modal-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-          </div>
-
-          <!-- 内容 -->
-          <h2 id="dup-title" class="modal-title">已存在该对话</h2>
-          <p class="modal-desc">
-            你已经和「{{ dupDialog.characterName }}」有过对话。<br />
-            要进入现有对话，还是发起一个新的？
-          </p>
-
-          <!-- 操作按钮 -->
-          <div class="modal-actions">
-            <button class="btn-cancel" @click="closeDupDialog" :disabled="dupDialogLoading">
-              取消
-            </button>
-            <button class="btn-secondary" @click="confirmCreateNew" :disabled="dupDialogLoading">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              创建新对话
-            </button>
-            <button class="btn-confirm" @click="confirmGoExisting" :disabled="dupDialogLoading">
-              <span v-if="dupDialogLoading" class="loading-spinner"></span>
-              <span v-else>进入现有对话</span>
-            </button>
-          </div>
         </div>
       </div>
     </Transition>
@@ -724,7 +281,7 @@ function handleClose() {
   --overlay-bg: transparent;
   --modal-bg: #0f172a;
   --modal-border: rgba(71, 85, 105, 0.85);
-  --modal-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+  --modal-shadow: 0 0 0 0 rgba(0, 0, 0, 0.55);
   --header-bg: #0f172a;
   --header-border: rgba(71, 85, 105, 0.85);
   --footer-bg: #0f172a;
@@ -817,44 +374,6 @@ function handleClose() {
   margin: 0;
 }
 
-/*** Mode Tabs ***/
-.mode-tabs {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-  background: var(--tab-inactive-bg);
-  padding: 4px;
-  border-radius: 12px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.header-content {
-  text-align: center;
-}
-
-.mode-tab {
-  flex: 1;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: transparent;
-  color: var(--tab-inactive-text);
-}
-
-.mode-tab:hover:not(.active) {
-  color: var(--text-primary);
-}
-
-.mode-tab.active {
-  background: var(--tab-active-bg);
-  color: var(--tab-active-text);
-}
-
 .modal-close {
   width: 36px;
   height: 36px;
@@ -893,108 +412,11 @@ function handleClose() {
   margin: 0;
 }
 
-/*** Single Mode Tabs ***/
-.single-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--tab-inactive-bg);
-  padding: 3px;
-  border-radius: 10px;
-}
-
-.single-tab {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  border: none;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: transparent;
-  color: var(--tab-inactive-text);
-}
-
-.single-tab:hover:not(.active) {
-  color: var(--text-primary);
-}
-
-.single-tab.active {
-  background: var(--tab-active-bg);
-  color: var(--tab-active-text);
-}
-
-/*** Select Section ***/
-.select-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.selected-character {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--selected-bg);
-  border: 1px solid var(--selected-border);
-  border-radius: 14px;
-}
-
-.character-avatar-small {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--tab-inactive-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.character-avatar-small img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.character-avatar-small span {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.selected-character .character-name {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.clear-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.clear-btn:hover {
-  background: var(--close-hover-bg);
-  color: var(--text-primary);
-}
-
 .character-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 200px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -1072,142 +494,6 @@ function handleClose() {
   text-align: center;
   font-size: 14px;
   color: var(--text-muted);
-}
-
-/*** Create Section ***/
-.create-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.avatar-upload {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.avatar-preview {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  border: 2px dashed var(--input-border);
-  background: var(--tab-inactive-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  overflow: hidden;
-}
-
-.avatar-preview:hover {
-  border-color: var(--input-focus-border);
-}
-
-.avatar-preview.has-avatar {
-  border-style: solid;
-  border-color: var(--selected-border);
-}
-
-.avatar-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.upload-icon {
-  color: var(--text-muted);
-}
-
-.avatar-actions {
-  flex: 1;
-}
-
-.upload-btn {
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--input-border);
-  border-radius: 10px;
-  background: var(--input-bg);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.upload-btn:hover:not(:disabled) {
-  border-color: var(--input-focus-border);
-}
-
-.upload-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.avatar-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.generate-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 8px;
-  padding: 10px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--input-border);
-  border-radius: 10px;
-  background: var(--tab-inactive-bg);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.generate-btn:hover:not(:disabled) {
-  background: var(--input-bg);
-  color: var(--text-primary);
-}
-
-.generate-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.spin-icon {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.create-character-btn {
-  width: 100%;
-  padding: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  border: none;
-  border-radius: 12px;
-  background: var(--btn-secondary-bg);
-  color: var(--btn-secondary-text);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.create-character-btn:hover:not(:disabled) {
-  background: var(--input-border);
-}
-
-.create-character-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /*** Form Groups ***/
@@ -1381,7 +667,7 @@ function handleClose() {
   background: #0f172a !important;
   color: #f8fafc !important;
   border-color: rgba(71, 85, 105, 0.85) !important;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45) !important;
 }
 
 .dark .room-modal-header {
@@ -1422,203 +708,8 @@ function handleClose() {
   color: #f8fafc !important;
 }
 
-.dark .selected-character {
-  background: #14532d !important;
-  border-color: #22c55e !important;
-}
-
 .dark .character-item.selected {
   background: #14532d !important;
   border-color: #22c55e !important;
-}
-
-.dark .avatar-preview {
-  background: #1e293b !important;
-}
-
-/*** Duplicate-room confirmation dialog ***/
-/* Mirrors ConfirmLogoutModal.vue structure & style for visual consistency. */
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.4) !important;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: 1100; /* above the create-room modal */
-  padding: 1rem;
-}
-
-.modal-container {
-  position: relative;
-  background: #FFFFFF !important;
-  border-radius: 20px;
-  padding: 2rem;
-  width: 100%;
-  max-width: 420px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  text-align: center;
-}
-.dark .modal-container {
-  background: #0F172A !important;
-  border: 1px solid rgba(71, 85, 105, 0.85);
-}
-
-.close-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: transparent;
-  border: none;
-  color: #94A3B8;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
-.close-btn:hover:not(:disabled) {
-  background: #F1F5F9;
-  color: #1E293B;
-}
-.dark .close-btn:hover:not(:disabled) {
-  background: #1E293B;
-  color: #F1F5F9;
-}
-.close-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.modal-icon {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 1.25rem;
-  border-radius: 50%;
-  background: #FEF6E0; /* soft amber */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #D6A84F;     /* project gold */
-}
-.dark .modal-icon {
-  background: rgba(214, 168, 79, 0.18);
-  color: #D6A84F;
-}
-
-.modal-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1E293B;
-  margin: 0 0 0.5rem;
-}
-.dark .modal-title {
-  color: #F1F5F9;
-}
-
-.modal-desc {
-  font-size: 0.9rem;
-  color: #64748B;
-  line-height: 1.5;
-  margin: 0 0 1.5rem;
-}
-.dark .modal-desc {
-  color: #94A3B8;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.btn-cancel,
-.btn-secondary,
-.btn-confirm {
-  flex: 1;
-  padding: 0.85rem 1rem;
-  border-radius: 12px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.btn-cancel {
-  background: #F1F5F9;
-  border: 1px solid #E2E8F0;
-  color: #64748B;
-}
-.btn-cancel:hover:not(:disabled) {
-  background: #E2E8F0;
-  color: #1E293B;
-}
-.dark .btn-cancel {
-  background: #1E293B;
-  border-color: rgba(71, 85, 105, 0.85);
-  color: #94A3B8;
-}
-.dark .btn-cancel:hover:not(:disabled) {
-  background: #334155;
-  color: #F1F5F9;
-}
-
-.btn-secondary {
-  background: #FFFFFF;
-  border: 1px solid #D6A84F;
-  color: #D6A84F;
-}
-.btn-secondary:hover:not(:disabled) {
-  background: rgba(214, 168, 79, 0.10);
-  color: #B58F35;
-  border-color: #B58F35;
-}
-.dark .btn-secondary {
-  background: transparent;
-  border-color: #D6A84F;
-  color: #D6A84F;
-}
-.dark .btn-secondary:hover:not(:disabled) {
-  background: rgba(214, 168, 79, 0.14);
-}
-
-.btn-confirm {
-  background: #D6A84F; /* gold — primary action */
-  border: none;
-  color: #FFFFFF;
-}
-.btn-confirm:hover:not(:disabled) {
-  background: #B58F35;
-  transform: translateY(-1px);
-}
-.dark .btn-confirm {
-  background: #D6A84F;
-  color: #0F172A;
-}
-.dark .btn-confirm:hover:not(:disabled) {
-  background: #E0B863;
-}
-
-.btn-cancel:disabled,
-.btn-secondary:disabled,
-.btn-confirm:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: dup-spin 0.8s linear infinite;
-}
-.dark .loading-spinner {
-  border-top-color: #0F172A;
-}
-@keyframes dup-spin {
-  to { transform: rotate(360deg); }
 }
 </style>

@@ -82,7 +82,15 @@ export const useCharacterStore = defineStore('character', () => {
     error.value = null
     try {
       const response = await charactersApi.create(data)
-      characters.value.push(response.data)
+      // 即使后端按 owner+name 做了去重（命中时返回已有那条的 id），这里也要按 id 再查一遍，
+      // 避免 store 数组里出现"id 相同的条目被 push 多次"的 UI 重复。
+      // 这种重复会让"我的角色"页看起来像有 N 张同名片，但实际上数据库只有一条。
+      const existingIndex = characters.value.findIndex(c => c.id === response.data.id)
+      if (existingIndex !== -1) {
+        characters.value[existingIndex] = response.data
+      } else {
+        characters.value.push(response.data)
+      }
       return response.data
     } catch (e: any) {
       error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to create character'

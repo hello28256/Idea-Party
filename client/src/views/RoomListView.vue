@@ -926,13 +926,24 @@ const displayedFeatured = computed(() => {
   const start = currentFeaturedBatch.value * BATCH_SIZE
   return featuredCharacters.value.slice(start, start + BATCH_SIZE)
 })
+// 当前批次的首尾角色名（用于在头部加「A → B」范围提示，让用户一眼看出换一批真的换了）。
+const currentBatchRange = computed(() => {
+  const list = displayedFeatured.value
+  if (list.length === 0) return ''
+  const first = list[0]?.name ?? ''
+  const last = list[list.length - 1]?.name ?? ''
+  return `${first} → ${last}`
+})
 function toggleShowAllFeatured() {
   showAllFeatured.value = !showAllFeatured.value
   // 展开时把 currentBatch 重置到 0，避免停留在一个"折叠态下不可见"的批上让用户困惑
   currentFeaturedBatch.value = 0
+  console.log('[DEBUG] toggleShowAllFeatured, showAllFeatured=', showAllFeatured.value)
 }
 function shuffleFeaturedBatch() {
+  console.log('[DEBUG] shuffleFeaturedBatch before:', currentFeaturedBatch.value, '/', featuredTotalBatches.value)
   currentFeaturedBatch.value = (currentFeaturedBatch.value + 1) % featuredTotalBatches.value
+  console.log('[DEBUG] shuffleFeaturedBatch after:', currentFeaturedBatch.value)
 }
 
 // 发现页"推荐角色"列表的拉取与兜底：头像缺失时用 DiceBear SVG 生成确定性占位（seed=name），
@@ -2065,14 +2076,10 @@ async function handleInviteMember() {
         <section class="featured-section">
           <div class="section-header">
             <h2 class="section-title">推荐角色</h2>
+            <!-- 当前批次范围提示（如「亚里士多德 → 海森堡」），让换一批的视觉变化一眼可辨 -->
+            <span v-if="showAllFeatured && currentBatchRange" class="batch-range">{{ currentBatchRange }}</span>
             <div class="section-actions">
-              <!-- 「查看全部 / 收起」入口：始终显示，点击在折叠态与展开态间切换 -->
-              <a
-                href="#"
-                class="see-all"
-                @click.prevent="toggleShowAllFeatured"
-              >{{ showAllFeatured ? '收起' : '查看全部' }}</a>
-              <!-- 「换一批」：与查看全部并排，点击在多批间循环 -->
+              <!-- 「换一批」：左侧，点击在多批间循环 -->
               <button
                 type="button"
                 class="shuffle-batch-btn"
@@ -2083,6 +2090,12 @@ async function handleInviteMember() {
                 <span class="shuffle-batch-label">换一批</span>
                 <span class="shuffle-batch-count">{{ currentFeaturedBatch + 1 }}/{{ featuredTotalBatches }}</span>
               </button>
+              <!-- 「查看全部 / 收起」入口：右侧，始终显示，点击在折叠态与展开态间切换 -->
+              <a
+                href="#"
+                class="see-all"
+                @click.prevent="toggleShowAllFeatured"
+              >{{ showAllFeatured ? '收起' : '查看全部' }}</a>
             </div>
           </div>
           <div v-if="featuredCharactersLoading" class="featured-loading">
@@ -2748,10 +2761,22 @@ async function handleInviteMember() {
   text-decoration: underline;
 }
 
+/* 当前批次范围提示（如「亚里士多德 → 海森堡」）：标题与右侧操作按钮之间，
+   让"换一批"的视觉变化一眼可辨——以前两批都是 18 个相似历史人物，肉眼很难区分。 */
+.batch-range {
+  margin-left: auto;
+  margin-right: 0.75rem;
+  font-size: 0.8rem;
+  color: rgba(24, 24, 27, 0.55);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* 推荐角色 section 标题右侧操作区：把"查看全部"和"换一批"统一放在同一槽位，
    互斥显示——折叠态展示"查看全部"入口，展开态展示"换一批"按钮。
    .section-actions 是右对齐的容器，避免修改 .section-header 的 flex 布局。 */
 .section-actions {
+  display: flex;
   display: flex;
   align-items: center;
   gap: 0.5rem;
