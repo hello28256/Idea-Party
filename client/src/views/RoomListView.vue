@@ -335,13 +335,15 @@ const isScenariosView = computed(() => {
 const scenarioStore = useScenarioStore()
 
 // 拆分预设场景与用户私有场景：
-// - 预设场景：系统内置（isPreset=true），点卡片走"创建房间"流程
-// - 用户场景：用户自建（isPreset=false），点卡片直接进入"编辑"流程
+// - 推荐场景：ownerId 不存在（即 SEED_SCENARIOS 常量里的内置场景）
+// - 用户场景：ownerId 存在（用户通过 CustomScenarioModal 自建）
+// 用 ownerId 判别比 isPreset 字段更稳：SEED_SCENARIOS 没显式设 isPreset，
+// 但用户场景一定带 ownerId（mapResponseToScenario 写入）。
 const presetScenarios = computed(() =>
-  scenarioStore.scenarios.filter(s => s.isPreset)
+  scenarioStore.scenarios.filter(s => !s.ownerId)
 )
 const userScenarios = computed(() =>
-  scenarioStore.scenarios.filter(s => !s.isPreset)
+  scenarioStore.scenarios.filter(s => !!s.ownerId)
 )
 // 场景 tab 切换：'preset' = 系统推荐场景，'user' = 我的场景
 const scenarioTab = ref<'preset' | 'user'>('preset')
