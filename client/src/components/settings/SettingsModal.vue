@@ -746,7 +746,9 @@ function handleClose() {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  /* 必须高于 CustomScenarioModal 等普通业务弹窗（z-index 1000），
+     否则当用户在 CustomScenarioModal 内点"去设置 API Key"时设置弹窗会被遮挡。 */
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;
