@@ -333,26 +333,6 @@ const isScenariosView = computed(() => {
 })
 
 const scenarioStore = useScenarioStore()
-
-// 拆分预设场景与用户私有场景：
-// - 推荐场景：ownerId 不存在（即 SEED_SCENARIOS 常量里的内置场景）
-// - 用户场景：ownerId 存在（用户通过 CustomScenarioModal 自建）
-// 用 ownerId 判别比 isPreset 字段更稳：SEED_SCENARIOS 没显式设 isPreset，
-// 但用户场景一定带 ownerId（mapResponseToScenario 写入）。
-const presetScenarios = computed(() =>
-  scenarioStore.scenarios.filter(s => !s.ownerId)
-)
-const userScenarios = computed(() =>
-  scenarioStore.scenarios.filter(s => !!s.ownerId)
-)
-// 场景 tab 切换：'preset' = 系统推荐场景，'user' = 我的场景
-const scenarioTab = ref<'preset' | 'user'>('preset')
-// 切到"我的场景"时若为空，自动切回预设（避免空白 tab）
-watch(userScenarios, (list) => {
-  if (scenarioTab.value === 'user' && list.length === 0) {
-    scenarioTab.value = 'preset'
-  }
-}, { immediate: true })
 const activeScenario = ref<Scenario | null>(null)
 const userInput = ref('')
 // 面试场景专用：岗位描述（JD）
@@ -1588,24 +1568,9 @@ async function handleInviteMember() {
         <header class="content-header">
           <div class="content-header-text">
             <h1 class="page-title">场景</h1>
-            <!-- 左右两个 tab：推荐场景 / 我的场景 -->
-            <div class="scenario-tabs">
-              <button
-                type="button"
-                class="scenario-tab"
-                :class="{ 'is-active': scenarioTab === 'preset' }"
-                @click="scenarioTab = 'preset'"
-              >推荐场景（{{ presetScenarios.length }}）</button>
-              <button
-                type="button"
-                class="scenario-tab"
-                :class="{ 'is-active': scenarioTab === 'user' }"
-                :disabled="userScenarios.length === 0"
-                @click="scenarioTab = 'user'"
-              >我的场景（{{ userScenarios.length }}）</button>
-            </div>
+            <p class="page-subtitle">选一个场景，一键创建带模板的聊天室</p>
           </div>
-          <!-- 右上角「+ 自定义场景」按钮：和"场景"标题同行，最显眼位置 -->
+          <!-- 右上角「+ 自定义场景」按钮 -->
           <button
             type="button"
             class="btn-create-scenario"
@@ -1615,64 +1580,41 @@ async function handleInviteMember() {
             自定义场景
           </button>
         </header>
-
-        <!-- 推荐场景区 -->
-        <section v-show="scenarioTab === 'preset'" class="scenarios-section">
-          <div class="scenarios-grid">
-            <div
-              v-for="s in presetScenarios"
-              :key="s.id"
-              class="scenario-card-wrap"
+        <div class="scenarios-grid">
+          <div
+            v-for="s in scenarioStore.scenarios"
+            :key="s.id"
+            class="scenario-card-wrap"
+            :class="{ 'is-user': !s.isPreset }"
+          >
+            <button
+              type="button"
+              class="scenario-card"
+              @click="openScenario(s)"
             >
-              <button
-                type="button"
-                class="scenario-card"
-                @click="openScenario(s)"
-              >
-                <div class="scenario-emoji">{{ s.emoji }}</div>
-                <div class="scenario-body">
-                  <h3 class="scenario-title">{{ s.title }}</h3>
-                  <p class="scenario-desc">{{ s.description }}</p>
-                </div>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- 我的场景区 -->
-        <section v-show="scenarioTab === 'user'" class="scenarios-section">
-          <div v-if="userScenarios.length === 0" class="scenarios-empty">
-            <p>还没有自定义场景。点击右上角「+ 自定义场景」开始创建。</p>
-          </div>
-          <div v-else class="scenarios-grid">
-            <div
-              v-for="s in userScenarios"
-              :key="s.id"
-              class="scenario-card-wrap is-user"
-            >
-              <button
-                type="button"
-                class="scenario-card"
-                @click="openEditCustomScenario(s, $event)"
-              >
-                <div class="scenario-emoji">{{ s.emoji }}</div>
-                <div class="scenario-body">
-                  <h3 class="scenario-title">{{ s.title }}</h3>
-                  <p class="scenario-desc">{{ s.description }}</p>
-                </div>
-              </button>
-              <!-- 删除按钮（点卡片本身进入编辑） -->
-              <div class="scenario-actions">
-                <button
-                  type="button"
-                  class="scenario-action-btn scenario-action-danger"
-                  title="删除"
-                  @click="openDeleteCustomScenario(s, $event)"
-                >🗑️</button>
+              <div class="scenario-emoji">{{ s.emoji }}</div>
+              <div class="scenario-body">
+                <h3 class="scenario-title">{{ s.title }}</h3>
+                <p class="scenario-desc">{{ s.description }}</p>
               </div>
+            </button>
+            <!-- 用户私有场景：右上角 hover 出现编辑/删除按钮 -->
+            <div v-if="!s.isPreset" class="scenario-actions">
+              <button
+                type="button"
+                class="scenario-action-btn"
+                title="编辑"
+                @click="openEditCustomScenario(s, $event)"
+              >✏️</button>
+              <button
+                type="button"
+                class="scenario-action-btn scenario-action-danger"
+                title="删除"
+                @click="openDeleteCustomScenario(s, $event)"
+              >🗑️</button>
             </div>
           </div>
-        </section>
+        </div>
 
         <!-- 内嵌模板预览弹窗（Teleport 到 body） -->
         <Teleport to="body">
@@ -3503,63 +3445,9 @@ async function handleInviteMember() {
   margin: 0;
 }
 
-/* 场景分区：把场景按"用户/系统"分组 */
+/* 场景分区样式（保留兼容钩子，目前未使用） */
 .scenarios-section {
   margin-bottom: 1.5rem;
-}
-.scenarios-section-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-primary, #111827);
-  margin: 0 0 0.75rem;
-  padding-left: 0.25rem;
-}
-
-/* 场景 tab 切换器：与 content-header-text 同列，左对齐 */
-.scenario-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-.scenario-tab {
-  padding: 0.4rem 0.85rem;
-  background: transparent;
-  border: 1px solid var(--border-color, rgba(24, 24, 27, 0.08));
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-secondary, #6b7280);
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s ease;
-}
-.scenario-tab:hover:not(:disabled):not(.is-active) {
-  background: var(--input-bg, rgba(24, 24, 27, 0.04));
-  border-color: var(--text-secondary, rgba(24, 24, 27, 0.16));
-  color: var(--text-primary, #111827);
-}
-.scenario-tab.is-active {
-  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
-  border-color: transparent;
-  color: #ffffff;
-}
-.scenario-tab:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* 空状态：用户切到"我的场景" tab 但没场景时 */
-.scenarios-empty {
-  padding: 3rem 1rem;
-  text-align: center;
-  color: var(--text-muted, #9ca3af);
-  font-size: 0.9rem;
-  background: var(--input-bg, rgba(0, 0, 0, 0.02));
-  border: 1px dashed var(--border-color, rgba(24, 24, 27, 0.12));
-  border-radius: 16px;
-}
-.scenarios-empty p {
-  margin: 0;
 }
 
 .scenarios-grid {
