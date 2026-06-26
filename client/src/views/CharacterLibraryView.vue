@@ -8,6 +8,7 @@
 //   - CreateCharacterModal：复用弹窗组件，通过 mode='create' | 'edit' 区分行为
 //   - AppSidebar / ALL_NAV_ITEMS：通用左侧导航（activeId='characters' 高亮当前页）
 import { ref, computed, onMounted } from 'vue'
+import { charactersApi } from '@/api/characters'
 import { useRouter } from 'vue-router'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
@@ -29,12 +30,58 @@ const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const editingCharacter = ref<Character | null>(null)
 
-onMounted(() => {
+onMounted(async () => {
   // 进入页面立即拉取一次角色列表，保证 Tab 切换回来时数据是最新的。
-  characterStore.fetchCharacters()
+  await characterStore.fetchCharacters()
   // 50ms 延迟是为了让 CSS transition 真正生效，而不是在元素挂载前就改了 class。
   setTimeout(() => { mounted.value = true }, 50)
+
+  // 老库补全：用户历史上 clone 推荐角色时（FeaturedCharacters map 漏保留 avatarUrl 字段的旧版本），
+  // 创建出来的私有副本 avatarUrl 为空。一次性从 /api/characters/recommended 拉预设的"正确头像 URL"
+  // 表，按名字匹配把缺失头像的就地补上（PUT /api/characters/{id}）。幂等：已有 avatarUrl 的不动。
+  // 为什么在页面挂载时跑而不是在 startChat：用户已经不再点击老角色的话，根本走不到 startChat 的修复分支。
+  await patchMissingAvatarUrls()
 })
+
+/**
+ * 检测当前用户角色库里 avatarUrl 为空或仍是 DiceBear 风格的私有副本，
+ * 从 recommended API 找到同名 preset 的本地头像路径，调 updateCharacter 写回。
+ * 仅补当前用户私有角色（isPreset=false），避免误改系统预设。
+ */
+async function patchMissingAvatarUrls() {
+  try {
+    const presets = await charactersApi.getRecommended()
+    // 用 map<name, avatarUrl> 做 O(1) 查表，只保留非空且是本地路径的预设头像
+    const presetAvatars = new Map<string, string>()
+    for (const p of presets.data) {
+      if (p.avatarUrl && p.avatarUrl.startsWith('/api/')) {
+        presetAvatars.set(p.name, p.avatarUrl)
+      }
+    }
+    const needPatch = characterStore.characters.filter(c =>
+      !c.isPreset &&
+      c.ownerId === authStore.user?.id &&
+      (!c.avatarUrl || c.avatarUrl.startsWith('http'))
+    )
+    if (needPatch.length === 0) return
+    console.log(`[AvatarPatch] patching ${needPatch.length} characters with missing avatars`)
+    await Promise.all(needPatch.map(async (c) => {
+      const newUrl = presetAvatars.get(c.name) || `/api/upload/avatars/presets/${encodeURIComponent(c.name)}.jpg`
+      console.log(`[AvatarPatch] '${c.name}': '${c.avatarUrl || ''}' -> '${newUrl}'`)
+      await characterStore.updateCharacter(c.id, {
+        name: c.name,
+        description: c.description || '',
+        avatarUrl: newUrl,
+        prompt: c.prompt || ''
+      })
+    }))
+    // patch 完成后重新拉一次 store，让前端 UI 立即看到新头像（避免用户手动刷新页面）
+    await characterStore.fetchCharacters()
+    console.log('[AvatarPatch] done, store refreshed')
+  } catch (e) {
+    console.warn('[AvatarPatch] failed:', e)
+  }
+}
 
 // 获取当前用户的角色
 // 仅展示当前用户创建的自定义角色：排除 isPreset 的系统预置角色，

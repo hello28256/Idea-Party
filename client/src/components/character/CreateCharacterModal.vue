@@ -74,6 +74,12 @@ const uploadingAvatar = ref(false)
 const showDeleteConfirm = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+// 自动获取头像：候选列表 + 加载状态；用户点选后 thumbnail URL 写入 form.avatarUrl，
+// 后端 create 时会通过 downloadAvatarIfExternal 自动把它落到 uploads/avatars/。
+const avatarCandidates = ref<Array<{ thumbnailUrl: string; title: string; wikiUrl: string }>>([])
+const avatarSearching = ref(false)
+const avatarSearchError = ref<string | null>(null)
+const showAvatarCandidates = ref(false)
 
 // 聊天室内上下文中的 tab 状态
 const activeTab = ref<'create' | 'library'>('create')
@@ -253,6 +259,41 @@ function triggerAvatarUpload() {
   fileInputRef.value?.click()
 }
 
+// 自动获取头像：调后端 /characters/avatar-search 拿 2-3 个维基百科候选缩略图，
+// 把结果显示给用户选。选了之后把 thumbnail URL 写进 form.avatarUrl ——
+// 提交时后端 downloadAvatarIfExternal 会自动下载到本地 uploads/avatars/，
+// 避免后续每次渲染都打外网。
+async function autoFetchAvatar() {
+  const name = form.value.name?.trim()
+  if (!name) {
+    avatarSearchError.value = '请先输入角色名'
+    return
+  }
+  avatarSearching.value = true
+  avatarSearchError.value = null
+  try {
+    const resp = await charactersApi.searchAvatars(name)
+    avatarCandidates.value = resp.data
+    showAvatarCandidates.value = true
+    if (resp.data.length === 0) {
+      avatarSearchError.value = '维基百科未找到该角色，请手动上传或换个名字试试'
+    }
+  } catch (e: any) {
+    console.error('[DEBUG] autoFetchAvatar failed:', e)
+    avatarSearchError.value = e.response?.data?.message || e.message || '搜索失败，请稍后重试'
+    avatarCandidates.value = []
+  } finally {
+    avatarSearching.value = false
+  }
+}
+
+// 选中某个候选头像：URL 写入表单 + 即时预览
+function pickAvatarCandidate(candidate: { thumbnailUrl: string; title: string; wikiUrl: string }) {
+  form.value.avatarUrl = candidate.thumbnailUrl
+  avatarPreview.value = candidate.thumbnailUrl
+  showAvatarCandidates.value = false
+}
+
 // handleAvatarFileChange：客户端先做 MIME 与体积两道校验，失败时不发请求，减轻后端 / OSS 压力。
 // 后端返回的图片 URL 同时回写到 form.avatarUrl（用于提交）和 avatarPreview（用于即时预览），保持两者一致避免视觉错位。
 async function handleAvatarFileChange(event: Event) {
@@ -395,19 +436,60 @@ async function handleAvatarFileChange(event: Event) {
                   <div class="avatar-upload-info">
                     <span class="avatar-upload-title">点击上传头像</span>
                     <span class="avatar-upload-desc">支持 JPEG、PNG、GIF、WebP，不超过 5MB</span>
+                    <div class="avatar-upload-actions">
+                      <button
+                        type="button"
+                        class="secondary-button"
+                        @click="triggerAvatarUpload"
+                        :disabled="uploadingAvatar || avatarSearching"
+                      >
+                        <svg v-if="uploadingAvatar" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {{ uploadingAvatar ? '上传中...' : '上传头像' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button"
+                        @click="autoFetchAvatar"
+                        :disabled="avatarSearching || uploadingAvatar"
+                        :title="'根据角色名从维基百科检索候选头像'"
+                      >
+                        <svg v-if="avatarSearching" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span v-else>🌐</span>
+                        {{ avatarSearching ? '搜索中...' : '自动获取头像' }}
+                      </button>
+                    </div>
+                    <p v-if="avatarSearchError" class="avatar-search-error">{{ avatarSearchError }}</p>
+                  </div>
+                </div>
+
+                <!-- 候选头像选择器：用户点"自动获取头像"后弹出的缩略图网格 -->
+                <div v-if="showAvatarCandidates && avatarCandidates.length > 0" class="avatar-candidates">
+                  <p class="avatar-candidates-title">选择一张候选头像（点击即可）</p>
+                  <div class="avatar-candidates-grid">
                     <button
+                      v-for="(c, idx) in avatarCandidates"
+                      :key="c.wikiUrl + idx"
                       type="button"
-                      class="secondary-button"
-                      @click="triggerAvatarUpload"
-                      :disabled="uploadingAvatar"
+                      class="avatar-candidate"
+                      :title="c.title"
+                      @click="pickAvatarCandidate(c)"
                     >
-                      <svg v-if="uploadingAvatar" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      {{ uploadingAvatar ? '上传中...' : '上传头像' }}
+                      <img :src="c.thumbnailUrl" :alt="c.title" />
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    class="secondary-button avatar-candidates-close"
+                    @click="showAvatarCandidates = false"
+                  >
+                    收起候选
+                  </button>
                 </div>
               </div>
 
@@ -1212,5 +1294,67 @@ async function handleAvatarFileChange(event: Event) {
 
 .dark .delete-character-button:hover:not(:disabled) {
   background: #18181b !important;
+}
+
+/* === 自动获取头像：双按钮并排 + 候选缩略图网格 === */
+.avatar-upload-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.avatar-upload-actions .secondary-button {
+  flex: 1;
+  min-width: 120px;
+  justify-content: center;
+}
+.avatar-search-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ef4444;
+}
+.avatar-candidates {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+}
+.avatar-candidates-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+  margin-bottom: 10px;
+}
+.avatar-candidates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.avatar-candidate {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: var(--color-input-bg, #fff);
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 1 / 1;
+  transition: all 0.2s ease;
+}
+.avatar-candidate:hover {
+  border-color: var(--button-bg, #111827);
+  transform: translateY(-2px);
+}
+.avatar-candidate img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.avatar-candidates-close {
+  font-size: 12px;
+  padding: 4px 10px;
+  width: 100%;
+  justify-content: center;
 }
 </style>
