@@ -1,6 +1,7 @@
 package com.ideaparty.dto;
 
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.CharacterCategory;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -24,6 +25,8 @@ public class CharacterResponse {
     private UUID ownerId;
     // 区分「平台预设角色」与「用户自建角色」，前端据此控制编辑/删除权限与展示样式。
     private boolean isPreset;
+    // 推荐位分类：发现页"分类标签条"按此过滤；用户自建角色为 null。
+    private CharacterCategory category;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -40,6 +43,7 @@ public class CharacterResponse {
         response.setAvatarUrl(character.getAvatarUrl());
         response.setPrompt(character.getPrompt());
         response.setPreset(character.isPreset());
+        response.setCategory(character.getCategory());
         response.setCreatedAt(character.getCreatedAt());
         response.setUpdatedAt(character.getUpdatedAt());
         if (character.getOwner() != null) {
@@ -81,6 +85,10 @@ public class CharacterResponse {
     public boolean isPreset() { return isPreset; }
     // 仅管理员/种子数据脚本调用，正常用户请求不应触发该 setter。
     public void setPreset(boolean preset) { isPreset = preset; }
+
+    // 前端发现页"分类标签条"过滤；用户自建角色为 null。
+    public CharacterCategory getCategory() { return category; }
+    public void setCategory(CharacterCategory category) { this.category = category; }
 
     // 列表"创建时间"列展示，按从新到旧排序时直接消费。
     public Instant getCreatedAt() { return createdAt; }

@@ -42,6 +42,9 @@ public class CharacterService {
     // 直接读 langchain4j 的 base-url 而非单独建配置项：与 LangChain4j 自动装配的 OpenAI 客户端共用同一接入点，
     // 这样 REST 调用走的也是同一个 DeepSeek 兼容 endpoint，便于将来切换供应商时只改一个配置。
     private final String deepseekBaseUrl;
+    // 预设角色静态缓存：启动时从 classpath:presets.json 加载到内存，
+    // 让 GET /api/characters/recommended 走纯内存 0 DB 查询。preset 修改走 git diff + 重启。
+    private final com.ideaparty.cache.PresetCharacterCache presetCache;
 
     /**
      * 构造时一次性注入所有依赖（构造函数注入优于字段注入）：
@@ -49,7 +52,7 @@ public class CharacterService {
      * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
      * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
      */
-    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
+    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl, com.ideaparty.cache.PresetCharacterCache presetCache) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.roomRepository = roomRepository;
@@ -57,6 +60,7 @@ public class CharacterService {
         this.firecrawlService = firecrawlService;
         this.fileStorageService = fileStorageService;
         this.deepseekBaseUrl = deepseekBaseUrl;
+        this.presetCache = presetCache;
     }
 
     /**
@@ -773,12 +777,11 @@ public class CharacterService {
      * 列出系统预设角色（is_preset=true），供新用户"开箱即用"创建聊天室。
      * 预设与用户自建角色共用同一张表，通过 owner 与 preset 字段区分，避免双表 JOIN。
      * 调用方：新建聊天室时的"选择预设角色"下拉。
+     *
+     * <p><b>V10 优化：</b>走内存缓存（见 {@link #findAllRecommended} 注释）。
      */
     public List<CharacterResponse> findPresets() {
-        return characterRepository.findByIsPresetTrue()
-                .stream()
-                .map(CharacterResponse::fromEntity)
-                .collect(Collectors.toList());
+        return presetCache.getAll();
     }
 
     /**
@@ -891,11 +894,29 @@ public class CharacterService {
      * 给"推荐位"前端一次性拉全 36 人后由前端按 18 一批做"换一批"切片，
      * 避免每切一次就发一次 HTTP；同时与"查全部 + 客户端分页"的产品形态对齐。
      * 排序与 {@link #findRecommended(int)} 保持一致（name 升序），保持数据稳定。
+     *
+     * <p><b>V10 优化：</b>走 {@link com.ideaparty.cache.PresetCharacterCache} 内存缓存，
+     * 0 DB 查询。原实现是 characterRepository.findByIsPresetTrueOrderByNameAsc()，
+     * 每次用户访问发现页都打一次 MySQL；现在改成读 132KB 静态 JSON 一次性加载到 JVM。
      */
     public List<CharacterResponse> findAllRecommended() {
-        return characterRepository.findByIsPresetTrueOrderByNameAsc()
-                .stream()
-                .map(CharacterResponse::fromEntity)
+        return presetCache.getAll();
+    }
+
+    /**
+     * 按可选 category 过滤返回推荐角色：给发现页"分类标签条"用。
+     * category=null → 返回全部预设；非 null → 按枚举过滤。
+     * 入参用 CharacterCategory 枚举（Controller 层已做 name→enum 转换与 null 容错）。
+     */
+    public List<CharacterResponse> findRecommendedByCategory(
+            com.ideaparty.entity.CharacterCategory category) {
+        // V10 优化：从内存缓存读，按 category 过滤；0 DB 查询
+        if (category == null) {
+            return presetCache.getAll();
+        }
+        return presetCache.getAll().stream()
+                .filter(c -> category.name().equals(
+                    c.getCategory() != null ? c.getCategory().name() : null))
                 .collect(Collectors.toList());
     }
 }

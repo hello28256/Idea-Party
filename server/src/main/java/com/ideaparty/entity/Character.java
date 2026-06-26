@@ -71,6 +71,12 @@ public class Character {
     @Column(name = "is_preset", nullable = false)
     private boolean isPreset = false;
 
+    // 推荐位分类：发现页"分类标签条"按此字段过滤；仅预设角色填写，用户自建角色保持 null。
+    // 用 STRING 存储：避免 ORDINAL 在重排枚举常量时把历史数据全打乱。
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private CharacterCategory category;
+
     // 创建时间由 JPA 在首次持久化时写入，业务层不应手动 set，避免被覆盖。
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -166,4 +172,9 @@ public class Character {
     public Instant getUpdatedAt() { return updatedAt; }
     /** 仅供 JPA / 测试场景使用，正常流程由 {@link #onUpdate()} 维护。 */
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    /** @return 预设角色的推荐位分类（科学家/明星/企业家等）；用户自建角色为 null。 */
+    public CharacterCategory getCategory() { return category; }
+    /** @param category 推荐位分类；DataLoader 写入预设角色时填，用户自建角色不设。 */
+    public void setCategory(CharacterCategory category) { this.category = category; }
 }

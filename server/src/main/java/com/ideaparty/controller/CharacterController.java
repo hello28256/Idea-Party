@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -60,19 +61,32 @@ public class CharacterController {
     @GetMapping("/presets")
     public ResponseEntity<List<CharacterResponse>> getPresetCharacters() {
         List<CharacterResponse> presets = characterService.findPresets();
-        return ResponseEntity.ok(presets);
+        // preset 是静态系统数据（V10 之后走内存缓存），响应可由浏览器/网关缓存 5 分钟。
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(5, java.util.concurrent.TimeUnit.MINUTES).cachePublic())
+                .body(presets);
     }
 
     /**
      * 列出全部推荐角色（首页推荐位）。
-     * 一次性返回所有 preset（约 36 人），由前端按 18 一批切片做"换一批"切换。
+     * 一次性返回所有 preset（约 120 人），由前端按 12 一批切片做"换一批"切换。
      * 这里不再写死 limit：旧的 findRecommended(18) 保留在 Service 层供向后兼容；
      * 此端点是"发现页推荐位"的事实入口，需要的就是全集。
+     *
+     * 可选 ?category= 参数：传入枚举 name（SCIENTIST/STAR/ENTREPRENEUR/.../ARTIST）按分类过滤；
+     * 非法值或缺失都按"全部"处理（前端分类标签条的"全部"chip 不带参数）。
      */
     @GetMapping("/recommended")
-    public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters() {
-        List<CharacterResponse> recommended = characterService.findAllRecommended();
-        return ResponseEntity.ok(recommended);
+    public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters(
+            @RequestParam(value = "category", required = false) String category
+    ) {
+        com.ideaparty.entity.CharacterCategory catEnum =
+                com.ideaparty.entity.CharacterCategory.fromName(category);
+        List<CharacterResponse> recommended = characterService.findRecommendedByCategory(catEnum);
+        // 同 /presets：preset 是静态数据，5 分钟浏览器缓存
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(5, java.util.concurrent.TimeUnit.MINUTES).cachePublic())
+                .body(recommended);
     }
 
     /**

@@ -73,4 +73,13 @@ public interface CharacterRepository extends JpaRepository<Character, UUID> {
      * 当前为了避免 schema 改动，暂用 name 排序。
      */
     List<Character> findByIsPresetTrueOrderByNameAsc();
+
+    /**
+     * 按 category 过滤预设角色，给发现页"分类标签条"用。
+     * category=null 时返回所有预设（与 findByIsPresetTrueOrderByNameAsc 等价，
+     * 调用方按 nullable 区分走哪条分支，避免在这里再做"全部"过滤）。
+     * 命中 (is_preset, category) 联合索引 idx_characters_preset_category。
+     */
+    List<Character> findByIsPresetTrueAndCategoryOrderByNameAsc(
+        com.ideaparty.entity.CharacterCategory category);
 }

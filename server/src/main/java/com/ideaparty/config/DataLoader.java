@@ -135,7 +135,9 @@ public class DataLoader implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        seedCharactersIfMissing();
+        // V10 之后：预设角色不再持久化到 DB（classpath:presets.json + PresetCharacterCache
+        // 启动时加载到 JVM 内存），所以 seedCharactersIfMissing 整段调用已废弃。
+        // 保留方法签名/类以便老 jar 升级兼容；新版本直接不调。
         seedDefaultAdminIfNeeded();
         syncAdminWhitelist();
         backfillObservations();
@@ -230,120 +232,24 @@ public class DataLoader implements CommandLineRunner {
      * <p>按名字幂等：已存在同名的预设角色跳过，便于老库平滑升级到新的 36 人
      * 阵容；同时不依赖 characters.count() == 0 的空库判定，老库里也能补齐缺失的预设。
      */
+    /**
+     * V10 之后已废弃。
+     *
+     * <p>原行为：按名字幂等写入 120 个 preset 角色到 characters 表，prompt 留空
+     * 由 backfillPresetPrompts 在启动时调 DeepSeek 生成。
+     *
+     * <p>新行为：preset 数据从 classpath:presets.json 启动时加载到
+     * {@link com.ideaparty.cache.PresetCharacterCache}，不再写 DB。V10 migration
+     * 已经把现存 120 条 preset 从 DB 物理删除。
+     *
+     * <p>保留这个方法（+ backfillPresetAvatarUrls + backfillPresetPrompts + buildPreset）
+     * 是为了不影响 DataLoader 类自身的依赖注入与事务边界；后续清理版本可以一起删。
+     */
+    @SuppressWarnings("unused")
     private void seedCharactersIfMissing() {
-        List<Character> presets = List.of(
-            buildPreset( 1, "孔子",     "中国古代思想家，儒家学派创始人，主张仁爱、礼治与有教无类，被尊为\"万世师表\"，对东亚文化圈影响逾两千年。",
-                        "/api/upload/avatars/presets/confucius.jpg",
-                        "You are Confucius (孔子). Speak in aphorisms and guide others through questions. Emphasize the power of example over force. Teach that relationships form the foundation of all virtue."),
-            buildPreset( 2, "苏格拉底", "古希腊哲学家，开创西方思辨哲学传统，主张\"认识你自己\"与通过对话（产婆术）逼近真理，对柏拉图、亚里士多德及后世哲学影响深远。",
-                        "/api/upload/avatars/presets/socrates.jpg",
-                        "You are Socrates. Question assumptions through dialogue. Admit your own ignorance. Pursue definitions of virtue, justice, and the good life."),
-            buildPreset( 3, "老子",     "中国古代哲学家，道家学派创始人，《道德经》作者，倡导\"道法自然\"与无为而治，深刻塑造中国哲学与东方思维方式。",
-                        "/api/upload/avatars/presets/laozi.jpg",
-                        "You are Laozi (老子). Speak in paradoxes about the Dao. Embrace non-action (无为) and the yielding that overcomes the rigid."),
-            buildPreset( 4, "释迦牟尼", "古印度思想家，佛教创立者，主张四圣谛、八正道与众生平等，其教义传播至东亚、东南亚及全球，影响数十亿人。",
-                        "/api/upload/avatars/presets/buddha.jpg",
-                        "You are Siddhartha Gautama, the Buddha. Teach the Middle Way, the Four Noble Truths, and compassion for all sentient beings."),
-            buildPreset( 5, "耶稣",     "公元1世纪犹太传道者，基督教创立的核心人物，宣扬爱、宽恕与救赎，基督教后成为全球最大宗教之一，影响西方文明两千余年。",
-                        "/api/upload/avatars/presets/jesus.jpg",
-                        "You are Jesus of Nazareth. Speak in parables about love, forgiveness, and the Kingdom of God. Bless the poor and the peacemakers."),
-            buildPreset( 6, "穆罕默德", "阿拉伯先知，伊斯兰教创立者，传达《古兰经》启示，统一阿拉伯半岛，伊斯兰教后成为全球第二大宗教，影响数十亿信徒。",
-                        "/api/upload/avatars/presets/muhammad.jpg",
-                        "You are Prophet Muhammad. Speak with humility before the One God (Allah). Teach submission, charity, and the straight path."),
-            buildPreset( 7, "伽利略",   "意大利科学家，现代实验科学奠基人之一，改进望远镜并支持日心说，为牛顿力学开辟道路，被誉为\"近代科学之父\"。",
-                        "/api/upload/avatars/presets/galileo.jpg",
-                        "You are Galileo Galilei. Defend observation and mathematics over received authority. The book of nature is written in the language of geometry."),
-            buildPreset( 8, "牛顿",     "英国物理学家与数学家，经典力学奠基者，《自然哲学的数学原理》作者，提出万有引力与三大运动定律，塑造现代科学世界观。",
-                        "/api/upload/avatars/presets/newton.jpg",
-                        "You are Isaac Newton. Reason from first principles and mathematical certainty. Stand on the shoulders of giants. Frame the universe with universal laws."),
-            buildPreset( 9, "达尔文",   "英国博物学家，进化论奠基人，《物种起源》作者，提出自然选择学说，重塑人类对自身起源与生命多样性的理解。",
-                        "/api/upload/avatars/presets/darwin.jpg",
-                        "You are Charles Darwin. Observe patiently, collect evidence, and follow the facts wherever they lead. Species change; life branches."),
-            buildPreset(10, "爱因斯坦", "德裔美国理论物理学家，相对论提出者，质能方程 E=mc² 作者，1921 年诺贝尔物理学奖得主，深刻改变人类对时空与宇宙的认知。",
-                        "/api/upload/avatars/presets/einstein.jpg",
-                        "You are Albert Einstein. Explain complex concepts through simple analogies. Express humility yet confidence. Use thought experiments. Imagination is more important than knowledge."),
-            buildPreset(11, "居里夫人", "波兰裔法国物理学家与化学家，放射性研究先驱，1903 年与 1911 年两度诺贝尔奖得主，唯一在两个不同科学领域获奖的人。",
-                        "/api/upload/avatars/presets/marie-curie.jpg",
-                        "You are Marie Curie. Be direct and scientific. Emphasize perseverance and curiosity. Nothing in life is to be feared, only to be understood."),
-            buildPreset(12, "特斯拉",   "塞尔维亚裔美国发明家，交流电、感应电机与特斯拉线圈的发明者，为现代电力传输与无线电技术奠定基础。",
-                        "/api/upload/avatars/presets/tesla.jpeg",
-                        "You are Nikola Tesla. Visionary inventor of alternating current. Speak of wireless energy transmission and the future of electricity."),
-            buildPreset(13, "莎士比亚", "英国文艺复兴时期剧作家与诗人，《哈姆雷特》《李尔王》等传世，对英语文学与世界戏剧影响深远，被尊为\"人类文学奥林匹斯山上的宙斯\"。",
-                        "/api/upload/avatars/presets/shakespeare.jpg",
-                        "You are William Shakespeare. Speak eloquently with poetic flair. Reference celestial bodies and human nature. Mix courtly and common speech."),
-            buildPreset(14, "柏拉图",   "古希腊哲学家，苏格拉底的学生、亚里士多德的老师，创办学园（Academy），理念论与对话体哲学奠基人，西方哲学传统最重要的源头之一。",
-                        "/api/upload/avatars/presets/plato.png",
-                        "You are Plato. Write in dialogues. Argue for the Forms, the immortality of the soul, and the philosopher-king. Let Socrates lead the questioning."),
-            buildPreset(15, "达·芬奇", "意大利文艺复兴时期博学家，画家（《蒙娜丽莎》《最后的晚餐》）、发明家、解剖学家与工程师，艺术与科学通才的象征。",
-                        "/api/upload/avatars/presets/leonardo-da-vinci.png",
-                        "You are Leonardo da Vinci. Combine art and engineering. Observe nature with infinite curiosity. Sketch flying machines beside human anatomy."),
-            buildPreset(16, "成吉思汗", "蒙古帝国缔造者，13 世纪初统一蒙古各部，发动横跨欧亚的大规模征服，深刻重塑中世纪地缘政治与东西方交流格局。",
-                        "/api/upload/avatars/presets/genghis-khan.jpg",
-                        "You are Genghis Khan. Speak with the discipline of a conqueror and the pragmatism of a lawgiver. Loyalty, merit, and the yurt of peoples."),
-            buildPreset(17, "拿破仑",   "法国军事家与政治家，19 世纪初建立法兰西第一帝国，重组欧洲政治版图与法律体系（《拿破仑法典》），影响现代国家治理。",
-                        "/api/upload/avatars/presets/napoleon.jpg",
-                        "You are Napoleon Bonaparte. Strategic, ambitious, reforming. Speak of glory, merit, and the Code that bears your name."),
-            buildPreset(18, "毛泽东",   "中国革命家、政治家与思想家，中国共产党与中华人民共和国的主要缔造者之一，20 世纪最具影响力的政治人物之一，深刻塑造现代中国。",
-                        "/api/upload/avatars/presets/mao-zedong.jpg",
-                        "You are Mao Zedong. Speak of class struggle, peasant revolution, and self-reliance. Blend poetic cadence with revolutionary resolve."),
-            // 扩容第二批 18 人（19-36）。prompt 留空 → 走 generatePromptFromWeb 在用户首次点选时联网生成，
-            // 与现有 18 人的"懒生成"行为一致，避免一次性触发 18 次 DeepSeek 调用拖慢启动。
-            buildPreset(19, "亚里士多德", "古希腊哲学家，柏拉图的学生、亚历山大大帝的老师，形式逻辑与生物学奠基人，著有《尼各马可伦理学》《政治学》等。",
-                        "/api/upload/avatars/presets/aristotle.jpg", null),
-            buildPreset(20, "马克思",     "德国思想家、哲学家与经济学家，《资本论》与《共产党宣言》作者之一，科学社会主义奠基人，深刻塑造 19-20 世纪世界政治与思想版图。",
-                        "/api/upload/avatars/presets/karl-marx.png", null),
-            buildPreset(21, "列宁",       "俄国革命家与政治家，布尔什维克领袖，十月革命领导者，苏维埃政权缔造者，马克思主义的继承者与发展者之一。",
-                        "/api/upload/avatars/presets/lenin.jpg", null),
-            buildPreset(22, "卢梭",       "启蒙时代法国思想家，《社会契约论》《爱弥儿》作者，提出「人生而自由」、「主权在民」等理念，深刻影响法国大革命与现代民主理论。",
-                        "/api/upload/avatars/presets/rousseau.jpg", null),
-            buildPreset(23, "伏尔泰",     "法国启蒙思想家、作家与哲学家，捍卫公民自由、宗教宽容与理性主义，代表作《老实人》《哲学通信》，被誉为「启蒙运动旗手」。",
-                        "/api/upload/avatars/presets/voltaire.jpg", null),
-            buildPreset(24, "康德",       "德国古典哲学家，《纯粹理性批判》《实践理性批判》作者，先验哲学奠基人，提出「头顶星空与心中道德律」，深刻塑造现代哲学。",
-                        "/api/upload/avatars/presets/kant.jpg", null),
-            buildPreset(25, "黑格尔",     "德国古典哲学家，唯心主义辩证法集大成者，《精神现象学》《逻辑学》作者，马克思哲学的重要思想来源。",
-                        "/api/upload/avatars/presets/hegel.jpg", null),
-            buildPreset(26, "尼采",       "德国哲学家、诗人与文化批评家，《查拉图斯特拉如是说》《善恶的彼岸》作者，宣告「上帝已死」，对存在主义与后现代思想影响深远。",
-                        "/api/upload/avatars/presets/nietzsche.jpg", null),
-            buildPreset(27, "弗洛伊德",   "奥地利心理学家，精神分析学创始人，《梦的解析》作者，提出本我/自我/超我人格结构，开创现代心理治疗体系。",
-                        "/api/upload/avatars/presets/freud.jpg", null),
-            buildPreset(28, "伽罗瓦",     "法国数学家，伽罗瓦理论创立者，群论奠基人之一，20 岁早逝于决斗，其抽象代数思想深刻塑造现代数学。",
-                        "/api/upload/avatars/presets/galois.jpg", null),
-            buildPreset(29, "高斯",       "德国数学家、物理学家与天文学家，「数学王子」，在数论、统计、测地学、电学等领域均有奠基性贡献。",
-                        "/api/upload/avatars/presets/gauss.jpg", null),
-            buildPreset(30, "麦克斯韦",   "英国理论物理学家，经典电磁理论奠基人，麦克斯韦方程组统一了电、磁、光，预言电磁波存在，被誉为「仅次于牛顿、爱因斯坦的物理学家」。",
-                        "/api/upload/avatars/presets/maxwell.jpg", null),
-            buildPreset(31, "玻尔",       "丹麦物理学家，原子结构量子化模型提出者，哥本哈根诠释主要人物，1922 年诺贝尔物理学奖得主，量子力学奠基人之一。",
-                        "/api/upload/avatars/presets/bohr.jpg", null),
-            buildPreset(32, "海森堡",     "德国理论物理学家，量子力学矩阵力学创立者之一，不确定性原理提出者，1932 年诺贝尔物理学奖得主。",
-                        "/api/upload/avatars/presets/heisenberg.jpg", null),
-            buildPreset(33, "巴赫",       "德国巴洛克时期作曲家，《平均律钢琴曲集》《马太受难曲》《勃兰登堡协奏曲》作者，被誉为「西方音乐之父」。",
-                        "/api/upload/avatars/presets/bach.jpg", null),
-            buildPreset(34, "莫扎特",     "奥地利古典主义作曲家，5 岁作曲、8 岁首演交响曲，代表作《费加罗的婚礼》《唐璜》《安魂曲》，短暂一生留下 600+ 部作品。",
-                        "/api/upload/avatars/presets/mozart.jpg", null),
-            buildPreset(35, "贝多芬",     "德国作曲家，维也纳古典与浪漫主义过渡的桥梁人物，代表作《英雄交响曲》《命运交响曲》《第九交响曲》（含《欢乐颂》），被誉为「乐圣」。",
-                        "/api/upload/avatars/presets/beethoven.jpg", null),
-            buildPreset(36, "梵高",       "荷兰后印象派画家，《星夜》《向日葵》《自画像》作者，生前默默无闻身后成为现代艺术最具影响力的人物之一。",
-                        "/api/upload/avatars/presets/vincent-van-gogh.jpg", null)
-        );
-        // 按名字去重：仅插入 DB 中尚不存在的预设，避免老库升级时重复写入。
-        java.util.Set<String> existingNames = characterRepository.findAll().stream()
-                .map(Character::getName)
-                .collect(java.util.stream.Collectors.toSet());
-        List<Character> toInsert = presets.stream()
-                .filter(c -> !existingNames.contains(c.getName()))
-                .toList();
-        if (toInsert.isEmpty()) {
-            log.info("[PresetSeed] all {} preset characters already present, skip", presets.size());
-            backfillPresetAvatarUrls(presets);
-            backfillPresetPrompts(presets);
-            return;
-        }
-        characterRepository.saveAll(toInsert);
-        backfillPresetAvatarUrls(presets);
-        backfillPresetPrompts(presets);
-        log.info("[PresetSeed] inserted {} preset characters (skipped {} existing)",
-                toInsert.size(), presets.size() - toInsert.size());
+        // no-op: 见上方 Javadoc
     }
+
 
     /**
      * 老库回填：把现存 preset 角色里仍指向外网（http/https）的 avatarUrl 改为本地路径
@@ -454,11 +360,22 @@ public class DataLoader implements CommandLineRunner {
     // （走 character-prompt-generator.txt 模板，150~250 字中文角色卡），保证新 preset 第一次
     // 启动后就有完整 prompt，不需要用户首次点选时再联网生成（懒生成）——避免冷启动对话空白。
     private Character buildPreset(int index, String name, String description, String avatarUrl, String prompt) {
+        return buildPreset(index, name, description, avatarUrl, prompt, null);
+    }
+
+    /**
+     * 接受 category 参数的重载，给发现页"分类标签条"用。
+     * 36 个老角色在 seedCharactersIfMissing 里通过 PRESET_CATEGORY_MAP 查表传入；
+     * data.sql 已直接为 120 个角色写好 category，所以 DataLoader 仅对 1-36 老路径生效。
+     */
+    private Character buildPreset(int index, String name, String description, String avatarUrl, String prompt,
+                                  com.ideaparty.entity.CharacterCategory category) {
         Character c = new Character();
         c.setName(name);
         c.setDescription(description);
         c.setAvatarUrl(avatarUrl);
         c.setPreset(true);
+        c.setCategory(category);
         if (prompt == null) {
             // 启动期生成：依赖 CharacterService 已注入（@Service 是单例，DataLoader @Component
             // 晚于 Service 装配，调用安全）。失败时 CharacterService 内部已 fallback 到通用 prompt。
@@ -466,6 +383,37 @@ public class DataLoader implements CommandLineRunner {
         }
         c.setPrompt(prompt);
         return c;
+    }
+
+    /**
+     * 36 个老角色名 → category 映射表（与 data.sql 里的写入保持一致）。
+     * 用 Map 而不是 switch/if 链：HashMap O(1)，可读性比 36 个 if 好。
+     * 未在表里的名字 → null（保持"未分类"状态）。
+     */
+    private static final java.util.Map<String, com.ideaparty.entity.CharacterCategory> PRESET_CATEGORY_MAP =
+            buildPresetCategoryMap();
+
+    private static java.util.Map<String, com.ideaparty.entity.CharacterCategory> buildPresetCategoryMap() {
+        java.util.Map<String, com.ideaparty.entity.CharacterCategory> m = new java.util.HashMap<>();
+        com.ideaparty.entity.CharacterCategory S = com.ideaparty.entity.CharacterCategory.SCIENTIST;
+        com.ideaparty.entity.CharacterCategory T = com.ideaparty.entity.CharacterCategory.STAR;
+        com.ideaparty.entity.CharacterCategory E = com.ideaparty.entity.CharacterCategory.ENTREPRENEUR;
+        com.ideaparty.entity.CharacterCategory P = com.ideaparty.entity.CharacterCategory.PHILOSOPHER;
+        com.ideaparty.entity.CharacterCategory A = com.ideaparty.entity.CharacterCategory.ATHLETE;
+        com.ideaparty.entity.CharacterCategory W = com.ideaparty.entity.CharacterCategory.WRITER;
+        com.ideaparty.entity.CharacterCategory H = com.ideaparty.entity.CharacterCategory.HISTORICAL;
+        com.ideaparty.entity.CharacterCategory R = com.ideaparty.entity.CharacterCategory.ARTIST;
+        for (String n : java.util.Arrays.asList("伽利略", "牛顿", "达尔文", "爱因斯坦", "居里夫人", "特斯拉",
+                "伽罗瓦", "高斯", "麦克斯韦", "玻尔", "海森堡")) m.put(n, S);
+        for (String n : java.util.Arrays.asList("卓别林", "宫崎骏")) m.put(n, T);
+        for (String n : java.util.Arrays.asList("孔子", "苏格拉底", "老子", "释迦牟尼", "耶稣", "穆罕默德",
+                "亚里士多德", "马克思", "卢梭", "伏尔泰", "康德", "黑格尔", "尼采", "弗洛伊德")) m.put(n, P);
+        m.put("莎士比亚", W);
+        for (String n : java.util.Arrays.asList("巴赫", "莫扎特", "贝多芬")) m.put(n, R);
+        m.put("柏拉图", P);
+        m.put("达·芬奇", R);
+        for (String n : java.util.Arrays.asList("成吉思汗", "拿破仑", "毛泽东", "列宁")) m.put(n, H);
+        return java.util.Collections.unmodifiableMap(m);
     }
 
     /**
