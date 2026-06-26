@@ -94,8 +94,10 @@ async function handleConfirm() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  /* 完全透明遮罩（与其他 modal 保持一致的 UX 风格） */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   align-items: center;
   justify-content: center;
