@@ -1586,14 +1586,14 @@ async function handleInviteMember() {
         <header class="content-header">
           <div class="content-header-text">
             <h1 class="page-title">场景</h1>
-            <!-- 左右两个 tab：系统推荐 / 我的场景 -->
+            <!-- 左右两个 tab：推荐场景 / 我的场景 -->
             <div class="scenario-tabs">
               <button
                 type="button"
                 class="scenario-tab"
                 :class="{ 'is-active': scenarioTab === 'preset' }"
                 @click="scenarioTab = 'preset'"
-              >系统推荐场景（{{ presetScenarios.length }}）</button>
+              >推荐场景（{{ presetScenarios.length }}）</button>
               <button
                 type="button"
                 class="scenario-tab"
@@ -1614,7 +1614,7 @@ async function handleInviteMember() {
           </button>
         </header>
 
-        <!-- 系统推荐场景区 -->
+        <!-- 推荐场景区 -->
         <section v-show="scenarioTab === 'preset'" class="scenarios-section">
           <div class="scenarios-grid">
             <div
