@@ -94,9 +94,8 @@ watch(() => props.show, (newShow) => {
   }
 }, { immediate: true })
 
-// promptTemplate 字符数：> 100 才达标，UI 底部显示
+// promptTemplate 字符数：仅用于 UI 提示，> 1800 时给出黄色提醒（避免撞 2000 上限）
 const promptLength = computed(() => promptTemplate.value.length)
-const promptTooShort = computed(() => promptTemplate.value.length > 0 && promptTemplate.value.length < 100)
 
 // ===== 校验 =====
 
@@ -106,23 +105,17 @@ function validateAll(): boolean {
   if (!isValidEmoji(emoji.value)) {
     errors.emoji = '请选择一个图标'
   }
-  if (title.value.trim().length < 2 || title.value.trim().length > 10) {
-    errors.title = '标题需 2-10 字符'
+  if (title.value.trim().length < 2) {
+    errors.title = '标题至少 2 字符'
   }
-  if (description.value.trim().length < 20 || description.value.trim().length > 60) {
-    errors.description = '描述需 20-60 字符'
+  if (description.value.trim().length < 1) {
+    errors.description = '请输入描述'
   }
-  if (characterName.value.trim().length < 2 || characterName.value.trim().length > 15) {
-    errors.characterName = '角色名需 2-15 字符'
+  if (characterName.value.trim().length < 1) {
+    errors.characterName = '请输入角色名'
   }
-  if (userInputLabel.value && userInputLabel.value.length > 20) {
-    errors.userInputLabel = '输入框标签最多 20 字符'
-  }
-  if (userInputPlaceholder.value && userInputPlaceholder.value.length > 50) {
-    errors.userInputPlaceholder = '输入框占位符最多 50 字符'
-  }
-  if (promptTemplate.value.trim().length < 100 || promptTemplate.value.length > 2000) {
-    errors.promptTemplate = '提示词需 100-2000 字符（建议至少 100 字符，AI 才能稳定输出）'
+  if (promptTemplate.value.trim().length < 1) {
+    errors.promptTemplate = '请输入系统提示词'
   }
 
   // 重名校验（仅创建模式 + 标题非空）
@@ -299,7 +292,6 @@ async function handleGeneratePrompt() {
                   type="text"
                   class="form-input"
                   placeholder="如：客户谈判 / 读书会"
-                  maxlength="10"
                 />
                 <p v-if="fieldErrors.title" class="form-error">{{ fieldErrors.title }}</p>
               </div>
@@ -312,7 +304,6 @@ async function handleGeneratePrompt() {
                   class="form-textarea"
                   placeholder="如：和一位 B 端采购总监，演练 5 步合同谈判流程"
                   rows="2"
-                  maxlength="60"
                 ></textarea>
                 <p v-if="fieldErrors.description" class="form-error">{{ fieldErrors.description }}</p>
               </div>
@@ -325,7 +316,6 @@ async function handleGeneratePrompt() {
                   type="text"
                   class="form-input"
                   placeholder="如：老王·采购总监"
-                  maxlength="15"
                 />
                 <p class="form-hint">用户点击场景卡片后会创建这个角色（同名复用已有）</p>
                 <p v-if="fieldErrors.characterName" class="form-error">{{ fieldErrors.characterName }}</p>
@@ -339,7 +329,6 @@ async function handleGeneratePrompt() {
                   type="text"
                   class="form-input"
                   placeholder="如：你要卖什么产品？"
-                  maxlength="20"
                 />
                 <p class="form-hint">留空则弹窗不显示输入区（直接进入对话）</p>
                 <p v-if="fieldErrors.userInputLabel" class="form-error">{{ fieldErrors.userInputLabel }}</p>
@@ -353,7 +342,6 @@ async function handleGeneratePrompt() {
                   type="text"
                   class="form-input"
                   placeholder="如：例如：SaaS 客服系统"
-                  maxlength="50"
                 />
                 <p v-if="fieldErrors.userInputPlaceholder" class="form-error">{{ fieldErrors.userInputPlaceholder }}</p>
               </div>
@@ -380,8 +368,7 @@ async function handleGeneratePrompt() {
                   maxlength="2000"
                 ></textarea>
                 <div class="prompt-meta">
-                  <span :class="{ 'is-warn': promptTooShort }">{{ promptLength }} / 2000 字符</span>
-                  <span v-if="promptTooShort" class="form-hint is-warn">建议至少 100 字符，AI 才能稳定输出</span>
+                  <span :class="{ 'is-warn': promptLength > 1800 }">{{ promptLength }} / 2000 字符</span>
                 </div>
                 <p v-if="fieldErrors.promptTemplate" class="form-error">{{ fieldErrors.promptTemplate }}</p>
               </div>
