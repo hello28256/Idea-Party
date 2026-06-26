@@ -4,6 +4,9 @@ import App from './App.vue'
 import router from './router'
 import './style.css'
 
+// BUILD-MARKER-2026-06-26-A: 如果你在 DevTools Console 看到这行，说明这个 tab 加载的是新代码。
+console.log('%c[IDEA-PARTY] BUILD 2026-06-26-A 已加载 ✅', 'color:#16a34a;font-weight:bold;font-size:14px')
+
 const app = createApp(App)
 
 // Vue 应用初始化顺序固定为：Pinia → Router → Theme → mount，每一步都有强约束：

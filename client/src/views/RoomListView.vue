@@ -295,6 +295,12 @@ watch(
   { immediate: true }
 )
 
+// 监听分类切换：selectedCategory 变化时重新拉取对应分类的推荐角色
+// immediate=false：避免初始化时拉两遍（onMounted 也会拉）
+watch(selectedCategory, (newCat) => {
+  fetchFeaturedCharacters(newCat)
+})
+
 // Navigation items
 const navItems = [
   { id: 'discover', label: '发现', emoji: '🔍' },
@@ -980,16 +986,18 @@ function handleNavClick(itemId: string) {
 }
 
 // Categories for tabs
+// 分类标签：id 跟后端 CharacterCategory 枚举名严格对齐（除 'all' 走"全部"分支）
+// 后端接口 /recommended?category=SCIENTIST 会按枚举名过滤，乱写会导致过滤不生效
 const categories = [
   { id: 'all', label: '全部', emoji: '✨' },
-  { id: 'scientist', label: '科学家', emoji: '🔬', color: '#4F7DF3' },
-  { id: 'star', label: '明星', emoji: '🌟', color: '#F472B6' },
-  { id: 'entrepreneur', label: '企业家', emoji: '🚀', color: '#FB923C' },
-  { id: 'philosopher', label: '哲学家', emoji: '💭', color: '#8B5CF6' },
-  { id: 'athlete', label: '运动员', emoji: '🏆', color: '#10B981' },
-  { id: 'writer', label: '作家', emoji: '📖', color: '#34D399' },
-  { id: 'anime', label: '动漫', emoji: '🎨', color: '#EC4899' },
-  { id: 'historical', label: '历史人物', emoji: '🏛️', color: '#D4AF6A' },
+  { id: 'SCIENTIST', label: '科学家', emoji: '🔬', color: '#4F7DF3' },
+  { id: 'STAR', label: '明星', emoji: '🌟', color: '#F472B6' },
+  { id: 'ENTREPRENEUR', label: '企业家', emoji: '🚀', color: '#FB923C' },
+  { id: 'PHILOSOPHER', label: '哲学家', emoji: '💭', color: '#8B5CF6' },
+  { id: 'ATHLETE', label: '运动员', emoji: '🏆', color: '#10B981' },
+  { id: 'WRITER', label: '作家', emoji: '📖', color: '#34D399' },
+  { id: 'HISTORICAL', label: '历史人物', emoji: '🏛️', color: '#D4AF6A' },
+  { id: 'ARTIST', label: '艺术家', emoji: '🖼️', color: '#A78BFA' },
 ]
 
 // Featured characters - loaded from API
@@ -997,14 +1005,19 @@ const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
 // 推荐角色头像加载失败记录（按 char.id），避免个别维基 404 时整张卡片显示破图
 const avatarLoadFailed = reactive<Record<string, boolean>>({})
+// 头像 cache-buster：每次页面加载生成一个新值，给本地头像 URL 加 ?v=... 查询串，
+// 绕过 nginx 给 /uploads/* 设的 7 天缓存（用户报告浏览器显示旧头像/缓存）。
+const avatarCacheBuster = String(Math.floor(Math.random() * 1e9))
 
 // 「推荐角色」展示状态机：
-// - BATCH_SIZE: 每批展示多少个。36 ÷ 12 = 3 批，3 列 4 行的网格刚好放下。
+// - BATCH_SIZE: 每批展示多少个。120 ÷ 12 = 10 批，3 列 4 行的网格刚好放下。
 // - showAllFeatured: false（分批态，默认）= 按当前批次展示 12 人 + 「换一批」按钮可点；
-//                    true（显示全部态）= 一次性铺全部 36 人 + 「换一批」禁用，
+//                    true（显示全部态）= 一次性铺全部 120 人 + 「换一批」禁用，
 //                    按钮文案切换为「收起」让用户能回到分批态。
 // 之前试过"始终展示当前批 + 换一批"的纯单层交互，但 36/12=3 批切换时
-// 用户容易感觉"卡住"——所以加了"显示全部"作为兜底，36 人一目了然。
+// 用户容易感觉"卡住"——所以加了"显示全部"作为兜底。
+// 注意：120 人展开会很长（一屏 30+ 行卡片），所以默认仍按分批态呈现；
+// 用户主动点「显示全部」才全铺。6 列网格响应式断点：≥1400px 6 列 / 1024-1400 4 列 / <1024 3 列。
 const BATCH_SIZE = 12
 const showAllFeatured = ref(false)
 const currentFeaturedBatch = ref(0)
@@ -1012,10 +1025,11 @@ const featuredTotalBatches = computed(() =>
   Math.max(1, Math.ceil(featuredCharacters.value.length / BATCH_SIZE))
 )
 // 当前页内实际渲染的角色列表。
-//   分批态：按 currentFeaturedBatch 切片 12 人
-//   显示全部态：返回全集
+//   非"全部"分类（按具体 category 过滤）→ 一律返回全集（分批没有意义，按钮也隐藏）
+//   "全部"分类 + 分批态：按 currentFeaturedBatch 切片 12 人
+//   "全部"分类 + 显示全部态：返回全集
 const displayedFeatured = computed(() => {
-  if (showAllFeatured.value) {
+  if (selectedCategory.value !== 'all' || showAllFeatured.value) {
     return featuredCharacters.value
   }
   const start = currentFeaturedBatch.value * BATCH_SIZE
@@ -1031,10 +1045,13 @@ function shuffleFeaturedBatch() {
 
 // 发现页"推荐角色"列表的拉取与兜底：头像缺失时用 DiceBear SVG 生成确定性占位（seed=name），
 // 这样同一角色无论何时显示都是同一张图，提升品牌识别一致性。
-async function fetchFeaturedCharacters() {
+// category='all' 时不传参数给后端，返回全部；其他值传枚举名给后端按 category 过滤。
+async function fetchFeaturedCharacters(category?: string) {
   featuredCharactersLoading.value = true
   try {
-    const characters = await charactersApi.getRecommended()
+    const characters = await charactersApi.getRecommended(
+      category && category !== 'all' ? category : undefined
+    )
     featuredCharacters.value = characters.data.map((char: any) => ({
       id: char.id,
       name: char.name,
@@ -1047,6 +1064,8 @@ async function fetchFeaturedCharacters() {
       description: char.description || '',
       prompt: char.prompt || ''
     }))
+    // 切分类时把"换一批"的批次重置为 0，避免批次索引越界（每个分类人数不同）
+    currentFeaturedBatch.value = 0
   } catch (e) {
     console.error('[DEBUG] Failed to fetch featured characters:', e)
     featuredCharacters.value = []
@@ -1061,11 +1080,11 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000001',
     title: 'AI 会取代人类创造力吗？',
     cover: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400&h=225&fit=crop',
-    participants: ['爱因斯坦', '马斯克', '宫崎骏'],
+    participants: ['爱因斯坦', '牛顿', '达·芬奇'],
     participantAvatars: [
       'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd',
+      'https://api.dicebear.com/7.x/personas/svg?seed=DaVinci&backgroundColor=ffdfbf'
     ],
     latestMessage: { sender: '爱因斯坦', text: '时间并不是线性的...' },
     onlineCount: 128,
@@ -1077,13 +1096,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000002',
     title: '天赋与努力，哪个更重要？',
     cover: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=400&h=225&fit=crop',
-    participants: ['梅西', '乔丹', '泰勒'],
+    participants: ['勒布朗·詹姆斯', '博尔特', '贝利'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Messi&backgroundColor=c0aede',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Jordan&backgroundColor=ffd5dc',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede'
+      'https://api.dicebear.com/7.x/personas/svg?seed=LeBron&backgroundColor=c0aede',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Bolt&backgroundColor=ffd5dc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Pele&backgroundColor=c0aede'
     ],
-    latestMessage: { sender: '梅西', text: '每天训练8小时...' },
+    latestMessage: { sender: '博尔特', text: '每天训练8小时...' },
     onlineCount: 256,
     messageCount: 1543,
     category: 'athlete',
@@ -1109,13 +1128,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000004',
     title: '创作的本质是什么？',
     cover: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=400&h=225&fit=crop',
-    participants: ['宫崎骏', '莎士比亚', '泰勒'],
+    participants: ['卓别林', '莎士比亚', '莫奈'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Miyazaki&backgroundColor=ffdfbf',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Chaplin&backgroundColor=ffdfbf',
       'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Monet&backgroundColor=c0aede'
     ],
-    latestMessage: { sender: '宫崎骏', text: '创造让世界更温暖...' },
+    latestMessage: { sender: '卓别林', text: '创造让世界更温暖...' },
     onlineCount: 167,
     messageCount: 723,
     category: 'anime',
@@ -1125,12 +1144,12 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000005',
     title: '星际旅行能实现吗？',
     cover: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=400&h=225&fit=crop',
-    participants: ['马斯克', '爱因斯坦'],
+    participants: ['牛顿', '爱因斯坦'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd',
       'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
     ],
-    latestMessage: { sender: '马斯克', text: '2050年火星城市...' },
+    latestMessage: { sender: '牛顿', text: '万有引力能带我们飞多远...' },
     onlineCount: 312,
     messageCount: 2104,
     category: 'entrepreneur',
@@ -1140,12 +1159,12 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000006',
     title: '音乐能改变世界吗？',
     cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=225&fit=crop',
-    participants: ['泰勒', '贝多芬'],
+    participants: ['披头士·列侬', '贝多芬'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Taylor&backgroundColor=c0aede',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Lennon&backgroundColor=c0aede',
       'https://api.dicebear.com/7.x/personas/svg?seed=Beethoven&backgroundColor=ffd5dc'
     ],
-    latestMessage: { sender: '泰勒', text: '每一首歌都是一个故事...' },
+    latestMessage: { sender: '披头士·列侬', text: '每一首歌都是一个故事...' },
     onlineCount: 198,
     messageCount: 945,
     category: 'star',
@@ -1155,7 +1174,7 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000007',
     title: '幸福的定义是什么？',
     cover: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=400&h=225&fit=crop',
-    participants: ['苏格拉底', '孔子', '佛陀'],
+    participants: ['苏格拉底', '孔子', '释迦牟尼'],
     participantAvatars: [
       'https://api.dicebear.com/7.x/personas/svg?seed=Socrates&backgroundColor=d1f4d1',
       'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
@@ -1171,13 +1190,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000008',
     title: '人类应该殖民火星吗？',
     cover: 'https://images.unsplash.com/photo-1614728263952-84ea256f9679?w=400&h=225&fit=crop',
-    participants: ['马斯克', '霍金', '爱因斯坦'],
+    participants: ['爱因斯坦', '牛顿', '达·芬奇'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Hawking&backgroundColor=c4b5fd',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd',
+      'https://api.dicebear.com/7.x/personas/svg?seed=DaVinci&backgroundColor=ffdfbf'
     ],
-    latestMessage: { sender: '霍金', text: '我们必须成为多行星物种...' },
+    latestMessage: { sender: '爱因斯坦', text: '我们必须成为多行星物种...' },
     onlineCount: 421,
     messageCount: 2876,
     category: 'scientist',
@@ -1187,13 +1206,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000009',
     title: '商业是最大的公益吗？',
     cover: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&h=225&fit=crop',
-    participants: ['马斯克', '乔布斯', '孔子'],
+    participants: ['比尔·盖茨', '孔子', '杰夫·贝佐斯'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Musk&backgroundColor=d1d4f9',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Jobs&backgroundColor=fdba74',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Gates&backgroundColor=d1d4f9',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Bezos&backgroundColor=fdba74'
     ],
-    latestMessage: { sender: '乔布斯', text: '把产品做到极致...' },
+    latestMessage: { sender: '比尔·盖茨', text: '把产品做到极致...' },
     onlineCount: 178,
     messageCount: 1052,
     category: 'entrepreneur',
@@ -1251,13 +1270,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000013',
     title: '领导力的核心是什么？',
     cover: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&h=225&fit=crop',
-    participants: ['乔布斯', '孔子', '拿破仑'],
+    participants: ['拿破仑', '孔子', '丘吉尔'],
     participantAvatars: [
-      'https://api.dicebear.com/7.x/personas/svg?seed=Jobs&backgroundColor=fdba74',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Napoleon&backgroundColor=fca5a5',
       'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Napoleon&backgroundColor=fca5a5'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Churchill&backgroundColor=fdba74'
     ],
-    latestMessage: { sender: '乔布斯', text: '领袖要做对的事...' },
+    latestMessage: { sender: '丘吉尔', text: '领袖要做对的事...' },
     onlineCount: 156,
     messageCount: 892,
     category: 'leader',
@@ -1267,10 +1286,10 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000014',
     title: '数学是发现的还是发明的？',
     cover: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=400&h=225&fit=crop',
-    participants: ['牛顿', '欧拉', '爱因斯坦'],
+    participants: ['牛顿', '高斯', '爱因斯坦'],
     participantAvatars: [
       'https://api.dicebear.com/7.x/personas/svg?seed=Newton&backgroundColor=c4b5fd',
-      'https://api.dicebear.com/7.x/personas/svg?seed=Euler&backgroundColor=a5b4fc',
+      'https://api.dicebear.com/7.x/personas/svg?seed=Gauss&backgroundColor=a5b4fc',
       'https://api.dicebear.com/7.x/personas/svg?seed=Einstein&backgroundColor=b6e3f4'
     ],
     latestMessage: { sender: '牛顿', text: '自然之书以数学书写...' },
@@ -1283,13 +1302,13 @@ const roomCardsData = [
     id: '00000000-0000-0000-0000-000000000015',
     title: '文学应该教人向善吗？',
     cover: 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=400&h=225&fit=crop',
-    participants: ['莎士比亚', '孔子', '鲁迅'],
+    participants: ['莎士比亚', '孔子', '马尔库塞'],
     participantAvatars: [
       'https://api.dicebear.com/7.x/personas/svg?seed=Shakespeare&backgroundColor=e0c3fc',
       'https://api.dicebear.com/7.x/personas/svg?seed=Confucius&backgroundColor=fed7aa',
-      'https://api.dicebear.com/7.x/personas/svg?seed=LuXun&backgroundColor=fde68a'
+      'https://api.dicebear.com/7.x/personas/svg?seed=Marx&backgroundColor=fde68a'
     ],
-    latestMessage: { sender: '鲁迅', text: '揭出病苦，引起疗救...' },
+    latestMessage: { sender: '马尔库塞', text: '艺术是对现实的抗议...' },
     onlineCount: 142,
     messageCount: 763,
     category: 'artist',
@@ -1363,18 +1382,112 @@ function selectRoom(roomId: string) {
   })
 }
 
-// For demo/placeholder rooms in Discover view - still uses old navigation
-// 即使是 demo 占位房间也走 my-rooms tab：新版三栏布局是唯一支持 chat 渲染的入口。
+// 热门聊天室卡片点击入口：把 demo 卡片里的"参与者名"翻译成 preset 真实 id，直接建群聊。
+// 之前实现的 clone 路线（先复制角色到自己的角色库）有两个问题：
+//   1) presets.json 里的 avatarUrl 是维基百科外链，clone 时后端 downloadAvatarIfExternal
+//      要下载到本地，国内访问维基常超时，整个请求 30+ 秒挂起
+//   2) 后端 generatePromptFromWeb 联网抓数据 + LLM 生成，每个角色 5-15s，3 个角色顺序 clone
+//      至少 15 秒，体感极差
+// 实际上：preset 角色 id 是 DB 真实 id（PresetCharacterCache.init 用 presets.json 的 id 字段作为 UUID），
+// 后端 RoomService.create 不校验角色所有权（见 Service 注释），可以直接用 preset id 建群聊。
+// 跳过 clone 之后整个流程只剩"建群聊"一次网络请求，秒级返回。
 async function enterRoom(roomId: string) {
-  await roomStore.recordEnter(roomId)
-  selectedRoomId.value = roomId
-  router.replace({
-    path: '/rooms',
-    query: {
-      tab: 'my-rooms',
-      roomId: roomId
+  // 找到对应的 demo 卡片（roomId 在卡片上是占位 id，只用于 key 查找）
+  const card = roomCardsData.find(r => r.id === roomId)
+  if (!card) {
+    console.warn('[DEBUG] enterRoom: card not found for id', roomId)
+    return
+  }
+  // 点击期间 disable 整张卡片：避免用户连点造成并发
+  enteringHotRoomId.value = roomId
+  try {
+    // 1) 拿到卡片需要的 preset 角色 id 列表（直接用 preset 的真实 id，不 clone）
+    const { ids, missing } = await resolveHotRoomCharacterIds(card.participants)
+    if (ids.length === 0) {
+      toast.error('未能找到对应的角色，请稍后重试')
+      return
     }
-  })
+    // 部分参与者未匹配上：toast 提示用户实际只加了几个
+    if (missing.length > 0) {
+      toast.info(`已加入 ${ids.length} 位角色，${missing.join('、')} 未在角色库中找到`)
+    }
+    // 2) 用 roomStore.createRoom 建群聊（store 内部有"同 owner + 同角色集合"去重，重复点不会建新房间）
+    const room = await roomStore.createRoom(
+      card.title,
+      undefined,
+      ids,
+      'group'
+    )
+    if (!room?.id) {
+      toast.error(roomStore.error || '创建聊天室失败')
+      return
+    }
+    // 3) 跳转到 my-rooms tab 并选中该房间，让三栏布局中的聊天面板开始渲染
+    selectedRoomId.value = room.id
+    router.replace({
+      path: '/rooms',
+      query: {
+        ...route.query,
+        tab: 'my-rooms',
+        roomId: room.id
+      }
+    })
+  } catch (e) {
+    console.error('[DEBUG] enterRoom failed:', e)
+    const msg = e instanceof Error ? e.message : '进入聊天室失败，请重试'
+    toast.error(msg)
+  } finally {
+    enteringHotRoomId.value = null
+  }
+}
+
+// 热门聊天室点击锁：标记当前正在进入的房间卡片 id，避免用户连续点击同一张卡片造成并发。
+const enteringHotRoomId = ref<string | null>(null)
+
+// 把"参与者中文名"解析成 preset 真实 id 列表。
+// 优先用 featuredCharacters（用户进发现页 onMounted 时已经拉过，0 网络请求），
+// 缓存里查不到再尝试 presets store（需要 fetchPresets 才会有数据）。
+// 跳过 clone 阶段：preset id 本身就是 DB 真 id，createRoom 直接用。
+async function resolveHotRoomCharacterIds(
+  participantNames: string[]
+): Promise<{ ids: string[]; missing: string[] }> {
+  // 先看 featuredCharacters 缓存（进入发现页 onMounted 时已经调过 getRecommended 了）
+  let presetByName = new Map<string, { id: string }>()
+  for (const c of featuredCharacters.value) {
+    if (c?.id && c?.name) {
+      presetByName.set(c.name, { id: c.id })
+    }
+  }
+  // featuredCharacters 只装推荐位（按 name 升序、limit 由后端决定），
+  // 可能不全。如果有名字没找到，再尝试加载完整 presets 列表。
+  const missingNow: string[] = []
+  for (const name of participantNames) {
+    if (!presetByName.has(name)) missingNow.push(name)
+  }
+  if (missingNow.length > 0 && characterStore.presets.length === 0) {
+    try {
+      await characterStore.fetchPresets()
+    } catch (e) {
+      console.warn('[DEBUG] fetchPresets failed', e)
+    }
+    for (const c of characterStore.presets) {
+      if (c?.id && c?.name && !presetByName.has(c.name)) {
+        presetByName.set(c.name, { id: c.id })
+      }
+    }
+  }
+  // 收集最终结果：保持 participantNames 顺序（卡片里参与者顺序是有意义的）
+  const ids: string[] = []
+  const missing: string[] = []
+  for (const name of participantNames) {
+    const found = presetByName.get(name)
+    if (found) {
+      ids.push(found.id)
+    } else {
+      missing.push(name)
+    }
+  }
+  return { ids, missing }
 }
 
 function toggleCreateDropdown(e: Event) {
@@ -1848,6 +1961,11 @@ async function handleInviteMember() {
             v-for="character in myCharacters"
             :key="character.id"
             class="character-card-item"
+            role="button"
+            tabindex="0"
+            @click="openEditCharacterModal(character)"
+            @keydown.enter="openEditCharacterModal(character)"
+            @keydown.space.prevent="openEditCharacterModal(character)"
           >
             <div class="character-avatar">
               <img
@@ -1861,20 +1979,6 @@ async function handleInviteMember() {
               <h3 class="character-name">{{ character.name }}</h3>
               <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
               <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
-            </div>
-            <div class="card-footer">
-              <button class="chat-btn" @click.stop="startChat(character)">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                对话
-              </button>
-              <button class="edit-btn" @click.stop="openEditCharacterModal(character)">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                编辑
-              </button>
             </div>
           </div>
         </div>
@@ -2224,25 +2328,37 @@ async function handleInviteMember() {
         <section class="featured-section">
           <div class="section-header">
             <h2 class="section-title">推荐角色</h2>
-            <div class="section-actions">
-              <!-- 「换一批」：点击在多批间循环（仅分批态可见，"显示全部"态时禁用） -->
-              <button
-                type="button"
-                class="shuffle-batch-btn"
-                :disabled="featuredTotalBatches <= 1 || showAllFeatured"
-                @click="shuffleFeaturedBatch"
-                :title="featuredTotalBatches <= 1 ? '当前只有 1 批' : '换一批'"
-              >
-                <span class="shuffle-batch-label">换一批</span>
-                <span class="shuffle-batch-count">{{ currentFeaturedBatch + 1 }}/{{ featuredTotalBatches }}</span>
-              </button>
-              <!-- 「显示全部 / 收起」：右侧，把全部 36 人一次性铺出来 -->
-              <button
-                type="button"
-                class="show-all-btn"
-                @click="toggleShowAllFeatured"
-              >{{ showAllFeatured ? '收起' : '显示全部' }}</button>
-            </div>
+          </div>
+          <!-- 分类标签：放在推荐角色标题下、卡片网格上 -->
+          <div class="category-tabs">
+            <button
+              v-for="cat in categories"
+              :key="cat.id"
+              class="category-chip"
+              :class="{ active: selectedCategory === cat.id }"
+              @click="selectedCategory = cat.id"
+              :style="selectedCategory === cat.id && cat.color ? { backgroundColor: cat.color + '20', borderColor: cat.color, color: cat.color } : {}"
+            >
+              <span class="chip-label">{{ cat.label }}</span>
+            </button>
+          </div>
+          <!-- 「换一批 / 显示全部」按钮组：仅"全部"分类时显示，位置在分类标签条下方左对齐 -->
+          <div v-if="selectedCategory === 'all'" class="featured-actions">
+            <button
+              type="button"
+              class="shuffle-batch-btn"
+              :disabled="featuredTotalBatches <= 1 || showAllFeatured"
+              @click="shuffleFeaturedBatch"
+              :title="featuredTotalBatches <= 1 ? '当前只有 1 批' : '换一批'"
+            >
+              <span class="shuffle-batch-label">换一批</span>
+              <span class="shuffle-batch-count">{{ currentFeaturedBatch + 1 }}/{{ featuredTotalBatches }}</span>
+            </button>
+            <button
+              type="button"
+              class="show-all-btn"
+              @click="toggleShowAllFeatured"
+            >{{ showAllFeatured ? '收起' : '显示全部' }}</button>
           </div>
           <div v-if="featuredCharactersLoading" class="featured-loading">
             <div class="loading-spinner"></div>
@@ -2267,34 +2383,22 @@ async function handleInviteMember() {
                   :src="char.avatar"
                   :alt="char.name"
                   class="character-avatar"
-                  @error="avatarLoadFailed[char.id] = true"
+                  @error="(e) => { console.error('[DEBUG] avatar error', char.name, char.avatar, e); avatarLoadFailed[char.id] = true }"
+                  @load="console.log('[DEBUG] avatar ok', char.name, char.avatar)"
                 />
                 <div v-else class="character-avatar character-avatar-fallback" :data-name="char.name">
                   {{ char.name.charAt(0) }}
                 </div>
                 <span v-if="char.online" class="online-indicator"></span>
               </div>
+              <!-- DEBUG: 显示真实 avatar URL，便于排查 -->
+              <span style="display:none" :data-debug-avatar="char.avatar"></span>
               <div class="character-info">
                 <span class="character-name">{{ char.name }}</span>
                 <span class="character-role">{{ char.role }}</span>
               </div>
             </div>
           </div>
-        </section>
-
-        <!-- 分类标签 -->
-        <section class="category-tabs">
-          <button
-            v-for="cat in categories"
-            :key="cat.id"
-            class="category-chip"
-            :class="{ active: selectedCategory === cat.id }"
-            @click="selectedCategory = cat.id"
-            :style="selectedCategory === cat.id && cat.color ? { backgroundColor: cat.color + '20', borderColor: cat.color, color: cat.color } : {}"
-          >
-            <span class="chip-emoji">{{ cat.emoji }}</span>
-            <span class="chip-label">{{ cat.label }}</span>
-          </button>
         </section>
 
         <!-- 热门聊天室 -->
@@ -2313,6 +2417,7 @@ async function handleInviteMember() {
               v-for="room in roomCardsData"
               :key="room.id"
               class="room-card"
+              :class="{ 'is-entering': enteringHotRoomId === room.id }"
               @click="enterRoom(room.id)"
             >
               <!-- 封面图 -->
@@ -2363,6 +2468,11 @@ async function handleInviteMember() {
                   </span>
                 </div>
               </div>
+              <!-- 进入中遮罩：避免用户连点时多次触发并发 clone -->
+              <div v-if="enteringHotRoomId === room.id" class="room-card-loading">
+                <span class="loading-spinner"></span>
+                <span>正在创建聊天室...</span>
+              </div>
             </div>
           </div>
         </section>
@@ -2387,7 +2497,9 @@ async function handleInviteMember() {
       @added-to-room="handleAddedToRoom"
     />
 
-    <!-- 编辑角色弹窗 -->
+    <!-- 编辑角色弹窗：房间内编辑已加入房间的成员角色。
+         本 PR 仅迁移「角色库」路径下的编辑到独立路由 /characters/edit/:id，
+         房间上下文内的编辑仍走弹窗模式（保持与房间内角色不可分离的交互上下文）。 -->
     <CreateCharacterModal
       v-if="showEditCharacterModal"
       :show="showEditCharacterModal"
@@ -3135,10 +3247,18 @@ async function handleInviteMember() {
 .category-tabs {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
   overflow-x: auto;
   padding: 0.25rem 0;
   scrollbar-width: none;
+}
+
+/* 「换一批 / 显示全部」按钮组：放在分类标签条下方，左对齐 + 一点上方间距 */
+.featured-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .category-tabs::-webkit-scrollbar {
@@ -3158,7 +3278,6 @@ async function handleInviteMember() {
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.2s ease;
 }
 
 .category-chip:hover {
@@ -3212,6 +3331,7 @@ async function handleInviteMember() {
 
 /* Room Card */
 .room-card {
+  position: relative;
   background: var(--card-bg);
   border-radius: 16px;
   border: 1px solid var(--border-color);
@@ -3334,6 +3454,41 @@ async function handleInviteMember() {
 .room-stats {
   display: flex;
   gap: 1rem;
+}
+
+/* 热门聊天室卡片进入中的遮罩：避免用户连点时多次触发并发 clone。 */
+.room-card.is-entering {
+  cursor: wait;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.room-card-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.85rem;
+  border-radius: inherit;
+  z-index: 2;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .stat {
@@ -3883,58 +4038,6 @@ async function handleInviteMember() {
 .character-card-item .character-date {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.character-card-item .edit-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  width: 100px;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.character-card-item .edit-btn:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
-
-.character-card-item .card-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-.character-card-item .chat-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  width: 100px;
-  padding: 0.5rem 0.75rem;
-  background: var(--button-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--button-text);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.character-card-item .chat-btn:hover {
-  opacity: 0.85;
 }
 
 /* ===== My Rooms Styles ===== */

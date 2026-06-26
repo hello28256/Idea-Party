@@ -23,11 +23,15 @@ export const charactersApi = {
 
   /**
    * 列出基于用户画像/热点的个性化推荐角色。
-   * HTTP GET /characters/recommended。
-   * 调用方：CharacterLibraryView 推荐 Tab。
+   * HTTP GET /characters/recommended[?category=SCIENTIST|STAR|...]。
+   * 不传 category 返回全部预设；传枚举名按分类过滤（用于发现页"分类标签条"）。
+   * 调用方：CharacterLibraryView 推荐 Tab、RoomListView 发现页。
    */
   // 后端基于当前用户画像/热点推荐的个性化角色列表，与 presets 的区别是会随用户行为变化。
-  getRecommended: () => api.get<Character[]>('/characters/recommended'),
+  getRecommended: (category?: string) => {
+    const params = category ? { category } : {}
+    return api.get<Character[]>('/characters/recommended', { params })
+  },
 
   /**
    * 获取单个角色详情。

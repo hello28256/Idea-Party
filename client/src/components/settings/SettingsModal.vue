@@ -369,7 +369,7 @@ function handleClose() {
                 <div class="avatar-section">
                   <div class="avatar-wrapper">
                     <img
-                      :src="avatarPreview || accountForm.avatarUrl || '/default-avatar.png'"
+                      :src="avatarPreview || accountForm.avatarUrl || '/image.png'"
                       alt="Avatar"
                       class="avatar-img"
                     />

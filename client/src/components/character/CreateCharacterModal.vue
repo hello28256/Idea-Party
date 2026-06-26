@@ -2,9 +2,11 @@
 // CreateCharacterModal：统一处理角色创建、编辑、删除，以及在聊天室上下文下从角色库挑选已存在角色的弹窗。
 // 同一份组件通过 mode + context 双维度切换行为，避免在多个入口处重复实现表单与上传逻辑。
 import { ref, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
+import { useRoomStore } from '@/stores/room'
 import { charactersApi } from '@/api/characters'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
@@ -47,6 +49,8 @@ const emit = defineEmits<{
 
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
+const roomStore = useRoomStore()
+const router = useRouter()
 const toast = useToast()
 
 const isEditMode = computed(() => props.mode === 'edit')
@@ -69,6 +73,7 @@ const form = ref<CharacterForm>({
 const loading = ref(false)
 const generatingPrompt = ref(false)
 const deleting = ref(false)
+const startingChat = ref(false)
 const error = ref<string | null>(null)
 const uploadingAvatar = ref(false)
 const showDeleteConfirm = ref(false)
@@ -246,6 +251,41 @@ async function confirmDelete() {
   }
 }
 
+// startChatFromEdit：编辑模式下「开始对话」入口。
+// 不依赖表单已保存——使用 props.character 的最新已落库数据创建房间并挂入角色，
+// 避免用户必须先点保存再点开始对话的多余步骤；想保存可在编辑后另点「保存修改」。
+// 如果表单里的 name 与落库的不同，提示用户先保存，避免房间名与服务端实际角色名脱钩。
+async function startChatFromEdit() {
+  if (!isEditMode.value || !props.character?.id) return
+  if (startingChat.value) return
+
+  const trimmedName = form.value.name.trim()
+  if (!trimmedName) {
+    error.value = '请先填写角色名称再开始对话'
+    return
+  }
+
+  // 名称未保存提示：避免房间名与后端角色名脱钩
+  if (trimmedName !== (props.character.name || '')) {
+    error.value = '角色名称已修改，请先点击「保存修改」再开始对话'
+    return
+  }
+
+  startingChat.value = true
+  error.value = null
+  try {
+    const room = await roomStore.createRoom(props.character.name)
+    await roomStore.addCharacterToRoom(room.id, props.character.id)
+    emit('close')
+    router.push(`/chat/${room.id}`)
+  } catch (e: any) {
+    console.error('[CreateCharacterModal] startChat failed:', e)
+    error.value = e.response?.data?.message || e.message || '创建对话失败，请重试'
+  } finally {
+    startingChat.value = false
+  }
+}
+
 // handleSelectFromLibrary：仅在 room 上下文下有意义——从用户已有角色库中挑一个直接挂入当前聊天室。
 // 该函数不会创建任何新角色，所以走 addedToRoom 事件而非 created；其他上下文调用此函数是 no-op，避免误触发。
 function handleSelectFromLibrary(character: Character) {
@@ -354,11 +394,31 @@ async function handleAvatarFileChange(event: Event) {
                 {{ isEditMode ? '完善角色资料、头像和提示词设定' : (context === 'room' ? '创建新角色或从角色库选择' : '完善角色资料、头像和提示词设定') }}
               </p>
             </div>
-            <button class="modal-close" @click="handleClose">
-              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div class="character-modal-header-actions">
+              <!-- 编辑模式 header 右上角「对话」按钮：复用 startChatFromEdit 逻辑，
+                   不依赖表单已保存——name 已修改会提示先保存，避免房间名与角色名脱钩。 -->
+              <button
+                v-if="isEditMode"
+                type="button"
+                class="header-chat-btn"
+                :disabled="loading || startingChat"
+                @click="startChatFromEdit"
+              >
+                <svg v-if="startingChat" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {{ startingChat ? '进入中...' : '对话' }}
+              </button>
+              <button class="modal-close" @click="handleClose">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </header>
 
           <!-- 切换标签（仅聊天室上下文） -->
@@ -554,7 +614,7 @@ async function handleAvatarFileChange(event: Event) {
                 type="button"
                 class="delete-character-button"
                 @click="handleDeleteCharacter"
-                :disabled="deleting"
+                :disabled="deleting || startingChat"
               >
                 {{ deleting ? '删除中...' : '删除角色' }}
               </button>
@@ -565,14 +625,31 @@ async function handleAvatarFileChange(event: Event) {
                 type="button"
                 class="footer-cancel-btn"
                 @click="handleClose"
+                :disabled="loading || startingChat"
               >
                 取消
+              </button>
+              <button
+                v-if="isEditMode"
+                type="button"
+                class="footer-submit-btn footer-chat-btn"
+                @click="startChatFromEdit"
+                :disabled="loading || startingChat"
+              >
+                <svg v-if="startingChat" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {{ startingChat ? '进入中...' : '开始对话' }}
               </button>
               <button
                 type="button"
                 class="footer-submit-btn"
                 @click="handleSubmit"
-                :disabled="loading"
+                :disabled="loading || startingChat"
               >
                 {{ loading ? '处理中...' : (isEditMode ? '保存修改' : '创建角色') }}
               </button>
@@ -720,6 +797,41 @@ async function handleAvatarFileChange(event: Event) {
   padding: 28px 32px 20px;
   background: #ffffff !important;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9) !important;
+}
+
+/* header 右侧操作区：横向排列「对话」+「关闭」按钮 */
+.character-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* header 右上角「对话」按钮：主色填充，区别于次要关闭按钮，一眼能识别为 CTA */
+.header-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.header-chat-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
+}
+
+.header-chat-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .character-modal-title {
@@ -1136,6 +1248,28 @@ async function handleAvatarFileChange(event: Event) {
 .footer-submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.footer-chat-btn {
+  background: transparent;
+  color: var(--btn-primary-bg);
+  border: 1px solid var(--btn-primary-bg);
+  box-shadow: none;
+}
+
+.footer-chat-btn:hover:not(:disabled) {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  opacity: 1;
+}
+
+.footer-chat-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.footer-chat-btn .spinning {
+  animation: spin 1s linear infinite;
 }
 
 .delete-character-button {

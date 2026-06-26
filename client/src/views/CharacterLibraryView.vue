@@ -1,18 +1,16 @@
 <script setup lang="ts">
 // CharacterLibraryView：路由 /characters
-// 「我的角色库」管理页——展示当前用户创建的自定义角色，支持创建 / 编辑 / 一键开聊。
+// 「我的角色库」管理页——展示当前用户创建的自定义角色，支持创建 / 跳转编辑页。
 // 关键依赖：
 //   - characterStore：角色 CRUD / 头像上传 / 同名校验
 //   - authStore：当前用户标识，用于过滤"我创建的角色"
-//   - roomStore：一键开聊时负责 createRoom + addCharacterToRoom
-//   - CreateCharacterModal：复用弹窗组件，通过 mode='create' | 'edit' 区分行为
+//   - CreateCharacterModal：仅用于创建流程（mode='create'）；编辑已迁移到独立路由 /characters/edit/:id
 //   - AppSidebar / ALL_NAV_ITEMS：通用左侧导航（activeId='characters' 高亮当前页）
 import { ref, computed, onMounted } from 'vue'
-import { charactersApi } from '@/api/characters'
 import { useRouter } from 'vue-router'
+import { charactersApi } from '@/api/characters'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
-import { useRoomStore } from '@/stores/room'
 import type { Character } from '@/types'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import AppSidebar from '@/components/ui/AppSidebar.vue'
@@ -21,14 +19,11 @@ import { ALL_NAV_ITEMS } from '@/config/sidebar'
 const router = useRouter()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
-const roomStore = useRoomStore()
 
 // mounted 用作入场淡入动画的触发标志：onMounted 后延迟一帧再置 true，
 // 让 <style> 里的 opacity 过渡能正常播放，避免首屏闪烁。
 const mounted = ref(false)
 const showCreateModal = ref(false)
-const showEditModal = ref(false)
-const editingCharacter = ref<Character | null>(null)
 
 onMounted(async () => {
   // 进入页面立即拉取一次角色列表，保证 Tab 切换回来时数据是最新的。
@@ -39,7 +34,8 @@ onMounted(async () => {
   // 老库补全：用户历史上 clone 推荐角色时（FeaturedCharacters map 漏保留 avatarUrl 字段的旧版本），
   // 创建出来的私有副本 avatarUrl 为空。一次性从 /api/characters/recommended 拉预设的"正确头像 URL"
   // 表，按名字匹配把缺失头像的就地补上（PUT /api/characters/{id}）。幂等：已有 avatarUrl 的不动。
-  // 为什么在页面挂载时跑而不是在 startChat：用户已经不再点击老角色的话，根本走不到 startChat 的修复分支。
+  // 为什么在页面挂载时跑而不是在卡片点击时：用户已经不再点击老角色的话，
+  // 根本走不到点击路径上的修复分支；放在挂载阶段能保证只要用户进入页面就能就地补齐头像。
   await patchMissingAvatarUrls()
 })
 
@@ -118,39 +114,11 @@ async function handleCharacterCreated(character: any) {
   closeCreateModal()
 }
 
-function openEditModal(character: Character) {
-  editingCharacter.value = character
-  showEditModal.value = true
-}
-
-function closeEditModal() {
-  // 关闭编辑弹窗时清空 editingCharacter，防止下次打开旧实例复用导致脏数据。
-  showEditModal.value = false
-  editingCharacter.value = null
-}
-
-function handleCharacterUpdated(updatedCharacter: Character) {
-  // 更新列表中的角色
-  // 直接在 store 数组中原地替换，避免再次请求后端造成的闪烁；
-  // 后端已是最新数据来源，UI 与 store 同步即可。
-  const index = characterStore.characters.findIndex(c => c.id === updatedCharacter.id)
-  if (index !== -1) {
-    characterStore.characters[index] = updatedCharacter
-  }
-  closeEditModal()
-}
-
-async function startChat(character: Character) {
-  // 一键开聊：以角色名作为房间名创建房间，再把该角色加入房间并跳转。
-  // 创建和加入是两个独立调用，因为后端没有提供"建房间 + 绑定初始角色"的复合接口。
-  try {
-    const room = await roomStore.createRoom(character.name)
-    await roomStore.addCharacterToRoom(room.id, character.id)
-    router.push(`/chat/${room.id}`)
-  } catch (e) {
-    console.error('[DEBUG] Failed to start chat:', e)
-    alert('创建对话失败，请重试')
-  }
+// openEditPage：点击卡片后跳转到独立编辑页 /characters/edit/:id。
+// 走路由而非弹窗式编辑，是为了让长 prompt 字段与操作区能在整页布局下舒展，
+// 同时让"对话"按钮有机会进入编辑页而不是挤在卡片角上。
+function openEditPage(character: Character) {
+  router.push(`/characters/edit/${character.id}`)
 }
 
 function formatDate(dateStr: string): string {
@@ -212,6 +180,11 @@ function formatDate(dateStr: string): string {
           v-for="character in myCharacters"
           :key="character.id"
           class="character-card"
+          role="button"
+          tabindex="0"
+          @click="openEditPage(character)"
+          @keydown.enter="openEditPage(character)"
+          @keydown.space.prevent="openEditPage(character)"
         >
           <div class="card-header">
             <div class="character-avatar">
@@ -228,20 +201,6 @@ function formatDate(dateStr: string): string {
               <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
           </div>
-          <div class="card-footer">
-            <button class="action-btn chat-btn" @click.stop="startChat(character)">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              对话
-            </button>
-            <button class="action-btn edit-btn" @click.stop="openEditModal(character)">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              编辑
-            </button>
-          </div>
         </div>
       </div>
     </main>
@@ -251,16 +210,6 @@ function formatDate(dateStr: string): string {
       :show="showCreateModal"
       @close="closeCreateModal"
       @created="handleCharacterCreated"
-    />
-
-    <!-- 编辑角色弹窗 -->
-    <CreateCharacterModal
-      v-if="showEditModal"
-      :show="showEditModal"
-      mode="edit"
-      :character="editingCharacter"
-      @close="closeEditModal"
-      @updated="handleCharacterUpdated"
     />
   </div>
 </template>
@@ -382,13 +331,21 @@ function formatDate(dateStr: string): string {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  transition: all 0.25s ease;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .character-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   border-color: #3f3f46;
+}
+
+.character-card:focus-visible {
+  outline: none;
+  border-color: #18181b;
+  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.18);
 }
 
 .card-header {
@@ -396,15 +353,6 @@ function formatDate(dateStr: string): string {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1rem;
-}
-
-.card-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-color);
 }
 
 .character-avatar {
@@ -456,41 +404,6 @@ function formatDate(dateStr: string): string {
 .character-date {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.edit-btn {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-}
-
-.edit-btn:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
-
-.chat-btn {
-  background: var(--button-bg);
-  border: 1px solid var(--border-color);
-  color: var(--button-text);
-}
-
-.chat-btn:hover {
-  opacity: 0.85;
 }
 
 @media (max-width: 768px) {

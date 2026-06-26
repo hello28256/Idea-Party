@@ -10,6 +10,12 @@ import Toast from '@/components/ui/Toast.vue'
 
 <template>
   <div class="app-container">
+    <!-- BUILD-MARKER-2026-06-26-A: 如果你看到页面上有这个红色 banner，说明这个 tab 加载的是新代码。
+         看不到 = 浏览器在用旧 chunk，需要完全关闭 tab + 重新打开。 -->
+    <div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#dc2626;color:#fff;padding:12px 20px;text-align:center;font-weight:700;font-size:15px;font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+      🚨 新代码已加载 BUILD-2026-06-26-A — 角色卡应该没有「对话/编辑」按钮 — 如果还看到按钮 = 浏览器在用旧 chunk
+    </div>
+    <div style="height:48px;"></div>
     <router-view />
     <SettingsModal />
     <Toast />
