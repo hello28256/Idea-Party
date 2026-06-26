@@ -3644,25 +3644,25 @@ async function handleInviteMember() {
   overflow-y: auto;
 }
 
-/* 提示词模板的"编辑/还原"小按钮，与 label 同行右侧 */
+/* 提示词模板的"编辑/还原"小按钮，与 .show-all-btn 同款视觉（透明次要按钮）。
+   与 label 同行右侧，尺寸更紧凑。 */
 .prompt-edit-toggle {
   display: inline-block;
   margin-left: 0.5rem;
-  padding: 2px 8px;
-  background: transparent;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  color: #475569;
+  padding: 0.25rem 0.75rem;
   font-size: 0.75rem;
-  font-weight: 400;
+  font-weight: 500;
+  color: var(--text-primary, #18181b);
+  background: transparent;
+  border: 1px solid var(--border-color, rgba(24, 24, 27, 0.08));
+  border-radius: 999px;
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .prompt-edit-toggle:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-  color: #0f172a;
+  background: var(--input-bg, rgba(24, 24, 27, 0.04));
+  border-color: var(--text-secondary, rgba(24, 24, 27, 0.16));
 }
 
 /* 提示词模板的编辑模式（textarea） */
