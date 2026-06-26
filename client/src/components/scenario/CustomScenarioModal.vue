@@ -393,8 +393,12 @@ async function handleGeneratePrompt() {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: var(--overlay-bg, rgba(15, 23, 42, 0.55));
-  backdrop-filter: blur(4px);
+  /* 完全透明遮罩：无背景色 + 无模糊。
+     原因：用户从弹窗内打开 SettingsModal 时希望周围完全透明，
+     让用户能同时看到页面内容做参考；遮罩仍保留 @click.self 关闭能力。 */
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   align-items: center;
   justify-content: center;
