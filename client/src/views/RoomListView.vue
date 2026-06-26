@@ -10,7 +10,7 @@
 //   - CreateRoomModal / CreateCharacterModal / ConfirmDialog：复用弹窗
 //   - CustomScenarioModal：用户私有场景创建/编辑弹窗（场景 tab 末尾的 + 卡片触发）
 //   - useToast：统一提示（删除成功/失败等）
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
 import { scenariosApi } from '@/api/scenarios'
 import { useRouter, useRoute } from 'vue-router'
@@ -341,6 +341,9 @@ const jobDescription = ref('')
 const scenarioStep = ref<'input' | 'preview'>('input')
 const creatingScenario = ref(false)
 const createError = ref<string | null>(null)
+// 静态场景（dynamicPrompt=false）的 promptTemplate 用户编辑状态
+// null = 未编辑（用 scenario.promptTemplate 走 LLM）；非 null = 用户编辑后的版本（直接使用）
+const editablePromptTemplate = ref<string | null>(null)
 // ===== 用户私有场景弹窗状态 =====
 // 控制 CustomScenarioModal 显示；editingScenario 决定是创建还是编辑
 const showCustomScenarioModal = ref(false)
@@ -380,6 +383,8 @@ function openScenario(s: Scenario) {
   jdImageUploading.value = false
   jdImageError.value = null
   createError.value = null
+  // 每次打开新场景时重置 prompt 编辑状态
+  editablePromptTemplate.value = null
 }
 function closeScenario() {
   activeScenario.value = null
@@ -685,14 +690,26 @@ async function finalizeScenario() {
     const description = scenario.requiresUserInput ? input : scenario.description
     // 角色名直接从 scenario 配置中读取（dynamicPrompt=true 场景无 characterName，由 finalizeScenario 上方分支处理）
     const characterName = scenario.characterName || scenario.title + ' 助手'
-    const promptResp = await charactersApi.generatePrompt({
-      name: characterName,
-      description
-    })
+
+    // 决定 Character.prompt 走哪条路径：
+    // 1) 用户在弹窗里编辑过 prompt（editablePromptTemplate !== null）→ 直接用用户版，跳过 LLM
+    //    避免用户辛苦改的 prompt 被后端重新生成覆盖
+    // 2) 用户没改过 → 走 LLM generatePrompt（让 AI 基于 description 合成更贴合的 prompt）
+    let finalPrompt: string
+    if (editablePromptTemplate.value !== null && editablePromptTemplate.value.trim()) {
+      finalPrompt = editablePromptTemplate.value.trim()
+    } else {
+      const promptResp = await charactersApi.generatePrompt({
+        name: characterName,
+        description
+      })
+      finalPrompt = promptResp.data?.prompt || ''
+    }
+
     const newCharacter = await charactersApi.create({
       name: characterName,
       description,
-      prompt: promptResp.data?.prompt || ''
+      prompt: finalPrompt
     })
     const charId = newCharacter.data?.id
     if (!charId) {
@@ -832,6 +849,19 @@ async function startChat(character: any) {
       if (dup) {
         characterIdForRoom = dup.id
         console.log('[DEBUG] Reusing already-cloned character:', dup.id)
+        // 修复老库 clone 出来头像为空的问题：
+        // 如果之前 clone 时没传 avatarUrl（因为 featuredCharacters 没保留原字段），
+        // 这里就地补一次——用当前 preset 的 avatarUrl 调 update 写回 dup。
+        // 防止：每次进「角色库」页都看到一堆首字母占位符。
+        if (!dup.avatarUrl && character.avatarUrl) {
+          console.log('[DEBUG] Patching missing avatarUrl for cloned character:', dup.name)
+          await characterStore.updateCharacter(dup.id, {
+            name: dup.name,
+            description: dup.description || '',
+            avatarUrl: character.avatarUrl,
+            prompt: dup.prompt || character.prompt || ''
+          })
+        }
       } else {
         // 并发去重锁：若同名已经在 clone 中（典型场景：用户快速点击同一个推荐卡片），
         // 直接拦截。否则会发出 N 个并发 create 请求穿透后端查重：
@@ -963,6 +993,8 @@ const categories = [
 // Featured characters - loaded from API
 const featuredCharacters = ref<any[]>([])
 const featuredCharactersLoading = ref(false)
+// 推荐角色头像加载失败记录（按 char.id），避免个别维基 404 时整张卡片显示破图
+const avatarLoadFailed = reactive<Record<string, boolean>>({})
 
 // 「推荐角色」展示状态机：
 // - BATCH_SIZE: 每批展示多少个。36 ÷ 12 = 3 批，3 列 4 行的网格刚好放下。
@@ -1006,7 +1038,12 @@ async function fetchFeaturedCharacters() {
       name: char.name,
       role: char.description || 'AI 角色',
       avatar: char.avatarUrl || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(char.name)}&backgroundColor=c0aede`,
-      online: false
+      online: false,
+      // 把后端原始字段也保留下来，让 startChat 在 clone 时能拿到完整数据：
+      // 不带这些字段会导致加入角色库后头像/描述/prompt 全为空，触发前端首字母占位符 fallback。
+      avatarUrl: char.avatarUrl || '',
+      description: char.description || '',
+      prompt: char.prompt || ''
     }))
   } catch (e) {
     console.error('[DEBUG] Failed to fetch featured characters:', e)
@@ -1699,11 +1736,38 @@ async function handleInviteMember() {
                         v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
                         class="scenario-modal-label"
                         style="margin-top: 14px;"
-                      >提示词模板</label>
+                      >
+                        提示词模板
+                        <button
+                          v-if="editablePromptTemplate === null"
+                          type="button"
+                          class="prompt-edit-toggle"
+                          @click="editablePromptTemplate = activeScenario!.promptTemplate"
+                        >✏️ 编辑</button>
+                        <button
+                          v-else
+                          type="button"
+                          class="prompt-edit-toggle"
+                          @click="editablePromptTemplate = null"
+                        >↩️ 还原默认</button>
+                      </label>
+                      <textarea
+                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate && editablePromptTemplate !== null"
+                        v-model="editablePromptTemplate"
+                        class="scenario-modal-input scenario-modal-prompt-editor"
+                        rows="14"
+                        :disabled="creatingScenario"
+                      ></textarea>
                       <pre
-                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
+                        v-else-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
                         class="scenario-modal-template"
                       >{{ activeScenario.promptTemplate }}</pre>
+                      <p
+                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate && editablePromptTemplate !== null"
+                        class="scenario-modal-hint"
+                      >
+                        💡 编辑后的 prompt 会直接用作 Character.prompt，跳过 AI 自动生成
+                      </p>
                     </div>
                   </template>
 
@@ -1905,7 +1969,17 @@ async function handleInviteMember() {
                 :class="{ active: selectedRoomId === room.id }"
                 @click="selectRoom(room.id)"
               >
-                <div class="room-list-icon">💬</div>
+                <div class="room-list-icon">
+                  <!-- 展示该房间第一个角色的真实头像：与左侧"最近聊天"侧栏保持一致，
+                       让房间列表也具备视觉锚点，避免所有卡片都是同一个 💬 表情 -->
+                  <img
+                    v-if="room.characters && room.characters[0] && room.characters[0].avatarUrl"
+                    :src="room.characters[0].avatarUrl"
+                    :alt="room.characters[0].name || room.name"
+                    @error="(e) => ((e.target as HTMLImageElement).style.display = 'none')"
+                  />
+                  <span v-else>{{ room.name?.charAt(0) || '💬' }}</span>
+                </div>
                 <div class="room-list-content">
                   <div class="room-list-title-row">
                     <strong>{{ room.name }}</strong>
@@ -2192,7 +2266,16 @@ async function handleInviteMember() {
               @keyup.enter="startChat(char)"
             >
               <div class="character-avatar-wrap">
-                <img :src="char.avatar" :alt="char.name" class="character-avatar" />
+                <img
+                  v-if="!avatarLoadFailed[char.id]"
+                  :src="char.avatar"
+                  :alt="char.name"
+                  class="character-avatar"
+                  @error="avatarLoadFailed[char.id] = true"
+                />
+                <div v-else class="character-avatar character-avatar-fallback" :data-name="char.name">
+                  {{ char.name.charAt(0) }}
+                </div>
                 <span v-if="char.online" class="online-indicator"></span>
               </div>
               <div class="character-info">
@@ -2998,6 +3081,19 @@ async function handleInviteMember() {
   transition: border-color 0.25s ease;
 }
 
+/* 推荐角色头像兜底：维基图片 404 时显示首字母渐变圆，与普通头像同形 */
+.character-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%);
+  color: var(--color-gold-light);
+  font-family: 'Playfair Display', serif;
+  font-weight: 600;
+  font-size: 1.1rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
 .online-indicator {
   position: absolute;
   bottom: 0;
@@ -3546,6 +3642,37 @@ async function handleInviteMember() {
   margin: 0;
   max-height: 320px;
   overflow-y: auto;
+}
+
+/* 提示词模板的"编辑/还原"小按钮，与 label 同行右侧 */
+.prompt-edit-toggle {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 400;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.prompt-edit-toggle:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/* 提示词模板的编辑模式（textarea） */
+.scenario-modal-prompt-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  font-size: 12px !important;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 280px;
+  white-space: pre-wrap;
 }
 
 .scenario-modal-input {
@@ -4265,6 +4392,12 @@ async function handleInviteMember() {
   align-items: center;
   justify-content: center;
   font-size: 18px;
+  overflow: hidden;
+}
+.room-list-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .dark .room-list-icon {
