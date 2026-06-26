@@ -342,8 +342,9 @@ const scenarioStep = ref<'input' | 'preview'>('input')
 const creatingScenario = ref(false)
 const createError = ref<string | null>(null)
 // 静态场景（dynamicPrompt=false）的 promptTemplate 用户编辑状态
-// null = 未编辑（用 scenario.promptTemplate 走 LLM）；非 null = 用户编辑后的版本（直接使用）
-const editablePromptTemplate = ref<string | null>(null)
+// 始终是字符串；openScenario 时回填为 scenario.promptTemplate，用户可改
+// finalizeScenario 通过对比当前值与原值决定是否跳过 LLM
+const editablePromptTemplate = ref<string>('')
 // ===== 用户私有场景弹窗状态 =====
 // 控制 CustomScenarioModal 显示；editingScenario 决定是创建还是编辑
 const showCustomScenarioModal = ref(false)
@@ -383,8 +384,8 @@ function openScenario(s: Scenario) {
   jdImageUploading.value = false
   jdImageError.value = null
   createError.value = null
-  // 每次打开新场景时重置 prompt 编辑状态
-  editablePromptTemplate.value = null
+  // 每次打开新场景时回填 promptTemplate 到编辑器（用户可改）
+  editablePromptTemplate.value = s.promptTemplate || ''
 }
 function closeScenario() {
   activeScenario.value = null
@@ -692,11 +693,12 @@ async function finalizeScenario() {
     const characterName = scenario.characterName || scenario.title + ' 助手'
 
     // 决定 Character.prompt 走哪条路径：
-    // 1) 用户在弹窗里编辑过 prompt（editablePromptTemplate !== null）→ 直接用用户版，跳过 LLM
+    // 1) 用户在弹窗里编辑过 prompt（与原值不一致）→ 直接用用户版，跳过 LLM
     //    避免用户辛苦改的 prompt 被后端重新生成覆盖
     // 2) 用户没改过 → 走 LLM generatePrompt（让 AI 基于 description 合成更贴合的 prompt）
     let finalPrompt: string
-    if (editablePromptTemplate.value !== null && editablePromptTemplate.value.trim()) {
+    const originalTemplate = scenario.promptTemplate || ''
+    if (editablePromptTemplate.value.trim() && editablePromptTemplate.value !== originalTemplate) {
       finalPrompt = editablePromptTemplate.value.trim()
     } else {
       const promptResp = await charactersApi.generatePrompt({
@@ -1736,32 +1738,14 @@ async function handleInviteMember() {
                         v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
                         class="scenario-modal-label"
                         style="margin-top: 14px;"
-                      >
-                        提示词模板
-                        <button
-                          v-if="editablePromptTemplate === null"
-                          type="button"
-                          class="prompt-edit-toggle"
-                          @click="editablePromptTemplate = activeScenario!.promptTemplate"
-                        >编辑</button>
-                        <button
-                          v-else
-                          type="button"
-                          class="prompt-edit-toggle"
-                          @click="editablePromptTemplate = null"
-                        >还原默认</button>
-                      </label>
+                      >提示词模板</label>
                       <textarea
-                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate && editablePromptTemplate !== null"
+                        v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
                         v-model="editablePromptTemplate"
                         class="scenario-modal-input scenario-modal-prompt-editor"
                         rows="14"
                         :disabled="creatingScenario"
                       ></textarea>
-                      <pre
-                        v-else-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate"
-                        class="scenario-modal-template"
-                      >{{ activeScenario.promptTemplate }}</pre>
                       <p
                         v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate && editablePromptTemplate !== null"
                         class="scenario-modal-hint"
@@ -3656,27 +3640,6 @@ async function handleInviteMember() {
   overflow-y: auto;
 }
 
-/* 提示词模板的"编辑/还原"小按钮，与 .show-all-btn 同款视觉（透明次要按钮）。
-   与 label 同行右侧，尺寸更紧凑。 */
-.prompt-edit-toggle {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-primary, #18181b);
-  background: transparent;
-  border: 1px solid var(--border-color, rgba(24, 24, 27, 0.08));
-  border-radius: 999px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.prompt-edit-toggle:hover {
-  background: var(--input-bg, rgba(24, 24, 27, 0.04));
-  border-color: var(--text-secondary, rgba(24, 24, 27, 0.16));
-}
-
 /* 提示词模板的编辑模式（textarea） */
 .scenario-modal-prompt-editor {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
@@ -5332,6 +5295,32 @@ async function handleInviteMember() {
 
 .edit-char-btn:hover {
   opacity: 0.85;
+}
+
+/* 群聊模式（character-chip-card 横排）下的编辑按钮变体：
+   原 .edit-char-btn 的 align-self:flex-end + margin-top:8px 是给 single 模式
+   （垂直布局卡片）用的，群聊里卡片是 flex row，应该让按钮自然落在右侧。 */
+.characters-list .character-chip-card .edit-char-btn {
+  align-self: center;
+  margin-top: 0;
+  margin-left: auto;
+  padding: 6px;
+  width: 28px;
+  height: 28px;
+  color: #64748b;
+  background: transparent;
+  border-color: transparent;
+}
+.characters-list .character-chip-card .edit-char-btn:hover {
+  background: rgba(24, 24, 27, 0.06);
+  color: #0f172a;
+}
+.dark .characters-list .character-chip-card .edit-char-btn {
+  color: #94a3b8;
+}
+.dark .characters-list .character-chip-card .edit-char-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
 }
 
 .character-chip-card strong {
