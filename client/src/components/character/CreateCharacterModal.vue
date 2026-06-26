@@ -252,8 +252,11 @@ async function confirmDelete() {
 }
 
 // startChatFromEdit：编辑模式下「开始对话」入口。
-// 不依赖表单已保存——使用 props.character 的最新已落库数据创建房间并挂入角色，
-// 避免用户必须先点保存再点开始对话的多余步骤；想保存可在编辑后另点「保存修改」。
+// 语义：跳到「我的聊天」tab 下名字等于当前角色的那个房间；找不到才创建新房间。
+// 为什么跳 /rooms?tab=my-rooms&roomId=... 而不是独立 /chat/:roomId：
+// 项目当前架构把聊天面板内嵌在「我的聊天」tab（RoomListView 的三栏布局），
+// 独立 /chat 路由与侧栏上下文脱节，跳过去会让用户失去"我的聊天"导航上下文。
+// 与 enterRoom(room.id) 在 RoomListView 里的目标完全一致。
 // 如果表单里的 name 与落库的不同，提示用户先保存，避免房间名与服务端实际角色名脱钩。
 async function startChatFromEdit() {
   if (!isEditMode.value || !props.character?.id) return
@@ -274,10 +277,24 @@ async function startChatFromEdit() {
   startingChat.value = true
   error.value = null
   try {
+    // 优先复用：先确保我的聊天列表已加载，再按名字匹配最近一个同名房间。
+    // fetchMyRooms 失败时静默降级：仍可走创建新房间的路径，避免点击完全无响应。
+    if (roomStore.myRooms.length === 0) {
+      try { await roomStore.fetchMyRooms() } catch { /* 静默降级 */ }
+    }
+    const existing = roomStore.sortedMyRooms.find(r => r.name === props.character.name)
+    if (existing) {
+      // 命中已有房间：跳到「我的聊天」tab 嵌入式聊天面板，保留侧栏上下文。
+      emit('close')
+      router.push(`/rooms?tab=my-rooms&roomId=${existing.id}`)
+      return
+    }
+
+    // 未命中：创建新房间并把当前角色加入，跳到「我的聊天」tab 让用户立即看到。
     const room = await roomStore.createRoom(props.character.name)
     await roomStore.addCharacterToRoom(room.id, props.character.id)
     emit('close')
-    router.push(`/chat/${room.id}`)
+    router.push(`/rooms?tab=my-rooms&roomId=${room.id}`)
   } catch (e: any) {
     console.error('[CreateCharacterModal] startChat failed:', e)
     error.value = e.response?.data?.message || e.message || '创建对话失败，请重试'
@@ -395,24 +412,6 @@ async function handleAvatarFileChange(event: Event) {
               </p>
             </div>
             <div class="character-modal-header-actions">
-              <!-- 编辑模式 header 右上角「对话」按钮：复用 startChatFromEdit 逻辑，
-                   不依赖表单已保存——name 已修改会提示先保存，避免房间名与角色名脱钩。 -->
-              <button
-                v-if="isEditMode"
-                type="button"
-                class="header-chat-btn"
-                :disabled="loading || startingChat"
-                @click="startChatFromEdit"
-              >
-                <svg v-if="startingChat" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                {{ startingChat ? '进入中...' : '对话' }}
-              </button>
               <button class="modal-close" @click="handleClose">
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -622,14 +621,6 @@ async function handleAvatarFileChange(event: Event) {
 
             <div class="footer-actions">
               <button
-                type="button"
-                class="footer-cancel-btn"
-                @click="handleClose"
-                :disabled="loading || startingChat"
-              >
-                取消
-              </button>
-              <button
                 v-if="isEditMode"
                 type="button"
                 class="footer-submit-btn footer-chat-btn"
@@ -639,9 +630,6 @@ async function handleAvatarFileChange(event: Event) {
                 <svg v-if="startingChat" class="w-4 h-4 spinning" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 {{ startingChat ? '进入中...' : '开始对话' }}
               </button>
@@ -799,7 +787,7 @@ async function handleAvatarFileChange(event: Event) {
   border-bottom: 1px solid rgba(226, 232, 240, 0.9) !important;
 }
 
-/* header 右侧操作区：横向排列「对话」+「关闭」按钮 */
+/* header 右侧操作区：仅放关闭按钮，编辑入口统一收到底部 footer */
 .character-modal-header-actions {
   display: flex;
   align-items: center;
@@ -807,32 +795,7 @@ async function handleAvatarFileChange(event: Event) {
   flex-shrink: 0;
 }
 
-/* header 右上角「对话」按钮：主色填充，区别于次要关闭按钮，一眼能识别为 CTA */
-.header-chat-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
-  color: #ffffff;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.header-chat-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.3);
-}
-
-.header-chat-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+/* header 已不放置「对话」按钮：原本的主色 CTA 风格迁到底部 footer 的「开始对话」按钮 */
 
 .character-modal-title {
   font-size: 24px;
@@ -1209,23 +1172,7 @@ async function handleAvatarFileChange(event: Event) {
   gap: 12px;
 }
 
-.footer-cancel-btn {
-  height: 42px;
-  padding: 0 18px;
-  border-radius: 14px;
-  border: 1px solid var(--btn-secondary-border);
-  background: var(--btn-secondary-bg);
-  color: var(--btn-secondary-text);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
 
-.footer-cancel-btn:hover {
-  border-color: var(--text-muted);
-  color: var(--text-primary);
-}
 
 .footer-submit-btn {
   height: 42px;

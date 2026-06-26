@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // CharacterLibraryView：路由 /characters
-// 「我的角色库」管理页——展示当前用户创建的自定义角色，支持创建 / 跳转编辑页。
+// 「我的角色库」管理页——展示当前用户创建的自定义角色，支持创建 / 编辑。
+// 卡片点击 → 弹 CreateCharacterModal mode='edit'（该弹窗已自带「对话」按钮，无需在卡片上重复）。
 // 关键依赖：
 //   - characterStore：角色 CRUD / 头像上传 / 同名校验
 //   - authStore：当前用户标识，用于过滤"我创建的角色"
-//   - CreateCharacterModal：仅用于创建流程（mode='create'）；编辑已迁移到独立路由 /characters/edit/:id
+//   - CreateCharacterModal：复用弹窗组件，通过 mode='create' | 'edit' 区分行为（编辑模式已带「对话」按钮）
 //   - AppSidebar / ALL_NAV_ITEMS：通用左侧导航（activeId='characters' 高亮当前页）
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { charactersApi } from '@/api/characters'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
@@ -16,7 +16,6 @@ import CreateCharacterModal from '@/components/character/CreateCharacterModal.vu
 import AppSidebar from '@/components/ui/AppSidebar.vue'
 import { ALL_NAV_ITEMS } from '@/config/sidebar'
 
-const router = useRouter()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 
@@ -24,6 +23,8 @@ const authStore = useAuthStore()
 // 让 <style> 里的 opacity 过渡能正常播放，避免首屏闪烁。
 const mounted = ref(false)
 const showCreateModal = ref(false)
+const showEditModal = ref(false)
+const editingCharacter = ref<Character | null>(null)
 
 onMounted(async () => {
   // 进入页面立即拉取一次角色列表，保证 Tab 切换回来时数据是最新的。
@@ -114,11 +115,27 @@ async function handleCharacterCreated(character: any) {
   closeCreateModal()
 }
 
-// openEditPage：点击卡片后跳转到独立编辑页 /characters/edit/:id。
-// 走路由而非弹窗式编辑，是为了让长 prompt 字段与操作区能在整页布局下舒展，
-// 同时让"对话"按钮有机会进入编辑页而不是挤在卡片角上。
-function openEditPage(character: Character) {
-  router.push(`/characters/edit/${character.id}`)
+// openEditModal：点击卡片后弹出编辑模态框（mode='edit'，弹窗自身带「对话」按钮）。
+// 为什么不放在卡片底部做两个按钮：弹窗有更大空间容纳长 prompt，且「对话」入口与角色信息在视觉上分离，
+// 避免用户把"管理资源"与"立即消费"两种意图混在一起。
+function openEditModal(character: Character) {
+  editingCharacter.value = character
+  showEditModal.value = true
+}
+
+// closeEditModal：关闭编辑弹窗时清空 editingCharacter，防止下次打开旧实例复用导致脏数据。
+function closeEditModal() {
+  showEditModal.value = false
+  editingCharacter.value = null
+}
+
+// handleCharacterUpdated：编辑保存成功后原地替换 store 里的角色，避免再次 fetch 引起的列表闪烁。
+function handleCharacterUpdated(updatedCharacter: Character) {
+  const index = characterStore.characters.findIndex(c => c.id === updatedCharacter.id)
+  if (index !== -1) {
+    characterStore.characters[index] = updatedCharacter
+  }
+  closeEditModal()
 }
 
 function formatDate(dateStr: string): string {
@@ -182,9 +199,9 @@ function formatDate(dateStr: string): string {
           class="character-card"
           role="button"
           tabindex="0"
-          @click="openEditPage(character)"
-          @keydown.enter="openEditPage(character)"
-          @keydown.space.prevent="openEditPage(character)"
+          @click="openEditModal(character)"
+          @keydown.enter="openEditModal(character)"
+          @keydown.space.prevent="openEditModal(character)"
         >
           <div class="card-header">
             <div class="character-avatar">
@@ -210,6 +227,16 @@ function formatDate(dateStr: string): string {
       :show="showCreateModal"
       @close="closeCreateModal"
       @created="handleCharacterCreated"
+    />
+
+    <!-- 编辑角色弹窗：编辑模式自带「对话」按钮，无需在卡片底部重复 -->
+    <CreateCharacterModal
+      v-if="showEditModal"
+      :show="showEditModal"
+      mode="edit"
+      :character="editingCharacter"
+      @close="closeEditModal"
+      @updated="handleCharacterUpdated"
     />
   </div>
 </template>

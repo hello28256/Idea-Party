@@ -61,9 +61,9 @@ const router = createRouter({
     {
       path: '/characters/edit/:id',
       name: 'character-edit',
-      // 编辑页：独立整页视图（由角色库卡片点击跳转）。
-      // 复用同一组件由路由参数驱动表单行为不符合当前 UI 风格——编辑态需要长期可见的字段与独立操作区，因此拆出独立视图。
-      component: () => import('@/views/CharacterEditView.vue'),
+      // 占位路由：编辑流程目前由「角色库」卡片点击 → 弹 CreateCharacterModal mode='edit' 完成，
+      // 暂不需要独立整页编辑视图。保留路由占位以防 URL 直链或后续重构需要。
+      component: () => import('@/views/CharacterCreateView.vue'),
       meta: { requiresAuth: true }
     },
     {
