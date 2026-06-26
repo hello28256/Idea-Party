@@ -1743,13 +1743,13 @@ async function handleInviteMember() {
                           type="button"
                           class="prompt-edit-toggle"
                           @click="editablePromptTemplate = activeScenario!.promptTemplate"
-                        >✏️ 编辑</button>
+                        >编辑</button>
                         <button
                           v-else
                           type="button"
                           class="prompt-edit-toggle"
                           @click="editablePromptTemplate = null"
-                        >↩️ 还原默认</button>
+                        >还原默认</button>
                       </label>
                       <textarea
                         v-if="!activeScenario.dynamicPrompt && activeScenario.promptTemplate && editablePromptTemplate !== null"
@@ -2140,6 +2140,18 @@ async function handleInviteMember() {
                       <strong>{{ char.name }}</strong>
                       <span>{{ char.description || '暂无描述' }}</span>
                     </div>
+                    <!-- 只对"我自己创建的"角色显示编辑按钮（preset 归系统所有不能改，
+                         否则后端 update 会因 ownerId 不匹配返回 403）-->
+                    <button
+                      v-if="authStore.user?.id && char.ownerId === authStore.user.id"
+                      class="edit-char-btn"
+                      :title="`编辑「${char.name}」的提示词`"
+                      @click="openEditCharacterModal(char)"
+                    >
+                      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
               </template>
