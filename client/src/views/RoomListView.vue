@@ -333,6 +333,16 @@ const isScenariosView = computed(() => {
 })
 
 const scenarioStore = useScenarioStore()
+
+// 拆分预设场景与用户私有场景：
+// - 预设场景：系统内置（isPreset=true），点卡片走"创建房间"流程
+// - 用户场景：用户自建（isPreset=false），点卡片直接进入"编辑"流程
+const presetScenarios = computed(() =>
+  scenarioStore.scenarios.filter(s => s.isPreset)
+)
+const userScenarios = computed(() =>
+  scenarioStore.scenarios.filter(s => !s.isPreset)
+)
 const activeScenario = ref<Scenario | null>(null)
 const userInput = ref('')
 // 面试场景专用：岗位描述（JD）
@@ -1580,41 +1590,62 @@ async function handleInviteMember() {
             自定义场景
           </button>
         </header>
-        <div class="scenarios-grid">
-          <div
-            v-for="s in scenarioStore.scenarios"
-            :key="s.id"
-            class="scenario-card-wrap"
-            :class="{ 'is-user': !s.isPreset }"
-          >
-            <button
-              type="button"
-              class="scenario-card"
-              @click="openScenario(s)"
+        <!-- 用户场景区：放在最前面，让用户优先管理自己的场景 -->
+        <section v-if="userScenarios.length > 0" class="scenarios-section">
+          <h3 class="scenarios-section-title">我的场景（{{ userScenarios.length }}）</h3>
+          <div class="scenarios-grid">
+            <div
+              v-for="s in userScenarios"
+              :key="s.id"
+              class="scenario-card-wrap is-user"
             >
-              <div class="scenario-emoji">{{ s.emoji }}</div>
-              <div class="scenario-body">
-                <h3 class="scenario-title">{{ s.title }}</h3>
-                <p class="scenario-desc">{{ s.description }}</p>
-              </div>
-            </button>
-            <!-- 用户私有场景：右上角 hover 出现编辑/删除按钮 -->
-            <div v-if="!s.isPreset" class="scenario-actions">
               <button
                 type="button"
-                class="scenario-action-btn"
-                title="编辑"
+                class="scenario-card"
                 @click="openEditCustomScenario(s, $event)"
-              >✏️</button>
-              <button
-                type="button"
-                class="scenario-action-btn scenario-action-danger"
-                title="删除"
-                @click="openDeleteCustomScenario(s, $event)"
-              >🗑️</button>
+              >
+                <div class="scenario-emoji">{{ s.emoji }}</div>
+                <div class="scenario-body">
+                  <h3 class="scenario-title">{{ s.title }}</h3>
+                  <p class="scenario-desc">{{ s.description }}</p>
+                </div>
+              </button>
+              <!-- 删除按钮（点卡片本身进入编辑） -->
+              <div class="scenario-actions">
+                <button
+                  type="button"
+                  class="scenario-action-btn scenario-action-danger"
+                  title="删除"
+                  @click="openDeleteCustomScenario(s, $event)"
+                >🗑️</button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+
+        <!-- 系统推荐场景区 -->
+        <section class="scenarios-section">
+          <h3 class="scenarios-section-title">系统推荐场景（{{ presetScenarios.length }}）</h3>
+          <div class="scenarios-grid">
+            <div
+              v-for="s in presetScenarios"
+              :key="s.id"
+              class="scenario-card-wrap"
+            >
+              <button
+                type="button"
+                class="scenario-card"
+                @click="openScenario(s)"
+              >
+                <div class="scenario-emoji">{{ s.emoji }}</div>
+                <div class="scenario-body">
+                  <h3 class="scenario-title">{{ s.title }}</h3>
+                  <p class="scenario-desc">{{ s.description }}</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </section>
 
         <!-- 内嵌模板预览弹窗（Teleport 到 body） -->
         <Teleport to="body">
@@ -3443,6 +3474,18 @@ async function handleInviteMember() {
   font-size: 0.875rem;
   color: var(--text-secondary, #6b7280);
   margin: 0;
+}
+
+/* 场景分区：把场景按"用户/系统"分组 */
+.scenarios-section {
+  margin-bottom: 1.5rem;
+}
+.scenarios-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin: 0 0 0.75rem;
+  padding-left: 0.25rem;
 }
 
 .scenarios-grid {
