@@ -43,14 +43,17 @@ const toast = useToast()
 const isEditMode = computed(() => !!props.scenario?.id)
 
 // ===== 表单状态 =====
-// 与后端 UserScenarioRequest 一一对应
+// 与后端 UserScenarioRequest 一一对应：
+// 实际只让用户填：emoji / title / description / promptTemplate
+// 后端必填的 characterName 自动从 title 派生（保持后端契约不破）
+// 原本独立的 userInputLabel / userInputPlaceholder 暂不对用户开放（设计简化）
 const emoji = ref('')
 const title = ref('')
 const description = ref('')
-const characterName = ref('')
-const userInputLabel = ref('')
-const userInputPlaceholder = ref('')
 const promptTemplate = ref('')
+// 角色名 = 标题（保证后端 UserScenarioRequest.characterName 必填字段有值）
+// 编辑模式允许用户保留原 characterName（不入表单，仅在提交时回填）
+const fallbackCharacterName = ref('')
 
 // 自定义 emoji 输入 vs 候选网格点击
 const showCustomEmojiInput = ref(false)
@@ -74,9 +77,8 @@ watch(() => props.show, (newShow) => {
       emoji.value = props.scenario.emoji || ''
       title.value = props.scenario.title || ''
       description.value = props.scenario.description || ''
-      characterName.value = props.scenario.characterName || ''
-      userInputLabel.value = props.scenario.userInputLabel || ''
-      userInputPlaceholder.value = props.scenario.userInputPlaceholder || ''
+      // 编辑模式：保留原 characterName（用户即使改了 title 也不影响原角色名）
+      fallbackCharacterName.value = props.scenario.characterName || ''
       promptTemplate.value = props.scenario.promptTemplate || ''
       // 如果 emoji 不在候选列表里，自动展示自定义输入
       if (emoji.value && !EMOJI_CANDIDATES.includes(emoji.value)) {
@@ -86,10 +88,8 @@ watch(() => props.show, (newShow) => {
       emoji.value = '💡'
       title.value = ''
       description.value = ''
-      characterName.value = ''
-      userInputLabel.value = ''
-      userInputPlaceholder.value = ''
       promptTemplate.value = ''
+      fallbackCharacterName.value = ''
     }
   }
 }, { immediate: true })
@@ -110,9 +110,6 @@ function validateAll(): boolean {
   }
   if (description.value.trim().length < 1) {
     errors.description = '请输入描述'
-  }
-  if (characterName.value.trim().length < 1) {
-    errors.characterName = '请输入角色名'
   }
   if (promptTemplate.value.trim().length < 1) {
     errors.promptTemplate = '请输入系统提示词'
@@ -144,13 +141,17 @@ async function handleSubmit() {
   loading.value = true
   error.value = null
 
+  // characterName 派生：编辑模式保留原值，新建模式用 title 作为默认
+  // 后端 UserScenarioRequest.characterName 必填，必须传一个非空字符串
+  const resolvedCharacterName = isEditMode.value
+    ? (fallbackCharacterName.value || title.value.trim())
+    : title.value.trim()
+
   const req = {
     emoji: emoji.value,
     title: title.value.trim(),
     description: description.value.trim(),
-    characterName: characterName.value.trim(),
-    userInputLabel: userInputLabel.value.trim() || undefined,
-    userInputPlaceholder: userInputPlaceholder.value.trim() || undefined,
+    characterName: resolvedCharacterName,
     promptTemplate: promptTemplate.value.trim()
   }
 
@@ -199,21 +200,21 @@ function selectEmoji(e: string) {
 
 /**
  * AI 自动生成 system prompt 模板。
- * 触发条件：用户至少填了「角色名」或「描述」其中一个（与 CreateCharacterModal 同语义）。
+ * 触发条件：用户至少填了「标题」或「描述」其中一个。
  * 行为：调后端 userScenariosApi.generatePrompt（复用 CharacterService 的联网检索 + LLM 合成能力），
  * 把返回的 prompt 填入 promptTemplate textarea，用户可继续微调后保存。
  * 失败时由后端 fallback 兜底，前端不会收到 500——仅在网络异常时 toast 错误。
  */
 async function handleGeneratePrompt() {
-  if (!characterName.value.trim() && !description.value.trim()) {
-    error.value = '请先填写角色名或描述'
+  if (!title.value.trim() && !description.value.trim()) {
+    error.value = '请先填写标题或描述'
     return
   }
   generatingPrompt.value = true
   error.value = null
   try {
     const response = await userScenariosApi.generatePrompt({
-      name: characterName.value.trim() || '自定义场景',
+      name: title.value.trim() || '自定义场景',
       description: description.value.trim() || undefined
     })
     const generated = response.data?.prompt
@@ -306,44 +307,6 @@ async function handleGeneratePrompt() {
                   rows="2"
                 ></textarea>
                 <p v-if="fieldErrors.description" class="form-error">{{ fieldErrors.description }}</p>
-              </div>
-
-              <!-- 角色名 -->
-              <div class="form-group">
-                <label class="form-label required">角色名</label>
-                <input
-                  v-model="characterName"
-                  type="text"
-                  class="form-input"
-                  placeholder="如：老王·采购总监"
-                />
-                <p class="form-hint">用户点击场景卡片后会创建这个角色（同名复用已有）</p>
-                <p v-if="fieldErrors.characterName" class="form-error">{{ fieldErrors.characterName }}</p>
-              </div>
-
-              <!-- 用户输入框标签（可选） -->
-              <div class="form-group">
-                <label class="form-label">输入框标签（可选）</label>
-                <input
-                  v-model="userInputLabel"
-                  type="text"
-                  class="form-input"
-                  placeholder="如：你要卖什么产品？"
-                />
-                <p class="form-hint">留空则弹窗不显示输入区（直接进入对话）</p>
-                <p v-if="fieldErrors.userInputLabel" class="form-error">{{ fieldErrors.userInputLabel }}</p>
-              </div>
-
-              <!-- 用户输入框占位符（可选） -->
-              <div class="form-group">
-                <label class="form-label">输入框占位符（可选）</label>
-                <input
-                  v-model="userInputPlaceholder"
-                  type="text"
-                  class="form-input"
-                  placeholder="如：例如：SaaS 客服系统"
-                />
-                <p v-if="fieldErrors.userInputPlaceholder" class="form-error">{{ fieldErrors.userInputPlaceholder }}</p>
               </div>
 
               <!-- 提示词模板 -->
