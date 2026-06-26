@@ -36,6 +36,9 @@ public class CharacterService {
     private final RoomRepository roomRepository;
     private final MessageRepository messageRepository;
     private final FirecrawlService firecrawlService;
+    // 文件落盘：用于在创建/更新角色时把外网头像 URL 自动下载到 uploads/avatars/，
+    // 避免渲染头像时每次都打外网。详见 FileStorageService.storeFromUrl。
+    private final FileStorageService fileStorageService;
     // 直接读 langchain4j 的 base-url 而非单独建配置项：与 LangChain4j 自动装配的 OpenAI 客户端共用同一接入点，
     // 这样 REST 调用走的也是同一个 DeepSeek 兼容 endpoint，便于将来切换供应商时只改一个配置。
     private final String deepseekBaseUrl;
@@ -46,12 +49,13 @@ public class CharacterService {
      * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
      * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
      */
-    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
+    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.roomRepository = roomRepository;
         this.messageRepository = messageRepository;
         this.firecrawlService = firecrawlService;
+        this.fileStorageService = fileStorageService;
         this.deepseekBaseUrl = deepseekBaseUrl;
     }
 
@@ -127,7 +131,7 @@ public class CharacterService {
         Character character = new Character();
         character.setName(trimmedName);
         character.setDescription(request.getDescription());
-        character.setAvatarUrl(request.getAvatarUrl());
+        character.setAvatarUrl(downloadAvatarIfExternal(request.getAvatarUrl()));
         character.setPrompt(prompt);
         character.setOwner(owner);
         character.setPreset(false);
@@ -146,6 +150,33 @@ public class CharacterService {
         }
         log.info("[DEBUG] Character created with id: {}, prompt length: {}", saved.getId(), prompt.length());
         return CharacterResponse.fromEntity(saved);
+    }
+
+    /**
+     * 检测 avatarUrl 是否指向外网（http/https），是则下载到本地 uploads/avatars/ 并改写成本地路径。
+     *
+     * <p>用于 create / update 角色时自动把"维基百科 / 用户粘贴的 URL" 落本地，避免后续
+     * 渲染头像每次都打外网（且国内访问维基常超时）。本地路径形如 {@code /api/upload/avatars/auto_<hash>.<ext>}。
+     *
+     * <p>行为契约：
+     *   - 入参为 null / 空 / 已是本地 {@code /api/...} → 原样返回；
+     *   - 下载失败 → 静默保留原 URL，不阻塞角色创建（与 prompt 生成失败降级策略一致）。
+     *
+     * @param avatarUrl 前端传入的 avatarUrl（可能是外网或本地）
+     * @return 落本地后的 URL（仍是同一字符串，或下载后的本地路径）
+     */
+    private String downloadAvatarIfExternal(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()) return avatarUrl;
+        // 已经是本地路径就不用处理
+        if (avatarUrl.startsWith("/api/")) return avatarUrl;
+        // 只处理 http/https 外网
+        if (!avatarUrl.startsWith("http://") && !avatarUrl.startsWith("https://")) return avatarUrl;
+        String stored = fileStorageService.storeFromUrl(avatarUrl);
+        if (stored == null) {
+            log.warn("[DEBUG] downloadAvatarIfExternal failed to download, keeping original URL: {}", avatarUrl);
+            return avatarUrl;
+        }
+        return "/api/upload/avatars/" + stored;
     }
 
     /**
@@ -182,6 +213,29 @@ public class CharacterService {
         }
 
         return "You are a unique character. Speak in character with depth and authenticity.";
+    }
+
+    /**
+     * 无 userId 的 prompt 生成入口，给 DataLoader 这类"没有用户上下文"的场景用。
+     * 走与 {@link #generatePrompt(UUID, String, String)} 完全相同的 LLM 路径，
+     * userApiKey 由调用方提供（DataLoader 从 LangChain4j 配置里读，避免 DeepSeek 网关 401）。
+     * 调用方应保证：
+     *   - name 非空（传名字才能生成）
+     *   - description 可空，作为 LLM 的额外上下文
+     *   - apiKey 可空：null/空/dummy 时 fallback 为通用模板字符串（与上面那个公开方法保持一致）。
+     */
+    public String generatePromptByName(String name, String description, String apiKey) {
+        if (name == null || name.isBlank()) {
+            return "You are a unique character. Speak in character with depth and authenticity.";
+        }
+        try {
+            String result = generatePromptWithAIFromName(name, apiKey);
+            log.info("[DEBUG] generatePromptByName success for '{}', length: {}", name, result.length());
+            return result;
+        } catch (Exception e) {
+            log.error("[DEBUG] generatePromptByName failed for '{}': {}", name, e.getMessage());
+            return "You are a unique character. Speak in character with depth and authenticity.";
+        }
     }
 
     /**
@@ -744,7 +798,7 @@ public class CharacterService {
         Character character = optCharacter.get();
         character.setName(request.getName());
         character.setDescription(request.getDescription());
-        character.setAvatarUrl(request.getAvatarUrl());
+        character.setAvatarUrl(downloadAvatarIfExternal(request.getAvatarUrl()));
         character.setPrompt(request.getPrompt());
 
         Character saved = characterRepository.save(character);

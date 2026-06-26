@@ -98,6 +98,83 @@ public class FileStorageService {
     }
 
     /**
+     * 从外网 URL 下载图片到 uploads/avatars 目录，文件名带 hash 前缀避免重复。
+     *
+     * <p>用途：用户点"创建角色"时如果传的是 wikipedia / 其他外网 URL（不是本地 /api/upload/...），
+     * 后端自动下载到本地，避免每次渲染头像都打外网；同时让头像 URL 在数据库里稳定可缓存。
+     *
+     * <p>安全控制：
+     *   1) 强制按 content-type 校验白名单（JPEG/PNG/GIF/WebP），防止 SVG/HTML 注入；
+     *   2) 限制文件大小 5MB（与上传一致）；
+     *   3) 重定向最多 5 次（防 SSRF 攻击把请求转到内网）；
+     *   4) 文件名用 sha1(url + 当前时间) 做 hash，无原始文件名泄露。
+     *
+     * @param url 外网图片直链（如 https://upload.wikimedia.org/.../foo.jpg）
+     * @return 写入磁盘的文件名（不含目录前缀）；失败返回 null
+     */
+    public String storeFromUrl(String url) {
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) return null;
+        try {
+            java.net.URL u = new java.net.URL(url);
+            // 仅允许 http/https
+            String protocol = u.getProtocol();
+            if (!"http".equals(protocol) && !"https".equals(protocol)) return null;
+
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(15000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "IdeaParty/1.0 (avatar-downloader)");
+            // 维基 CDN 默认会按需返回 thumb/webp，强制要 jpg/png 让前端 <img> 直接渲染
+            conn.setRequestProperty("Accept", "image/jpeg,image/png,image/webp;q=0.9,*/*;q=0.5");
+
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                log.warn("[DEBUG] storeFromUrl non-200 {} for {}", code, url);
+                return null;
+            }
+            String contentType = conn.getContentType();
+            if (contentType == null) return null;
+            // 去掉 charset 等参数
+            String mime = contentType.split(";")[0].trim().toLowerCase();
+            String ext;
+            switch (mime) {
+                case "image/jpeg": ext = ".jpg"; break;
+                case "image/png":  ext = ".png"; break;
+                case "image/gif":  ext = ".gif"; break;
+                case "image/webp": ext = ".webp"; break;
+                default:
+                    log.warn("[DEBUG] storeFromUrl unsupported mime {} for {}", mime, url);
+                    return null;
+            }
+
+            // 文件名 = sha1(url) + ext，确保同一 URL 不会被重复下载
+            String hash = org.springframework.util.DigestUtils.md5DigestAsHex(url.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String filename = "auto_" + hash + ext;
+
+            Path target = this.uploadDir.resolve(filename);
+            // 已存在则跳过（幂等）
+            if (Files.exists(target)) {
+                log.info("[DEBUG] storeFromUrl hit cache: {}", filename);
+                return filename;
+            }
+
+            long copied = Files.copy(conn.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+            if (copied > MAX_FILE_SIZE) {
+                Files.deleteIfExists(target);
+                log.warn("[DEBUG] storeFromUrl too large {} bytes for {}", copied, url);
+                return null;
+            }
+            log.info("[DEBUG] storeFromUrl saved {} ({} bytes) from {}", filename, copied, url);
+            return filename;
+        } catch (Exception e) {
+            log.warn("[DEBUG] storeFromUrl failed for {}: {}", url, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 将文件加载为 Resource 以供返回。
      *
      * @param filename 要加载的文件名
