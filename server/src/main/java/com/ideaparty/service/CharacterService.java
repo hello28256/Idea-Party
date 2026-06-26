@@ -200,8 +200,8 @@ public class CharacterService {
 
         try {
             if (name != null && !name.isBlank()) {
-                // 直接使用 LLM 基于角色名生成 prompt
-                String result = generatePromptWithAIFromName(name, userApiKey);
+                // name 非空时把 description 也带上，避免泛称（如"王老师"）LLM 知识不足
+                String result = generatePromptWithAIFromNameAndDescription(name, description, userApiKey);
                 log.info("[DEBUG] generatePrompt success, length: {}", result.length());
                 return result;
             }
@@ -247,6 +247,16 @@ public class CharacterService {
      * 不进行联网抓取，直接使用 LLM 关于该角色的知识。
      */
     private String generatePromptWithAIFromName(String characterName, String apiKey) {
+        return generatePromptWithAIFromNameAndDescription(characterName, null, apiKey);
+    }
+
+    /**
+     * name + 上下文描述 走 LLM 生成 prompt。
+     * 关键改进：把 description 也拼进 user message，避免"name=王老师"这种泛称
+     * LLM 知识不足时直接走"你是王老师..."的贫瘠兜底。
+     * 兼容 DataLoader 等只传 name 的入口（description=null 时按 name-only 模板）。
+     */
+    private String generatePromptWithAIFromNameAndDescription(String characterName, String description, String apiKey) {
         RestTemplate restTemplate = new RestTemplate();
 
         HttpHeaders headers = new HttpHeaders();
@@ -262,7 +272,16 @@ public class CharacterService {
         // 一路中文打通：模板 (loadPromptTemplate) 已是中文，user message 也固定中文，
         // 去掉 isChineseContent 分流，英文名字角色也能拿到中文角色卡。
         String systemPrompt = loadPromptTemplate();
-        String userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
+        // 把 description 拼进 user message（若有）
+        String userMessage;
+        if (description != null && !description.isBlank()) {
+            userMessage = String.format(
+                "请为以下角色创建一个角色提示词：\n\n角色名：%s\n用户补充描述：%s\n\n立即生成角色提示词：",
+                characterName, description
+            );
+        } else {
+            userMessage = String.format("请为以下角色创建一个角色提示词：%s\n\n立即生成角色提示词：", characterName);
+        }
 
         body.put("messages", List.of(
             Map.of("role", "system", "content", systemPrompt),
@@ -272,7 +291,8 @@ public class CharacterService {
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        log.info("[DEBUG] Calling DeepSeek API to generate prompt from name: {}", characterName);
+        log.info("[DEBUG] Calling DeepSeek API to generate prompt from name+description: name={}, desc_len={}",
+                characterName, description != null ? description.length() : 0);
 
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
@@ -292,7 +312,7 @@ public class CharacterService {
                 }
             }
         } catch (Exception e) {
-            log.error("[DEBUG] AI prompt generation from name failed: {}", e.getMessage());
+            log.error("[DEBUG] AI prompt generation from name+description failed: {}", e.getMessage());
         }
 
         // AI 失败时的兜底（统一中文）
