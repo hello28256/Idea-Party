@@ -15,6 +15,7 @@ import { ref, watch, computed } from 'vue'
 import type { Scenario } from '@/stores/scenario'
 import { useScenarioStore } from '@/stores/scenario'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
 import { userScenariosApi } from '@/api/scenarios'
 import { EMOJI_CANDIDATES, isValidEmoji } from './emojiData'
@@ -38,6 +39,7 @@ const emit = defineEmits<{
 
 const scenarioStore = useScenarioStore()
 const authStore = useAuthStore()
+const settingsStore = useSettingsStore()
 const toast = useToast()
 
 const isEditMode = computed(() => !!props.scenario?.id)
@@ -188,6 +190,12 @@ function handleClose() {
   emit('close')
 }
 
+// 打开全局设置弹窗（让用户配置 DeepSeek API Key）
+// 打开后保留当前 CustomScenarioModal 在背后，设置关闭后用户回来继续填。
+function handleOpenSettings() {
+  settingsStore.openSettings('api-key')
+}
+
 // 点击 emoji 候选
 function selectEmoji(e: string) {
   emoji.value = e
@@ -313,16 +321,32 @@ async function handleGeneratePrompt() {
               <div class="form-group">
                 <div class="prompt-label-row">
                   <label class="form-label">系统提示词（system prompt）</label>
-                  <button
-                    type="button"
-                    class="btn-ai-generate"
-                    :disabled="generatingPrompt || loading"
-                    @click="handleGeneratePrompt"
-                  >
-                    <span v-if="generatingPrompt">生成中…</span>
-                    <span v-else>✨ AI 自动生成</span>
-                  </button>
+                  <!-- 没配置 API key 时：提示用户去设置，禁用生成按钮 -->
+                  <template v-if="!settingsStore.hasApiKey">
+                    <button
+                      type="button"
+                      class="btn-ai-generate"
+                      title="请先在设置中配置 DeepSeek API Key"
+                      @click="handleOpenSettings"
+                    >
+                      ⚙️ 去设置 API Key
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      class="btn-ai-generate"
+                      :disabled="generatingPrompt || loading"
+                      @click="handleGeneratePrompt"
+                    >
+                      <span v-if="generatingPrompt">生成中…</span>
+                      <span v-else>✨ AI 自动生成</span>
+                    </button>
+                  </template>
                 </div>
+                <p v-if="!settingsStore.hasApiKey" class="form-hint is-warn">
+                  需先在设置中配置 DeepSeek API Key 才能使用 AI 自动生成
+                </p>
                 <textarea
                   v-model="promptTemplate"
                   class="form-textarea form-textarea-tall"
