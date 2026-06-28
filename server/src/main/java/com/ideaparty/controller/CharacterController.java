@@ -1,5 +1,6 @@
 package com.ideaparty.controller;
 
+import com.ideaparty.dto.CharacterReferencesResponse;
 import com.ideaparty.dto.CharacterRequest;
 import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.dto.GeneratePromptRequest;
@@ -90,8 +91,12 @@ public class CharacterController {
     }
 
     /**
-     * 根据角色名称调用联网检索 + LLM 生成 system prompt。
-     * 会触发外部副作用（Firecrawl / DeepSeek），由 Service 自行处理 fallback；此处仅做认证注入与结果封装。
+     * 根据角色名 + 用户描述，调用 DeepSeek 生成 system prompt。
+     * 注：当前实现不走联网检索，仅依赖 LLM 自身知识
+     * （见 CharacterService#generatePromptWithAIFromNameAndDescription）。
+     * Service 层会校验调用方是否配置了 DeepSeek API Key；缺失时抛 IllegalArgumentException，
+     * 由 GlobalExceptionHandler 返回 400 + 提示文案「请先在设置页填入 DeepSeek API Key」。
+     * 此处仅做认证注入与结果封装，不捕获业务异常。
      * 同步返回是因为前端需要在创建角色前预览 prompt；流式收益不明显。
      */
     @PostMapping("/generate-prompt")
@@ -171,13 +176,43 @@ public class CharacterController {
     }
 
     /**
+     * 查询角色被哪些聊天室引用：供角色删除前的"级联确认"弹窗使用，
+     * 返回精简的 {id, name} 列表，避免向客户端泄露 ownerId 等敏感字段。
+     *
+     * <p>非 owner 一律回 403（不返 404，避免侧信道探测"角色是否存在"）。
+     */
+    @GetMapping("/{id}/references")
+    public ResponseEntity<CharacterReferencesResponse> getCharacterReferences(
+            Authentication auth, @PathVariable UUID id) {
+        UUID userId = UUID.fromString(auth.getName());
+        if (!characterService.isOwner(id, userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(characterService.findReferences(id, userId));
+    }
+
+    /**
      * 删除角色。Service 通过 deleteIfOwner 保证预设角色与他人角色不会被误删，
      * 失败统一回 403；预设角色实际由另一条管理路径处理，不走此处。
+     *
+     * <p>cascade 查询参数：
+     * <ul>
+     *   <li>缺省 / cascade=false：保持旧行为——若被房间引用则 Service 抛 400，前端走兜底提示。</li>
+     *   <li>cascade=true：调用 deleteIfOwnerWithRooms，事务内一并删除全部引用房间与角色。</li>
+     * </ul>
+     * 仅接受字面量 true（用 Boolean.TRUE.equals 严格判断），其余值一律按 false 处理，
+     * 避免误传 cascade=yes 等被当作 truthy 触发级联。
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteCharacter(Authentication auth, @PathVariable UUID id) {
+    public ResponseEntity<Void> deleteCharacter(
+            Authentication auth,
+            @PathVariable UUID id,
+            @RequestParam(value = "cascade", required = false) Boolean cascade) {
         UUID userId = UUID.fromString(auth.getName());
-        boolean deleted = characterService.deleteIfOwner(id, userId);
+        boolean cascadeEnabled = Boolean.TRUE.equals(cascade);
+        boolean deleted = cascadeEnabled
+                ? characterService.deleteIfOwnerWithRooms(id, userId)
+                : characterService.deleteIfOwner(id, userId);
         if (!deleted) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }

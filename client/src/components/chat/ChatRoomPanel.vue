@@ -143,7 +143,10 @@ function dismissConnectionError() {
 
 function goToSettings() {
   connectionError.value = null
-  showApiKeyPrompt.value = true
+  // 直接跳完整 Settings（定位到 AI tab）。不再走中间的 inline LLM API Key 弹窗——
+  // 用户在「我的聊天」tab 没配 Key 时，被卡在「弹窗 A → 弹窗 B → 才到设置」三层
+  // 嵌套的体验太重；Settings 里本来就有 API Key 输入项，一步到位更清晰。
+  openFullSettings()
 }
 
 // 保存 API Key：保存到账号设置而非房间本地，所有房间复用。
@@ -701,8 +704,9 @@ async function handleCharacterAdded(character: Character) {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: flex;
   align-items: center;
   justify-content: center;

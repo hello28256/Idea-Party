@@ -189,6 +189,12 @@ public class RoomService {
             throw new AccessDeniedException("You are not the owner of this room");
         }
 
+        // 手动清空 ManyToMany 关联集合：Room.characters 没有 REMOVE cascade，
+        // 若不清，roomRepository.delete(room) 后 room_characters 中间表会留下孤儿行，
+        // 后续 Character 删除会因 FK 冲突而失败（级联删除角色的关键前置步骤）。
+        // clear() 在事务内会触发 ORM 脏检查，flush 时自动发 DELETE FROM room_characters WHERE room_id = ?。
+        room.getCharacters().clear();
+
         roomRepository.delete(room);
         log.info("[DEBUG] Room {} deleted successfully", roomId);
     }

@@ -6,9 +6,12 @@ import { useRouter } from 'vue-router'
 import type { Character } from '@/types'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 import { useRoomStore } from '@/stores/room'
 import { charactersApi } from '@/api/characters'
+import type { CharacterReferences } from '@/api/characters'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import CascadeDeleteDialog from './CascadeDeleteDialog.vue'
 import { useToast } from '@/composables/useToast'
 
 // Props：show 控制显隐；mode 决定新建还是编辑；context 决定标题文案、是否出现 Tab、回调事件名。
@@ -50,6 +53,7 @@ const emit = defineEmits<{
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
 const roomStore = useRoomStore()
+const settingsStore = useSettingsStore()
 const router = useRouter()
 const toast = useToast()
 
@@ -75,8 +79,14 @@ const generatingPrompt = ref(false)
 const deleting = ref(false)
 const startingChat = ref(false)
 const error = ref<string | null>(null)
+// 未配置 API Key 时弹窗提示用户，与 ChatRoomPanel 行为一致
+const showApiKeyPrompt = ref(false)
 const uploadingAvatar = ref(false)
 const showDeleteConfirm = ref(false)
+// 级联删除弹窗状态：先查 /references 拿到受影响房间，再决定走原 ConfirmDialog 还是新级联弹窗
+const showCascadeDialog = ref(false)
+const references = ref<CharacterReferences | null>(null)
+const referencesLoading = ref(false)
 const avatarPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 // 自动获取头像：候选列表 + 加载状态；用户点选后 thumbnail URL 写入 form.avatarUrl，
@@ -94,6 +104,7 @@ const activeTab = ref<'create' | 'library'>('create')
 watch(() => props.show, (newShow) => {
   if (newShow) {
     error.value = null
+    showApiKeyPrompt.value = false
     activeTab.value = 'create'
     // In edit mode, initialize form with character data
     if (isEditMode.value && props.character) {
@@ -186,15 +197,24 @@ async function handleSubmit() {
 }
 
 // handleGeneratePrompt：调用后端的 AI 联网检索 / 描述生成接口，用返回的 prompt 覆盖当前表单的 prompt。
-// 仅校验「名字或描述至少有一个」，避免在两者都空时让 AI 端做无效推理；网络错误统一落到 error 字段，由 UI 顶部展示。
+// 前置两步校验：1) 名字或描述至少有一个；2) 用户必须已配置 DeepSeek API Key（避免向后端发注定失败的请求）。
+// 后端 catch 兜底保留：兜后端未重启 / 真 AI 失败等场景。
 async function handleGeneratePrompt() {
   if (!form.value.name.trim() && !form.value.description.trim()) {
     error.value = '请输入角色名称或描述'
     return
   }
 
+  // 前置校验：未配置 key 时直接弹提示模态框（与 ChatRoomPanel 的 MISSING_API_KEY 弹窗一致），
+  // 用户点「去设置」才打开全局设置弹窗。不发注定失败的请求。
+  if (!settingsStore.hasApiKey) {
+    showApiKeyPrompt.value = true
+    return
+  }
+
   generatingPrompt.value = true
   error.value = null
+  showApiKeyPrompt.value = false
 
   try {
     const response = await charactersApi.generatePrompt({
@@ -203,24 +223,62 @@ async function handleGeneratePrompt() {
     })
     form.value.prompt = response.data.prompt
   } catch (e: any) {
-    error.value = e.response?.data?.message || '生成提示词失败'
+    const msg = e.response?.data?.message || '生成提示词失败'
+    error.value = msg
+    toast.error(msg)
+    // 后端兜底：未重启场景下若仍拿到 fallback 假字符串无效，这里只透出真实错误。
+    // 真实"未填 key"已被前端前置校验拦截，后端这条提示主要是兜 401/网络异常。
+    if (msg.includes('API Key')) {
+      showApiKeyPrompt.value = true
+    }
     console.error('[DEBUG] handleGeneratePrompt failed:', e)
   } finally {
     generatingPrompt.value = false
   }
 }
 
+// 用户在 API Key 弹窗里点「去设置」：关掉当前弹窗，唤起全局设置弹窗到 api-key tab
+function goToSettings() {
+  showApiKeyPrompt.value = false
+  settingsStore.openSettings('api-key')
+}
+
 function handleClose() {
   emit('close')
 }
 
+/**
+ * 删除入口：先预查询角色被哪些聊天室引用，决定走原 ConfirmDialog 还是级联弹窗。
+ *
+ * <p>流程：
+ * <ol>
+ *   <li>referencesLoading 防重入</li>
+ *   <li>调 store.fetchReferences(id)：成功拿到 {roomCount, rooms[]}</li>
+ *   <li>若 roomCount > 0 → 弹级联弹窗（用户决定全删或全不删）</li>
+ *   <li>否则（无引用或 fetch 失败）→ 回退到原 ConfirmDialog，保留旧 400 兜底</li>
+ * </ol>
+ *
+ * <p>为什么 fetch 失败要回退到原 ConfirmDialog：fetch 失败不代表"无引用"，
+ * 回退到原流程让用户至少能看到「被 N 个聊天室引用」的提示，不会静默删除。
+ */
 async function handleDeleteCharacter() {
   if (!isEditMode.value || !props.character?.id) return
-  showDeleteConfirm.value = true
+  if (referencesLoading.value || deleting.value) return
+
+  referencesLoading.value = true
+  const refs = await characterStore.fetchReferences(props.character.id)
+  referencesLoading.value = false
+
+  if (refs && refs.roomCount > 0) {
+    references.value = refs
+    showCascadeDialog.value = true
+  } else {
+    // 无引用或 fetch 失败：回退原 ConfirmDialog
+    showDeleteConfirm.value = true
+  }
 }
 
-// handleDeleteCharacter 与 confirmDelete 拆成两步：先打开 ConfirmDialog 让用户二次确认，确认后才真正调用删除 API。
-// store 的 deleteCharacter 返回 boolean：false 表示后端返回了错误且被 store 内部捕获（非 throw），因此要主动读取 characterStore.error。
+// 原 ConfirmDialog 确认回调（无引用场景）：保持原有行为，被引用则由后端 400 兜底。
 async function confirmDelete() {
   if (!props.character?.id) return
   const name = props.character?.name || ''
@@ -228,7 +286,7 @@ async function confirmDelete() {
     deleting.value = true
     error.value = null
     // 必须接 store 返回值：false 表示后端返回了错误（不 throw 但被 store 捕获）
-    const success = await characterStore.deleteCharacter(props.character.id)
+    const success = await characterStore.deleteCharacter(props.character.id, false)
     if (success) {
       showDeleteConfirm.value = false
       toast.success(`已删除角色「${name}」`)
@@ -242,8 +300,39 @@ async function confirmDelete() {
       showDeleteConfirm.value = false
     }
   } catch (e: any) {
-    console.error('[DEBUG] handleDeleteCharacter failed:', e)
+    console.error('[DEBUG] confirmDelete failed:', e)
     const msg = e.response?.data?.message || e.message || '删除角色失败'
+    error.value = msg
+    toast.error(msg)
+  } finally {
+    deleting.value = false
+  }
+}
+
+// 级联弹窗确认回调：走 DELETE ?cascade=true，事务内一并删除引用房间 + 角色。
+// 失败时弹窗保持打开（由 CascadeDeleteDialog 内部展示 error），用户可重试或取消。
+async function confirmCascadeDelete() {
+  if (!props.character?.id) return
+  const name = props.character.name
+  const count = references.value?.roomCount ?? 0
+  try {
+    deleting.value = true
+    error.value = null
+    const success = await characterStore.deleteCharacter(props.character.id, true)
+    if (success) {
+      showCascadeDialog.value = false
+      toast.success(`已删除角色「${name}」及其引用的 ${count} 个聊天室`)
+      emit('deleted', props.character.id)
+      emit('close')
+    } else {
+      // 失败不关弹窗，让 CascadeDeleteDialog 在顶部红条展示错误，用户可重试
+      const msg = characterStore.error || '删除失败'
+      error.value = msg
+      toast.error(msg)
+    }
+  } catch (e: any) {
+    console.error('[DEBUG] confirmCascadeDelete failed:', e)
+    const msg = e.response?.data?.message || e.message || '级联删除失败'
     error.value = msg
     toast.error(msg)
   } finally {
@@ -395,7 +484,7 @@ async function handleAvatarFileChange(event: Event) {
   <Teleport to="body">
     <Transition name="modal">
       <div
-        v-if="show"
+        v-show="show && !showApiKeyPrompt"
         class="character-modal-overlay"
         @click.self="handleClose"
       >
@@ -648,6 +737,29 @@ async function handleAvatarFileChange(event: Event) {
     </Transition>
   </Teleport>
 
+  <!-- API Key 缺失提示弹窗：与 ChatRoomPanel 的 MISSING_API_KEY 处理一致 -->
+  <Teleport to="body">
+    <Transition name="modal">
+      <div v-if="showApiKeyPrompt" class="api-key-modal-overlay" @click.self="showApiKeyPrompt = false">
+        <div class="api-key-modal">
+          <div class="api-key-modal-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3 class="api-key-modal-title">需要配置 API Key</h3>
+          <p class="api-key-modal-desc">AI 生成提示词需要 DeepSeek API Key，请先在设置中配置。</p>
+          <div class="api-key-modal-actions">
+            <button class="api-key-btn-cancel" @click="showApiKeyPrompt = false">取消</button>
+            <button class="api-key-btn-confirm" @click="goToSettings">去设置</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
   <ConfirmDialog
     :show="showDeleteConfirm"
     title="删除角色"
@@ -657,6 +769,16 @@ async function handleAvatarFileChange(event: Event) {
     :loading="deleting"
     @confirm="confirmDelete"
     @cancel="showDeleteConfirm = false"
+  />
+
+  <CascadeDeleteDialog
+    :show="showCascadeDialog"
+    :character-name="props.character?.name || ''"
+    :rooms="references?.rooms ?? []"
+    :loading="deleting"
+    :error="error"
+    @confirm="confirmCascadeDelete"
+    @cancel="showCascadeDialog = false"
   />
 </template>
 
@@ -985,6 +1107,96 @@ async function handleAvatarFileChange(event: Event) {
 .form-error {
   font-size: 13px;
   color: var(--error-color);
+}
+
+/* API Key 缺失提示弹窗（与 ChatRoomPanel 的 MISSING_API_KEY 弹窗保持一致的视觉语言） */
+.api-key-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 11000;
+}
+
+.api-key-modal {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--card-bg, #ffffff);
+  border-radius: 16px;
+  padding: 28px 24px 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.api-key-modal-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.api-key-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.api-key-modal-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.api-key-modal-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.api-key-btn-cancel,
+.api-key-btn-confirm {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s ease;
+}
+.api-key-btn-cancel:hover,
+.api-key-btn-confirm:hover {
+  opacity: 0.85;
+}
+
+.api-key-btn-cancel {
+  background: var(--bg-secondary, #f4f4f5);
+  color: var(--text-primary);
+}
+
+.api-key-btn-confirm {
+  background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
+  color: #ffffff;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
 }
 
 /*** Inputs & Textareas ***/

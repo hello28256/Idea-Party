@@ -4,6 +4,8 @@ import com.ideaparty.entity.Character;
 import com.ideaparty.entity.CharacterCategory;
 
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 // 角色对外返回的 DTO：与持久化实体 Character 解耦，避免直接把 @Entity 序列化给前端
@@ -25,8 +27,9 @@ public class CharacterResponse {
     private UUID ownerId;
     // 区分「平台预设角色」与「用户自建角色」，前端据此控制编辑/删除权限与展示样式。
     private boolean isPreset;
-    // 推荐位分类：发现页"分类标签条"按此过滤；用户自建角色为 null。
-    private CharacterCategory category;
+    // 推荐位分类（多分类集合）：发现页"分类标签条"按此过滤；用户自建角色为空。
+    // 保留数组形态便于前端按需展示多个标签。
+    private Set<CharacterCategory> categories = new HashSet<>();
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -43,7 +46,7 @@ public class CharacterResponse {
         response.setAvatarUrl(character.getAvatarUrl());
         response.setPrompt(character.getPrompt());
         response.setPreset(character.isPreset());
-        response.setCategory(character.getCategory());
+        response.setCategories(character.getCategories());
         response.setCreatedAt(character.getCreatedAt());
         response.setUpdatedAt(character.getUpdatedAt());
         if (character.getOwner() != null) {
@@ -87,8 +90,10 @@ public class CharacterResponse {
     public void setPreset(boolean preset) { isPreset = preset; }
 
     // 前端发现页"分类标签条"过滤；用户自建角色为 null。
-    public CharacterCategory getCategory() { return category; }
-    public void setCategory(CharacterCategory category) { this.category = category; }
+    public Set<CharacterCategory> getCategories() { return categories; }
+    public void setCategories(Set<CharacterCategory> categories) {
+        this.categories = categories == null ? new HashSet<>() : categories;
+    }
 
     // 列表"创建时间"列展示，按从新到旧排序时直接消费。
     public Instant getCreatedAt() { return createdAt; }

@@ -1,8 +1,10 @@
 package com.ideaparty.service;
 
+import com.ideaparty.dto.CharacterReferencesResponse;
 import com.ideaparty.dto.CharacterRequest;
 import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.Room;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
@@ -11,6 +13,7 @@ import com.ideaparty.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
@@ -35,6 +38,7 @@ public class CharacterService {
     private final UserRepository userRepository;
     private final RoomRepository roomRepository;
     private final MessageRepository messageRepository;
+    private final RoomService roomService;
     private final FirecrawlService firecrawlService;
     // 文件落盘：用于在创建/更新角色时把外网头像 URL 自动下载到 uploads/avatars/，
     // 避免渲染头像时每次都打外网。详见 FileStorageService.storeFromUrl。
@@ -52,11 +56,12 @@ public class CharacterService {
      * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
      * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
      */
-    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl, com.ideaparty.cache.PresetCharacterCache presetCache) {
+    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, RoomService roomService, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl, com.ideaparty.cache.PresetCharacterCache presetCache) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.roomRepository = roomRepository;
         this.messageRepository = messageRepository;
+        this.roomService = roomService;
         this.firecrawlService = firecrawlService;
         this.fileStorageService = fileStorageService;
         this.deepseekBaseUrl = deepseekBaseUrl;
@@ -185,12 +190,14 @@ public class CharacterService {
 
     /**
      * 基于角色名称和/或描述生成角色 prompt。
-     * 异常被吞掉并返回兜底 prompt：prompt 生成是"锦上添花"步骤，失败不应阻塞主链路（角色创建/预览），
-     * 宁可让角色显得平庸，也不要让用户看到 500。
+     * 与 generatePromptByName 不同：这条是面向"用户在 UI 里点 AI 生成"的主入口，
+     * 必须把 API Key 缺失和 AI 真实失败都向上抛，让 GlobalExceptionHandler 返回 4xx/5xx 给前端，
+     * 不能再吞掉异常返回假 prompt（历史 bug：用户没填 key 时会拿到硬编码字符串，误以为 AI 真在工作）。
      * @param userId 请求生成的用户（用于取其 API key）
-     * @param name 角色名（可选，用于联网检索）
+     * @param name 角色名（可选，用于 LLM 知识生成）
      * @param description 用户提供的描述（可选，直接用于 AI 生成）
      * @return 生成的 prompt 文本
+     * @throws IllegalArgumentException 用户未配置 DeepSeek API Key 时抛出
      */
     public String generatePrompt(UUID userId, String name, String description) {
         User owner;
@@ -202,20 +209,23 @@ public class CharacterService {
 
         String userApiKey = (owner != null) ? owner.getApiKey() : null;
 
-        try {
-            if (name != null && !name.isBlank()) {
-                // name 非空时把 description 也带上，避免泛称（如"王老师"）LLM 知识不足
-                String result = generatePromptWithAIFromNameAndDescription(name, description, userApiKey);
-                log.info("[DEBUG] generatePrompt success, length: {}", result.length());
-                return result;
-            }
-            if (description != null && !description.isBlank()) {
-                return generatePromptWithAIFromDescription(description, userApiKey);
-            }
-        } catch (Exception e) {
-            log.error("[DEBUG] generatePrompt failed: {}", e.getMessage());
+        // key 缺失前置校验：复用 LLM 调用内部的三段判定，与生成时行为保持一致
+        // 不带 Authorization 调 DeepSeek 必然失败，与其让用户看到 500 不如直接引导去设置页
+        if (userApiKey == null || userApiKey.isBlank()
+                || "sk-dummy-key-for-testing".equals(userApiKey)) {
+            throw new IllegalArgumentException("请先在设置页填入 DeepSeek API Key");
         }
 
+        if (name != null && !name.isBlank()) {
+            // name 非空时把 description 也带上，避免泛称（如"王老师"）LLM 知识不足
+            String result = generatePromptWithAIFromNameAndDescription(name, description, userApiKey);
+            log.info("[DEBUG] generatePrompt success, length: {}", result.length());
+            return result;
+        }
+        if (description != null && !description.isBlank()) {
+            return generatePromptWithAIFromDescription(description, userApiKey);
+        }
+        // name 和 description 都空：UI 层 handleGeneratePrompt 已挡住，服务端兜底防绕过
         return "You are a unique character. Speak in character with depth and authenticity.";
     }
 
@@ -848,6 +858,72 @@ public class CharacterService {
     }
 
     /**
+     * 列出引用了指定角色的全部房间，供角色删除前的"级联确认"弹窗使用。
+     *
+     * <p>只校验角色所有权：业务约定角色 owner 与引用房间 owner 通常一致
+     * （角色库中的私有角色才能被引用，预设角色由内存缓存加载不进 DB），
+     * 因此"跨用户引用"在实际场景中几乎不存在，但仍通过复用 RoomService.deleteIfOwner
+     * 的 owner 校验做防御。
+     *
+     * <p>排序：按房间名不区分大小写升序，同名房间按 createdAt 升序做 tie-breaker，
+     * 让前端弹窗内房间列表的展示顺序稳定，避免每次打开抖动。
+     *
+     * @param characterId 角色 ID
+     * @param userId      当前用户 ID；非 owner 抛 AccessDeniedException
+     * @return 引用列表的精简 DTO（id + name，不暴露 ownerId）
+     */
+    @Transactional(readOnly = true)
+    public CharacterReferencesResponse findReferences(UUID characterId, UUID userId) {
+        if (!characterRepository.existsByIdAndOwnerId(characterId, userId)) {
+            throw new AccessDeniedException("Not owner of character");
+        }
+        // getReferenceById 只返回代理对象，不发 SELECT，避免把整行 Character 加载进内存
+        Character probe = characterRepository.getReferenceById(characterId);
+        List<Room> rooms = roomRepository.findAllByCharactersContaining(probe);
+        rooms.sort(Comparator
+                .comparing(Room::getName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(Room::getCreatedAt));
+        return new CharacterReferencesResponse(
+                characterId,
+                rooms.size(),
+                rooms.stream()
+                        .map(r -> new CharacterReferencesResponse.ReferencedRoom(r.getId(), r.getName()))
+                        .toList()
+        );
+    }
+
+    /**
+     * 级联删除角色：先删全部引用该角色的房间，最后删角色本身。
+     *
+     * <p>事务原子性：方法整体包在 @Transactional 里，Room.delete + Character.delete
+     * 任一失败则整事务回滚；Room→RoomMember / Message / room_characters 中间表的清理
+     * 依赖 Room 实体上的 JPA cascade 配置完成，无需手动 SQL。
+     *
+     * <p>复用而非重写：调用 RoomService.deleteIfOwner 而非直接 roomRepository.delete(room)，
+     * 是为了复用其内部的"仅房主可删"鉴权逻辑——理论上角色 owner = 房间 owner，
+     * 但若发生 race condition（用户在删除过程中房间 owner 变更），AccessDeniedException 会
+     * 触发整事务回滚，前端展示 403 错误。
+     *
+     * @return true 表示成功；false 表示用户不是角色 owner（控制器返回 403）
+     */
+    @Transactional
+    public boolean deleteIfOwnerWithRooms(UUID characterId, UUID userId) {
+        if (!characterRepository.existsByIdAndOwnerId(characterId, userId)) {
+            return false;
+        }
+        Character probe = characterRepository.getReferenceById(characterId);
+        List<Room> rooms = roomRepository.findAllByCharactersContaining(probe);
+        log.info("[DEBUG] Cascade-deleting character {} with {} referencing rooms (user {})",
+                characterId, rooms.size(), userId);
+        for (Room r : rooms) {
+            // 复用 RoomService.deleteIfOwner：复用鉴权 + JPA cascade 自动清 RoomMember / Message / 中间表
+            roomService.deleteIfOwner(r.getId(), userId);
+        }
+        characterRepository.deleteById(characterId);
+        return true;
+    }
+
+    /**
      * 检查该角色是否被其他表引用，返回具体原因；无引用返回 null。
      * 返回"中文提示字符串"而不是结构化对象，是因为这条异常会原样抛给前端展示给用户，
      * 让用户看到具体数量（"被 3 个聊天室引用"）比"FK conflict"更可执行。
@@ -915,8 +991,7 @@ public class CharacterService {
             return presetCache.getAll();
         }
         return presetCache.getAll().stream()
-                .filter(c -> category.name().equals(
-                    c.getCategory() != null ? c.getCategory().name() : null))
+                .filter(c -> c.getCategories() != null && c.getCategories().contains(category))
                 .collect(Collectors.toList());
     }
 }

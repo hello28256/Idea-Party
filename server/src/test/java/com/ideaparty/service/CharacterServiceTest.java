@@ -1,10 +1,14 @@
 package com.ideaparty.service;
 
+import com.ideaparty.cache.PresetCharacterCache;
 import com.ideaparty.dto.CharacterRequest;
 import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.entity.Character;
+import com.ideaparty.entity.CharacterCategory;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.CharacterRepository;
+import com.ideaparty.repository.MessageRepository;
+import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +20,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,7 +44,22 @@ class CharacterServiceTest {
     private UserRepository userRepository;
 
     @Mock
+    private RoomRepository roomRepository;
+
+    @Mock
+    private MessageRepository messageRepository;
+
+    @Mock
+    private RoomService roomService;
+
+    @Mock
     private FirecrawlService firecrawlService;
+
+    @Mock
+    private FileStorageService fileStorageService;
+
+    @Mock
+    private PresetCharacterCache presetCache;
 
     @InjectMocks
     private CharacterService characterService;
@@ -115,7 +137,7 @@ class CharacterServiceTest {
         request.setAvatarUrl("https://example.com/sherlock.png");
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
-        when(characterRepository.save(any(Character.class))).thenAnswer(invocation -> {
+        when(characterRepository.saveAndFlush(any(Character.class))).thenAnswer(invocation -> {
             Character charac = invocation.getArgument(0);
             charac.setId(UUID.randomUUID());
             return charac;
@@ -131,7 +153,7 @@ class CharacterServiceTest {
         assertEquals("https://example.com/sherlock.png", response.getAvatarUrl());
 
         verify(userRepository).findById(userId);
-        verify(characterRepository).save(any(Character.class));
+        verify(characterRepository).saveAndFlush(any(Character.class));
     }
 
     @Test
@@ -147,7 +169,7 @@ class CharacterServiceTest {
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
         when(firecrawlService.scrape("Einstein")).thenReturn(scrapedContent);
-        when(characterRepository.save(any(Character.class))).thenAnswer(invocation -> {
+        when(characterRepository.saveAndFlush(any(Character.class))).thenAnswer(invocation -> {
             Character charac = invocation.getArgument(0);
             charac.setId(UUID.randomUUID());
             return charac;
@@ -161,7 +183,7 @@ class CharacterServiceTest {
         assertEquals("Einstein", response.getName());
         // FirecrawlService should have been called to scrape web content
         verify(firecrawlService).scrape("Einstein");
-        verify(characterRepository).save(any(Character.class));
+        verify(characterRepository).saveAndFlush(any(Character.class));
     }
 
     @Test
@@ -273,31 +295,124 @@ class CharacterServiceTest {
     }
 
     @Test
-    @DisplayName("generatePrompt should use AI when name is provided")
-    void generatePrompt_shouldUseAIWhenNameProvided() {
-        // Given
-        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+    @DisplayName("generatePrompt should throw IllegalArgumentException when API key is missing")
+    void generatePrompt_shouldThrowWhenApiKeyMissing() {
+        // Given: 构造一个 apiKey=null 的用户实例
+        User userWithoutKey = User.builder()
+                .id(userId)
+                .email("nokey@example.com")
+                .username("nokey")
+                .apiKey(null)
+                .build();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithoutKey));
 
-        // When
-        String prompt = characterService.generatePrompt(userId, "Test Character", null);
-
-        // Then
-        assertNotNull(prompt);
-        // The method should attempt AI generation
-        verify(userRepository).findById(userId);
+        // When & Then
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> characterService.generatePrompt(userId, "Test Character", null));
+        assertTrue(ex.getMessage().contains("API Key"),
+                "异常 message 应该引导用户去设置页填 key，实际：" + ex.getMessage());
     }
 
     @Test
-    @DisplayName("generatePrompt should return fallback when AI fails")
-    void generatePrompt_shouldReturnFallbackWhenAIFails() {
-        // Given
+    @DisplayName("generatePrompt should throw IllegalArgumentException when API key is dummy placeholder")
+    void generatePrompt_shouldThrowWhenApiKeyIsDummy() {
+        // Given: 用户填了测试用 dummy 占位 key
+        User userWithDummyKey = User.builder()
+                .id(userId)
+                .email("dummy@example.com")
+                .username("dummy")
+                .apiKey("sk-dummy-key-for-testing")
+                .build();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithDummyKey));
+
+        // When & Then: dummy key 视为未配置
+        assertThrows(IllegalArgumentException.class,
+                () -> characterService.generatePrompt(userId, "Test Character", null));
+    }
+
+    @Test
+    @DisplayName("generatePrompt should not return hardcoded fallback when AI key is configured")
+    void generatePrompt_shouldNotReturnHardcodedFallback() {
+        // Given: key 校验通过（testUser.apiKey="test-api-key"），但本机无 DeepSeek 访问。
+        // 由于 generatePromptWithAI* 内部 catch 仍会兜底返回中文假字符串（保护 DataLoader 启动期容错），
+        // 这条路径在 CI / 无网络下无法靠 assertThrows 验证——只能断言"调用了 AI 生成路径"而不是返回通用英文兜底。
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
 
         // When
         String prompt = characterService.generatePrompt(userId, "Unknown Character", null);
 
-        // Then
-        assertNotNull(prompt);
-        assertTrue(prompt.contains("Unknown Character") || prompt.length() > 0);
+        // Then: 不应该是 name/description 双空时才返回的英文通用兜底
+        assertNotEquals("You are a unique character. Speak in character with depth and authenticity.", prompt);
+        verify(userRepository).findById(userId);
+    }
+
+    // ------------------------------------------------------------------------
+    // findRecommendedByCategory（多分类匹配）
+    //
+    // 验证 Set<CharacterCategory> 的 contains 语义：
+    //   1) 一个角色同时属于多个分类时，对任一分类的 chip 过滤都应返回它；
+    //   2) 单元素 categories 数组的角色也能命中；
+    //   3) null 入参走全集分支。
+    // 用 PresetCharacterCache.getAll() 作为 stub 数据源，避免依赖真实的 presets.json。
+    // ------------------------------------------------------------------------
+
+    private CharacterResponse stubPreset(String name, Set<CharacterCategory> categories) {
+        Character c = new Character();
+        c.setId(UUID.randomUUID());
+        c.setName(name);
+        c.setDescription("desc-" + name);
+        c.setPreset(true);
+        c.setCategories(categories);
+        ReflectionTestUtils.setField(c, "createdAt", Instant.now());
+        ReflectionTestUtils.setField(c, "updatedAt", Instant.now());
+        return CharacterResponse.fromEntity(c);
+    }
+
+    @Test
+    @DisplayName("findRecommendedByCategory: 多分类角色按 OR 语义匹配任一目标分类")
+    void findRecommendedByCategory_multiCategoryCharacter_matchesAnyTarget() {
+        // 毛泽东 = HISTORICAL + POLITICIAN + MILITARY_LEADER；纯历史人物 = 单分类
+        CharacterResponse mao = stubPreset("毛泽东",
+                Set.of(CharacterCategory.HISTORICAL, CharacterCategory.POLITICIAN, CharacterCategory.MILITARY_LEADER));
+        CharacterResponse confucius = stubPreset("孔子",
+                Set.of(CharacterCategory.HISTORICAL, CharacterCategory.PHILOSOPHER));
+        when(presetCache.getAll()).thenReturn(List.of(mao, confucius));
+
+        // 当：用户筛 POLITICIAN
+        List<CharacterResponse> result = characterService.findRecommendedByCategory(CharacterCategory.POLITICIAN);
+
+        // 那么：只有毛泽东命中（孔子没有 POLITICIAN 标签）
+        assertEquals(1, result.size());
+        assertEquals("毛泽东", result.get(0).getName());
+    }
+
+    @Test
+    @DisplayName("findRecommendedByCategory: 单元素 categories 数组按 contains 匹配")
+    void findRecommendedByCategory_singleElementArray_matchesAsOneOf() {
+        CharacterResponse einstein = stubPreset("爱因斯坦", Set.of(CharacterCategory.SCIENTIST));
+        CharacterResponse jobs = stubPreset("乔布斯", Set.of(CharacterCategory.ENTREPRENEUR));
+        when(presetCache.getAll()).thenReturn(List.of(einstein, jobs));
+
+        // 当：用户筛 SCIENTIST
+        List<CharacterResponse> result = characterService.findRecommendedByCategory(CharacterCategory.SCIENTIST);
+
+        // 那么：只命中爱因斯坦
+        List<String> names = result.stream().map(CharacterResponse::getName).collect(Collectors.toList());
+        assertEquals(List.of("爱因斯坦"), names);
+    }
+
+    @Test
+    @DisplayName("findRecommendedByCategory: null 入参返回全集")
+    void findRecommendedByCategory_nullCategory_returnsAll() {
+        CharacterResponse a = stubPreset("A", Set.of(CharacterCategory.SCIENTIST));
+        CharacterResponse b = stubPreset("B", Set.of(CharacterCategory.STAR));
+        CharacterResponse c = stubPreset("C", Set.of());  // 空分类也应返回
+        when(presetCache.getAll()).thenReturn(List.of(a, b, c));
+
+        // 当：category 传 null
+        List<CharacterResponse> result = characterService.findRecommendedByCategory(null);
+
+        // 那么：全集 3 条都返回
+        assertEquals(3, result.size());
     }
 }

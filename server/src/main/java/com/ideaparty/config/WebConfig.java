@@ -25,8 +25,9 @@ public class WebConfig implements WebMvcConfigurer {
 
     /**
      * 注册两类静态资源映射：
-     * 1) {@code /api/upload/avatars/**} → 相对路径 {@code uploads/avatars/}，缓存 1 年
-     *    （头像 URL 在数据库长期稳定，激进缓存可显著减少带宽）；
+     * 1) {@code /api/upload/avatars/**} → 相对路径 {@code uploads/avatars/}，缓存 1 小时
+     *    原因：预设头像文件名是固定的（如 {@code wang-xing.jpg}），运营可能随时替换；
+     *    之前设 1 年会导致浏览器缓存住旧的占位图，新头像不生效（2026-06-28 踩坑）。
      * 2) {@code /uploads/**} → 基于 {@code user.dir} 解析的绝对路径，缓存 1 小时
      *    （通用文件可能频繁覆盖，保守缓存避免脏读）。
      *
@@ -35,11 +36,14 @@ public class WebConfig implements WebMvcConfigurer {
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 头像专用映射：使用相对路径，由 Spring 以后台工作目录为基准解析；缓存期取一年（约 3.16e7 秒），
-        // 因为头像文件名带 hash/UUID 几乎不可变，激进缓存可让浏览器/CDN 长期复用，避免重复下载。
+        // 头像专用映射：使用相对路径，由 Spring 以后台工作目录为基准解析；缓存期 1 小时。
+        // 注意：之前注释里说"文件名带 hash/UUID 几乎不可变"是针对用户上传头像的场景，
+        // 但预设头像 slug（如 wang-xing.jpg）是固定字符串，运营可能随时覆盖同名文件，
+        // 必须缩短缓存才能让覆盖立即生效。setCachePeriod(3600) 配合 Spring 的 ResourceLastModified
+        // 策略：浏览器 max-age 过期后会发 If-Modified-Since 重新验证，文件修改时间变了就返回 200 + 新内容。
         registry.addResourceHandler("/api/upload/avatars/**")
                 .addResourceLocations("file:uploads/avatars/")
-                .setCachePeriod(31556926); // 1 year in seconds
+                .setCachePeriod(3600); // 1 hour, was 1 year (31556926)
 
         // 通用 uploads 映射：必须解析为绝对路径写入日志/资源定位，
         // 因为 IDE、Maven、java -jar 等不同启动方式下 user.dir 含义不同；

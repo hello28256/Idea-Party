@@ -2,7 +2,9 @@ package com.ideaparty.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -51,6 +53,13 @@ public class Character {
     @Column(name = "expertise")
     private List<String> expertise;
 
+    // 反向关联引用本角色的聊天室集合：mappedBy 指向 Room.characters，本字段不维护中间表写入，
+    // 仅供 ORM 导航与级联删除时让 JPA 知道"角色被哪些 Room 引用"。
+    // 不声明 cascade：本字段是 inverse side，删除应由 owning side (Room) 触发；
+    // 但因为 Room.characters 没有 REMOVE cascade，RoomService.deleteIfOwner 需手动 room.getCharacters().clear() 触发中间表清理。
+    @ManyToMany(mappedBy = "characters")
+    private Set<Room> rooms = new HashSet<>();
+
     // 角色所属时代（如"三国"/"现代"），仅作为人设元数据，便于 prompt 拼接，不参与逻辑分支。
     @Column(length = 50)
     private String era;
@@ -71,11 +80,17 @@ public class Character {
     @Column(name = "is_preset", nullable = false)
     private boolean isPreset = false;
 
-    // 推荐位分类：发现页"分类标签条"按此字段过滤；仅预设角色填写，用户自建角色保持 null。
-    // 用 STRING 存储：避免 ORDINAL 在重排枚举常量时把历史数据全打乱。
+    // 推荐位分类（多分类）：发现页"分类标签条"按此字段过滤；仅预设角色填写，用户自建角色保持空。
+    // 多分类原因：一个角色可能同时属于多个分类（如毛泽东既是历史人物也是政治家、军事家），
+    // 筛选时按"包含"语义匹配，单选 chip 体验下用户传任一分类都能命中。
+    // 复用 Character.expertise 的 @ElementCollection 模式（项目内唯一多值字段先例），
+    // 不引入 AttributeConverter，保持与现有 JPA 习惯一致。
+    // 用 STRING 存储枚举名：避免 ORDINAL 在重排枚举常量时把历史数据全打乱。
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "character_categories", joinColumns = @JoinColumn(name = "character_id"))
     @Enumerated(EnumType.STRING)
-    @Column(length = 32)
-    private CharacterCategory category;
+    @Column(name = "category", length = 32)
+    private Set<CharacterCategory> categories = new HashSet<>();
 
     // 创建时间由 JPA 在首次持久化时写入，业务层不应手动 set，避免被覆盖。
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -173,8 +188,16 @@ public class Character {
     /** 仅供 JPA / 测试场景使用，正常流程由 {@link #onUpdate()} 维护。 */
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 
-    /** @return 预设角色的推荐位分类（科学家/明星/企业家等）；用户自建角色为 null。 */
-    public CharacterCategory getCategory() { return category; }
-    /** @param category 推荐位分类；DataLoader 写入预设角色时填，用户自建角色不设。 */
-    public void setCategory(CharacterCategory category) { this.category = category; }
+    /** @return 预设角色的推荐位分类集合（科学家/明星/企业家等）；用户自建角色为空。 */
+    public Set<CharacterCategory> getCategories() { return categories; }
+    /** @param categories 推荐位分类集合；DataLoader/PresetCharacterCache 写入预设角色时填。 */
+    public void setCategories(Set<CharacterCategory> categories) {
+        this.categories = categories == null ? new HashSet<>() : categories;
+    }
+    /** 便捷方法：往集合里追加一个分类（用于 DataLoader 的单分类 fallback 路径）。 */
+    public void addCategory(CharacterCategory category) {
+        if (category == null) return;
+        if (this.categories == null) this.categories = new HashSet<>();
+        this.categories.add(category);
+    }
 }

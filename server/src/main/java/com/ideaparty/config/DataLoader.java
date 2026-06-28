@@ -375,7 +375,7 @@ public class DataLoader implements CommandLineRunner {
         c.setDescription(description);
         c.setAvatarUrl(avatarUrl);
         c.setPreset(true);
-        c.setCategory(category);
+        c.addCategory(category);
         if (prompt == null) {
             // 启动期生成：依赖 CharacterService 已注入（@Service 是单例，DataLoader @Component
             // 晚于 Service 装配，调用安全）。失败时 CharacterService 内部已 fallback 到通用 prompt。

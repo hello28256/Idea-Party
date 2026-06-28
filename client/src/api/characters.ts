@@ -1,6 +1,25 @@
 import { api } from './auth'
 import type { Character, CharacterRequest } from '@/types'
 
+/**
+ * 角色被引用的聊天室精简信息（仅 id + name，不暴露 ownerId）。
+ * 与后端 CharacterReferencesResponse.ReferencedRoom 对齐。
+ */
+export interface ReferencedRoom {
+  id: string
+  name: string
+}
+
+/**
+ * 角色引用查询的响应：列出引用了指定角色的全部聊天室，供删除前的"级联确认"弹窗使用。
+ * 与后端 CharacterReferencesResponse 对齐。
+ */
+export interface CharacterReferences {
+  characterId: string
+  roomCount: number
+  rooms: ReferencedRoom[]
+}
+
 // 角色域 REST 客户端，对接后端 CharacterController（/characters）与 UploadController（/upload/avatar）。
 // 复用 ./auth 导出的 axios 实例，自动带上 JWT 与统一错误处理；
 // 角色管理页（CharacterLibraryView）、角色创建/编辑弹窗、聊天室编排面板均消费此模块。
@@ -24,12 +43,15 @@ export const charactersApi = {
   /**
    * 列出基于用户画像/热点的个性化推荐角色。
    * HTTP GET /characters/recommended[?category=SCIENTIST|STAR|...]。
-   * 不传 category 返回全部预设；传枚举名按分类过滤（用于发现页"分类标签条"）。
+   * 不传 category 返回全部预设；传单枚举名按"包含"语义过滤（用于发现页"分类标签条"）。
+   * 后端会把角色的 categories 集合与入参做 contains 判断，多分类的角色会被多个 chip 命中。
    * 调用方：CharacterLibraryView 推荐 Tab、RoomListView 发现页。
    */
   // 后端基于当前用户画像/热点推荐的个性化角色列表，与 presets 的区别是会随用户行为变化。
   getRecommended: (category?: string) => {
-    const params = category ? { category } : {}
+    // 加时间戳参数强制不走浏览器/中间层缓存，避免角色头像更新后还显示旧数据
+    const params: Record<string, string> = category ? { category } : {}
+    params._t = String(Date.now())
     return api.get<Character[]>('/characters/recommended', { params })
   },
 
@@ -77,10 +99,22 @@ export const charactersApi = {
 
   /**
    * 删除角色。
-   * HTTP DELETE /characters/{id}。
+   * HTTP DELETE /characters/{id}[?cascade=true]。
    * 调用方：CharacterLibraryView 行内删除按钮（带确认弹窗）。
+   * cascade=true 时后端会一并删除引用该角色的全部聊天室（事务原子）；
+   * 缺省或 false 保持旧行为：被引用则 400，由前端兜底提示。
    */
-  remove: (id: string) => api.delete(`/characters/${id}`),
+  remove: (id: string, cascade = false) =>
+    api.delete(`/characters/${id}${cascade ? '?cascade=true' : ''}`),
+
+  /**
+   * 查询角色被哪些聊天室引用：删除前的"级联确认"弹窗使用，
+   * 返回精简的 {id, name} 列表，便于前端做"是否一并删除 N 个聊天室"决策。
+   * HTTP GET /characters/{id}/references。
+   * 调用方：CreateCharacterModal 的级联删除流程。
+   */
+  getReferences: (id: string) =>
+    api.get<CharacterReferences>(`/characters/${id}/references`),
 
   /**
    * 上传角色头像，返回资源 URL。

@@ -47,7 +47,12 @@ public class RateLimitingFilter implements Filter {
 
         String path = httpRequest.getRequestURI();
         // 登录/注册等鉴权接口故意不走限流：登录失败本身可能因频繁重试触发限流，会让真正的用户在封禁期无法登录，反而放大问题
-        if (path.startsWith("/api/auth")) {
+        // 静态资源（头像、上传文件）同样不走限流：浏览器打开发现页/聊天室时会一次性并发加载几十张头像，
+        // 30 req/s 的 IP 限流会把后到的请求 429，导致 <img onerror> 触发首字母占位 fallback（2026-06-28 踩坑）。
+        // 头像已走 1 小时浏览器缓存 + SecurityConfig permitAll，限流意义不大。
+        if (path.startsWith("/api/auth")
+                || path.startsWith("/api/upload/")
+                || path.startsWith("/uploads/")) {
             chain.doFilter(request, response);
             return;
         }

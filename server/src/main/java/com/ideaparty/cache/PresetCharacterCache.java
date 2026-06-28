@@ -14,8 +14,10 @@ import org.springframework.stereotype.Component;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -85,15 +87,20 @@ public class PresetCharacterCache {
             c.setSpeakingStyle(e.speakingStyle);
             c.setPersona(e.persona);
             c.setPreset(true);
-            // category 字段为 null 时不调用 setCategory，fromEntity 会自动转 null
-            if (e.category != null && !e.category.isBlank()) {
-                try {
-                    c.setCategory(CharacterCategory.valueOf(e.category));
-                } catch (IllegalArgumentException ignored) {
-                    // presets.json 里写了无效的 category 值时，log warn 并 fallback 到 null
-                    log.warn("[PresetCache] invalid category '{}' for preset id={}, falling back to null",
-                             e.category, id);
+            // categories 多分类解析：每条记录一个枚举名，非法值 warn + 跳过该条不影响其它
+            if (e.categories != null) {
+                Set<CharacterCategory> parsed = new HashSet<>(e.categories.size());
+                for (String name : e.categories) {
+                    if (name == null || name.isBlank()) continue;
+                    try {
+                        parsed.add(CharacterCategory.valueOf(name.trim()));
+                    } catch (IllegalArgumentException ignored) {
+                        // presets.json 里某条 category 值无效时，warn 但不影响其它有效值
+                        log.warn("[PresetCache] invalid category '{}' for preset id={}, skipping",
+                                 name, id);
+                    }
                 }
+                c.setCategories(parsed);
             }
             CharacterResponse resp = CharacterResponse.fromEntity(c);
             newById.put(id, resp);
@@ -137,6 +144,7 @@ public class PresetCharacterCache {
         public String era;
         public String speakingStyle;
         public String persona;
-        public String category;
+        /** 多分类集合：支持一个角色同时属于多个分类（如毛泽东 = 历史人物 + 政治家 + 军事家）。 */
+        public List<String> categories;
     }
 }

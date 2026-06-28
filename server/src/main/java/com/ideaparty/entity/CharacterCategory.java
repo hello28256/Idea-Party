@@ -31,7 +31,13 @@ public enum CharacterCategory {
     /** 历史人物：政治/军事/宗教领域的历史人物 */
     HISTORICAL("历史人物", "🏛️"),
     /** 艺术家：画家/雕塑家/音乐家/作曲家 */
-    ARTIST("艺术家", "🖼️");
+    ARTIST("艺术家", "🖼️"),
+    /** 虚构角色：小说/动漫/影视/游戏中的人物（如唐僧、蜘蛛侠、蝙蝠侠） */
+    FICTIONAL("虚构角色", "🎭"),
+    /** 政治家：政治领袖/改革者/革命家（如毛泽东、列宁、丘吉尔） */
+    POLITICIAN("政治家", "🏛️"),
+    /** 军事家：统帅/将领/军事理论家（如拿破仑、成吉思汗） */
+    MILITARY_LEADER("军事家", "⚔️");
 
     private final String label;
     private final String emoji;

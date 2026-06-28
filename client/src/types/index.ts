@@ -76,6 +76,21 @@ export interface UpdateRoomModeRequest {
   maxDiscussionRounds?: number
 }
 
+// 角色分类枚举（与后端 CharacterCategory 严格对齐，发现页"分类标签条"id 也用这套 name）。
+// 加新分类时：后端枚举 + presets.json + 这里三处同步更新。
+export type CharacterCategory =
+  | 'SCIENTIST'
+  | 'STAR'
+  | 'ENTREPRENEUR'
+  | 'PHILOSOPHER'
+  | 'ATHLETE'
+  | 'WRITER'
+  | 'HISTORICAL'
+  | 'ARTIST'
+  | 'FICTIONAL'
+  | 'POLITICIAN'
+  | 'MILITARY_LEADER'
+
 // 角色领域模型：preset 表示系统内置角色（所有人可见），非 preset 为用户私有。
 // preset 与 isPreset 并存是为了兼容后端不同版本返回的字段命名。
 export interface Character {
@@ -87,6 +102,9 @@ export interface Character {
   ownerId?: string
   isPreset?: boolean
   preset?: boolean
+  // 推荐位分类（多分类集合）：发现页"分类标签条"按此过滤；
+  // 一个角色可同时属于多个分类（如毛泽东 = 历史 + 政治家 + 军事家），筛选按"包含"语义匹配。
+  categories?: CharacterCategory[]
   createdAt: string
   updatedAt: string
 }

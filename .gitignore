@@ -76,8 +76,11 @@ __pycache__/
 
 # 图片
 test*.png
-test*
+/test*
 client/test*.png
 
 # 头像处理临时备份(中心裁剪/缩放前)
 server/uploads/avatars/presets/_backup/
+# 任何 .bak 备份文件
+*.bak
+*.bak.*

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Character, CharacterRequest } from '@/types'
-import { charactersApi } from '@/api/characters'
+import { charactersApi, type CharacterReferences } from '@/api/characters'
 
 /**
  * 角色全局状态（Pinia setup store）。
@@ -127,18 +127,40 @@ export const useCharacterStore = defineStore('character', () => {
   /**
    * 删除角色，乐观失败语义：服务端成功才从本地缓存移除，避免「后端拒绝但前端消失」的不一致。
    * 返回 boolean 给上层（场景/房间）做后续清理判断。
+   *
+   * @param cascade  是否级联删除引用该角色的全部聊天室（true 时调 ?cascade=true）。
+   *                 缺省 false 保持旧行为，被引用则由后端返回 400，由调用方兜底。
    */
-  async function deleteCharacter(id: string): Promise<boolean> {
+  async function deleteCharacter(id: string, cascade = false): Promise<boolean> {
     loading.value = true
     error.value = null
     try {
-      await charactersApi.remove(id)
+      await charactersApi.remove(id, cascade)
       characters.value = characters.value.filter(c => c.id !== id)
       return true
     } catch (e: any) {
       error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to delete character'
       console.error('[DEBUG] deleteCharacter failed:', e)
       return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 查询角色被哪些聊天室引用：用于删除前的"级联确认"弹窗预查询。
+   * 失败时返回 null 而非抛错，由调用方决定是否回退到原 ConfirmDialog 兜底。
+   */
+  async function fetchReferences(id: string): Promise<CharacterReferences | null> {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await charactersApi.getReferences(id)
+      return response.data
+    } catch (e: any) {
+      error.value = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to load references'
+      console.error('[DEBUG] fetchReferences failed:', e)
+      return null
     } finally {
       loading.value = false
     }
@@ -174,6 +196,7 @@ export const useCharacterStore = defineStore('character', () => {
     createCharacter,
     updateCharacter,
     deleteCharacter,
+    fetchReferences,
     getCharacterById,
     uploadAvatar
   }

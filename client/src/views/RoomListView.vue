@@ -148,12 +148,14 @@ function onRoomMenuOutsideClick(e: MouseEvent) {
 // 解析成员头像 URL
 // 后端返回的头像地址已经是可直接使用的相对路径或绝对 URL，
 // 这里保留作为扩展点：如果未来接入 CDN 或外部图床，按前缀规则改写即可。
+// 本地头像（/api/、/uploads/、/ 开头的相对路径）会自动加上 cache-buster 查询串，
+// 绕过 nginx 给 uploads/avatars/ 设的长缓存，避免角色头像更新后浏览器仍显示旧文件。
 function resolveAvatarUrl(url: string | null | undefined): string {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://')) return url
-  if (url.startsWith('/api/')) return url
-  if (url.startsWith('/uploads/')) return url
-  if (url.startsWith('/')) return url
+  if (url.startsWith('/api/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
+  if (url.startsWith('/uploads/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
+  if (url.startsWith('/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
   return url
 }
 
@@ -409,6 +411,21 @@ function closeScenario() {
   jdImageError.value = null
   createError.value = null
 }
+
+// 「我的聊天」列表的本地搜索过滤：
+// 命中规则：房间名 / 主题 / 任一角色名 任一包含关键字（不区分大小写）。
+// store 的 sortedMyRooms 已经做了 LRU 排序，本 computed 只在它基础上做一次子串过滤，
+// 不影响排序结果，也不改 store 源数据——纯派生，保留"清空关键字恢复原顺序"的行为。
+const filteredMyRooms = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return roomStore.sortedMyRooms
+  return roomStore.sortedMyRooms.filter((room: any) => {
+    if (room.name?.toLowerCase().includes(q)) return true
+    if (room.topic?.toLowerCase().includes(q)) return true
+    const chars = room.characters || []
+    return chars.some((c: any) => c.name?.toLowerCase().includes(q))
+  })
+})
 
 // ===== 用户私有场景 CRUD 入口 =====
 // 打开「+」卡片：创建模式
@@ -766,10 +783,20 @@ watch(
 )
 
 // Get current user's characters
+// 基础过滤:当前用户私有角色（排除系统预设）。
+// 叠加 searchQuery 时按 name / description 做大小写不敏感的子串匹配;
+// 空串退化为完整列表，保持原有行为。
+const characterSearchQuery = ref('')
 const myCharacters = computed(() => {
   if (!authStore.user) return []
-  return characterStore.characters.filter(
+  const base = characterStore.characters.filter(
     c => c.ownerId === authStore.user!.id && !c.isPreset
+  )
+  const q = characterSearchQuery.value.trim().toLowerCase()
+  if (!q) return base
+  return base.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.description || '').toLowerCase().includes(q)
   )
 })
 
@@ -998,6 +1025,9 @@ const categories = [
   { id: 'WRITER', label: '作家', emoji: '📖', color: '#34D399' },
   { id: 'HISTORICAL', label: '历史人物', emoji: '🏛️', color: '#D4AF6A' },
   { id: 'ARTIST', label: '艺术家', emoji: '🖼️', color: '#A78BFA' },
+  { id: 'FICTIONAL', label: '虚构角色', emoji: '🎭', color: '#EC4899' },
+  { id: 'POLITICIAN', label: '政治家', emoji: '🏛️', color: '#B91C1C' },
+  { id: 'MILITARY_LEADER', label: '军事家', emoji: '⚔️', color: '#475569' },
 ]
 
 // Featured characters - loaded from API
@@ -1028,12 +1058,23 @@ const featuredTotalBatches = computed(() =>
 //   非"全部"分类（按具体 category 过滤）→ 一律返回全集（分批没有意义，按钮也隐藏）
 //   "全部"分类 + 分批态：按 currentFeaturedBatch 切片 12 人
 //   "全部"分类 + 显示全部态：返回全集
+//   最后再做一道 searchQuery 子串过滤：实时命中 name/role/description，让发现页搜索框真正可用。
+//   这里共用 searchQuery ref：发现页与"我的聊天"tab 的搜索框是同一变量——切换 tab 后旧关键字会
+//   留存在发现页输入框。这是预先存在的行为，本任务不修，仅注释说明。
 const displayedFeatured = computed(() => {
-  if (selectedCategory.value !== 'all' || showAllFeatured.value) {
-    return featuredCharacters.value
-  }
-  const start = currentFeaturedBatch.value * BATCH_SIZE
-  return featuredCharacters.value.slice(start, start + BATCH_SIZE)
+  const base = selectedCategory.value !== 'all' || showAllFeatured.value
+    ? featuredCharacters.value
+    : featuredCharacters.value.slice(
+        currentFeaturedBatch.value * BATCH_SIZE,
+        (currentFeaturedBatch.value + 1) * BATCH_SIZE
+      )
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return base
+  return base.filter(c =>
+    c.name?.toLowerCase().includes(q) ||
+    c.role?.toLowerCase().includes(q) ||
+    c.description?.toLowerCase().includes(q)
+  )
 })
 function toggleShowAllFeatured() {
   showAllFeatured.value = !showAllFeatured.value
@@ -1392,10 +1433,17 @@ function selectRoom(roomId: string) {
 // 后端 RoomService.create 不校验角色所有权（见 Service 注释），可以直接用 preset id 建群聊。
 // 跳过 clone 之后整个流程只剩"建群聊"一次网络请求，秒级返回。
 async function enterRoom(roomId: string) {
-  // 找到对应的 demo 卡片（roomId 在卡片上是占位 id，只用于 key 查找）
+  // 先看是不是 demo 卡片（roomCardsData 的占位 id）
   const card = roomCardsData.find(r => r.id === roomId)
   if (!card) {
-    console.warn('[DEBUG] enterRoom: card not found for id', roomId)
+    // 不是 demo：当作已存在的真实房间跳转（最近聊天侧栏走的路径）
+    // 复用已有的 selectRoom，它做 recordEnter + router.replace，比这里手搓更稳
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roomId)) {
+      selectRoom(roomId)
+    } else {
+      console.warn('[DEBUG] enterRoom: unknown roomId', roomId)
+      toast.error('该聊天室已不可用，请重新创建')
+    }
     return
   }
   // 点击期间 disable 整张卡片：避免用户连点造成并发
@@ -1934,25 +1982,58 @@ async function handleInviteMember() {
       <template v-else-if="isCharactersView">
         <header class="content-header">
           <h1 class="page-title">角色库</h1>
-          <button class="create-btn-large" @click="showCreateCharacterModal = true">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            创建角色
-          </button>
+          <div class="header-actions">
+            <div class="search-box">
+              <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+              <input
+                v-model="characterSearchQuery"
+                type="text"
+                class="search-input"
+                placeholder="搜索角色名或描述…"
+                aria-label="搜索角色"
+              />
+              <button
+                v-if="characterSearchQuery"
+                class="search-clear"
+                type="button"
+                aria-label="清除搜索"
+                @click="characterSearchQuery = ''"
+              >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <button class="create-btn-large" @click="showCreateCharacterModal = true">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              创建角色
+            </button>
+          </div>
         </header>
 
-        <!-- 空状态 -->
+        <!-- 空状态：分两种,避免「明明有角色却显示『还没创建』」的误导 -->
         <div v-if="myCharacters.length === 0" class="empty-state">
-          <div class="empty-icon">📚</div>
-          <h2 class="empty-title">还没有创建角色</h2>
-          <p class="empty-desc">创建你的第一个 AI 角色，开始对话吧！</p>
-          <button class="empty-btn" @click="showCreateCharacterModal = true">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            创建角色
-          </button>
+          <template v-if="characterSearchQuery.trim()">
+            <div class="empty-icon">🔍</div>
+            <h2 class="empty-title">未找到匹配的角色</h2>
+            <p class="empty-desc">没有匹配「{{ characterSearchQuery }}」的角色，试试别的关键词？</p>
+            <button class="empty-btn" @click="characterSearchQuery = ''">清除搜索</button>
+          </template>
+          <template v-else>
+            <div class="empty-icon">📚</div>
+            <h2 class="empty-title">还没有创建角色</h2>
+            <p class="empty-desc">创建你的第一个 AI 角色，开始对话吧！</p>
+            <button class="empty-btn" @click="showCreateCharacterModal = true">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              创建角色
+            </button>
+          </template>
         </div>
 
         <!-- 角色卡片网格 -->
@@ -2048,10 +2129,17 @@ async function handleInviteMember() {
               </button>
             </div>
 
+            <!-- 搜索无匹配 -->
+            <div v-else-if="filteredMyRooms.length === 0" class="rooms-empty">
+              <div class="empty-icon">🔍</div>
+              <h3>没有匹配「{{ searchQuery }}」的聊天室</h3>
+              <p>试试按房间名、主题或角色名搜索。</p>
+            </div>
+
             <!-- 聊天室列表 -->
             <div v-else class="rooms-list-scroll">
               <div
-                v-for="room in roomStore.sortedMyRooms"
+                v-for="room in filteredMyRooms"
                 :key="room.id"
                 class="room-list-item"
                 :class="{ active: selectedRoomId === room.id }"
@@ -2366,6 +2454,9 @@ async function handleInviteMember() {
           <div v-else-if="featuredCharacters.length === 0" class="featured-empty">
             暂无推荐角色
           </div>
+          <div v-else-if="displayedFeatured.length === 0 && searchQuery.trim()" class="featured-empty">
+            没有匹配「{{ searchQuery }}」的角色
+          </div>
           <div v-else class="featured-grid">
             <div
               v-for="char in displayedFeatured"
@@ -2380,7 +2471,7 @@ async function handleInviteMember() {
               <div class="character-avatar-wrap">
                 <img
                   v-if="!avatarLoadFailed[char.id]"
-                  :src="char.avatar"
+                  :src="resolveAvatarUrl(char.avatar)"
                   :alt="char.name"
                   class="character-avatar"
                   @error="(e) => { console.error('[DEBUG] avatar error', char.name, char.avatar, e); avatarLoadFailed[char.id] = true }"
@@ -2986,7 +3077,7 @@ async function handleInviteMember() {
   gap: 0.75rem;
   padding: 0.65rem 1rem;
   background: var(--input-bg);
-  border: 1px solid var(--border-color);
+  border: 1px solid #000;
   border-radius: 999px;
   width: 320px;
   transition: all 0.25s ease;
@@ -3523,9 +3614,91 @@ async function handleInviteMember() {
     gap: 1rem;
     align-items: stretch;
   }
+
+  /* 角色库搜索框:窄屏下与创建按钮竖排,搜索框占满 */
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-input {
+    width: 100%;
+  }
 }
 
 /* ===== Character Library Styles ===== */
+/* header-actions: 搜索框 + 创建按钮的容器,保持与原 header 一致的右对齐布局 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 搜索框:圆角 + 浅灰背景 + 聚焦时强调边框,跟现代 SaaS 列表页的视觉惯例一致 */
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.75rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 240px;
+  padding: 0.625rem 2.25rem 0.625rem 2.25rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-input:focus {
+  border-color: #18181b;
+  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.12);
+}
+
+/* 清除按钮:绝对定位在输入框右侧,有内容时才渲染 */
+.search-clear {
+  position: absolute;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-clear svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.search-clear:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+}
+
 .create-btn-large {
   display: flex;
   align-items: center;
