@@ -1050,6 +1050,20 @@ const featuredCharactersLoading = ref(false)
 // 不走 DB 也避免改一张卡得改前端代码重新打包。
 const hotRooms = ref<HotRoom[]>([])
 const hotRoomsLoading = ref(false)
+// 热门聊天室参与者头像查找表：name → avatarUrl。
+// 后端 HotRoomResponse 没返回 participantAvatars 字段，前端用已加载的
+// characterStore.presets 按名匹配补上真实头像，避免 DiceBear 假人脸。
+// 用 featuredCharacters + presets 兜底：featured 是当前分类子集，presets 是全量。
+const presetAvatarMap = computed(() => {
+  const m = new Map<string, string>()
+  for (const c of featuredCharacters.value) {
+    if (c?.name && c.avatarUrl) m.set(c.name, c.avatarUrl)
+  }
+  for (const c of characterStore.presets) {
+    if (c?.name && c.avatarUrl && !m.has(c.name)) m.set(c.name, c.avatarUrl)
+  }
+  return m
+})
 async function fetchHotRooms() {
   hotRoomsLoading.value = true
   try {
@@ -1581,7 +1595,7 @@ async function handleInviteMember() {
             @click.prevent="enterRoom(chat.id)"
           >
             <!-- 多角色房间:与「我的聊天」列表保持视觉一致,使用 3×3 网格拼接最多 9 张头像。
-                 >1 张时进 is-grid 网格模式;0 张或 1 张时单图/首字母占位保持简洁。 -->
+                 >1 张时进 is-grid 网格模式;0 张时首字母占位;1 张时单图占满。 -->
             <div
               v-if="displayedRoomAvatars(chat.room).length === 0"
               class="chat-avatar"
@@ -1590,7 +1604,8 @@ async function handleInviteMember() {
             </div>
             <div
               v-else
-              class="chat-avatar is-grid"
+              class="chat-avatar"
+              :class="{ 'is-grid': displayedRoomAvatars(chat.room).length > 1 }"
             >
               <div
                 v-for="(c, i) in displayedRoomAvatars(chat.room).slice(0, 9)"
@@ -2457,30 +2472,18 @@ async function handleInviteMember() {
               <div class="room-body">
                 <h3 class="room-title">{{ room.title }}</h3>
 
-                <!-- 参与者头像栈：后端 HotRoomResponse 不返回头像 URL 时降级到 DiceBear 占位。
-                     v-if 守卫保留向后兼容：未来 hotRooms.json 若补回 participantAvatars，模板优先使用。 -->
+                <!-- 参与者头像栈：按 room.participants[i] 名字在 presetAvatarMap 里查真实头像。
+                     查不到时降级到 DiceBear 占位（仅当 hotRooms.json 写了不在 presets 里的虚构名时才会走）。 -->
                 <div class="room-participants">
                   <div class="avatar-stack">
-                    <template v-if="room.participantAvatars && room.participantAvatars.length">
-                      <img
-                        v-for="(avatar, i) in room.participantAvatars"
-                        :key="i"
-                        :src="avatar"
-                        :alt="room.participants[i]"
-                        class="participant-avatar"
-                        :style="{ zIndex: 3 - i }"
-                      />
-                    </template>
-                    <template v-else>
-                      <img
-                        v-for="(name, i) in room.participants.slice(0, 3)"
-                        :key="i"
-                        :src="`https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(name)}&backgroundColor=c0aede`"
-                        :alt="name"
-                        class="participant-avatar"
-                        :style="{ zIndex: 3 - i }"
-                      />
-                    </template>
+                    <img
+                      v-for="(name, i) in room.participants.slice(0, 3)"
+                      :key="i"
+                      :src="resolveAvatarUrl(presetAvatarMap.get(name) || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(name)}&backgroundColor=c0aede`)"
+                      :alt="name"
+                      class="participant-avatar"
+                      :style="{ zIndex: 3 - i }"
+                    />
                   </div>
                   <span class="participant-names">{{ room.participants.slice(0, 3).join('、') }}</span>
                 </div>
