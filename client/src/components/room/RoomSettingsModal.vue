@@ -2,10 +2,11 @@
 // 房间设置弹窗：承载两类不可逆操作（清空消息、删除聊天室）。
 // 删除路径需要回写路由并清理 store，因此同时持有 router / roomStore / messageStore；
 // 清空仅前端 in-memory，不触发后端，避免误删用户真实聊天记录。
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useMessageStore } from '@/stores/message'
+import { useToast } from '@/composables/useToast'
 
 // show：父组件控制弹窗显隐
 // roomId：当前操作的目标房间 id，用于 store 调用与回写路由
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 const roomStore = useRoomStore()
 const messageStore = useMessageStore()
 const router = useRouter()
+const toast = useToast()
 
 // 危险操作确认对话框状态
 type DangerAction = 'clear' | 'delete' | null
@@ -29,13 +31,47 @@ const confirmAction = ref<DangerAction>(null)
 const dangerLoading = ref(false)
 const dangerError = ref<string | null>(null)
 
-// 每次弹窗打开时重置确认状态
-// 防止用户上一次关闭弹窗时残留的 confirmAction / dangerError
-// 在下次打开时被错误展示（例如残留「确认删除」状态）。
+// ===== 基本信息编辑状态 =====
+// editedName / editedTopic：用户当前在表单里编辑的值（弹窗打开时从 currentRoom 初始化）
+// saving：保存请求飞行中（按 disable「保存」按钮避免双击）
+// saveError：保存失败的错误文案（红条 banner + toast.error 双重展示）
+const editedName = ref('')
+const editedTopic = ref('')
+const saving = ref(false)
+const saveError = ref<string | null>(null)
+
+// 读取当前房间作为"原始值"基准（用于判断是否变更）。
+// 优先 store.currentRoom，回退 myRooms：理论上 ChatRoomPanel 已保证 currentRoom 就绪，
+// 但加回退可防御 corner case（弹窗打开时机早于 fetchRoomById 完成）。
+function getInitialRoom() {
+  if (roomStore.currentRoom?.id === props.roomId) return roomStore.currentRoom
+  return roomStore.myRooms.find(r => r.id === props.roomId)
+}
+
+// 仅在 name 或 topic 实际变化时才发对应 PATCH——避免无意义的网络请求。
+const nameChanged = computed(() => editedName.value.trim() !== (getInitialRoom()?.name ?? ''))
+const topicChanged = computed(() => editedTopic.value.trim() !== (getInitialRoom()?.topic ?? ''))
+
+// 「保存」按钮可点条件：不在请求中 + 名称非空 + 长度合规 + 至少一项有改动
+const canSave = computed(() => {
+  const name = editedName.value.trim()
+  return !saving.value &&
+    !dangerLoading.value &&
+    name.length > 0 && name.length <= 100 &&
+    (nameChanged.value || topicChanged.value)
+})
+
+// 每次弹窗打开时重置确认状态 + 初始化基本信息字段
+// 防止用户上一次关闭弹窗时残留的 confirmAction / dangerError / 表单值
+// 在下次打开时被错误展示。
 watch(() => props.show, (isOpen) => {
   if (isOpen) {
     confirmAction.value = null
     dangerError.value = null
+    saveError.value = null
+    const room = getInitialRoom()
+    editedName.value = room?.name ?? ''
+    editedTopic.value = room?.topic ?? ''
   }
 })
 
@@ -47,6 +83,32 @@ function cancelConfirm() {
   // 请求进行中禁止关闭确认框，避免用户在 DELETE 飞行途中点取消导致状态错乱。
   if (dangerLoading.value) return
   confirmAction.value = null
+}
+
+// 保存基本信息：按需只发"实际变化"的字段，避免无意义网络往返。
+// 失败时把错误同时写到 saveError（红条 banner）+ toast.error，让用户在弹窗里直接看到原因，
+// 且不关闭弹窗——便于用户改完再保存。只有成功才 toast.success + emit('close')。
+async function handleSave() {
+  if (!canSave.value) return
+  saving.value = true
+  saveError.value = null
+  try {
+    if (nameChanged.value) {
+      await roomStore.updateRoomName(props.roomId, editedName.value.trim())
+    }
+    if (topicChanged.value) {
+      // 空串透传给后端做归一（→ null），store 层不重复归一逻辑
+      await roomStore.updateRoomTopic(props.roomId, editedTopic.value.trim())
+    }
+    toast.success('聊天室设置已保存')
+    emit('close')
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '保存失败'
+    saveError.value = msg
+    toast.error(msg)
+  } finally {
+    saving.value = false
+  }
 }
 
 // 执行危险操作的核心入口：根据 confirmAction 分发到 clear / delete。
@@ -95,7 +157,7 @@ async function confirmDangerous() {
           <header class="rsm-header">
             <div>
               <h2 class="rsm-title">房间设置</h2>
-              <p class="rsm-subtitle">删除聊天记录或聊天室，操作不可撤销</p>
+              <p class="rsm-subtitle">修改名称、主题，或删除聊天室</p>
             </div>
             <button
               class="rsm-close"
@@ -110,8 +172,45 @@ async function confirmDangerous() {
 
           <!-- 主体 -->
           <div class="rsm-body">
-            <!-- 错误提示 -->
+            <!-- 错误提示（danger 操作的错误） -->
             <div v-if="dangerError" class="rsm-error">{{ dangerError }}</div>
+
+            <!-- 保存基本信息时的错误 -->
+            <div v-if="saveError" class="rsm-error">{{ saveError }}</div>
+
+            <!-- 基本信息区：聊天室名称 + 主题 -->
+            <section class="rsm-form">
+              <h3 class="rsm-form-title">基本信息</h3>
+
+              <div class="rsm-form-group">
+                <label class="rsm-form-label" for="rsm-name">
+                  聊天室名称 <span class="rsm-required">*</span>
+                </label>
+                <input
+                  id="rsm-name"
+                  v-model="editedName"
+                  type="text"
+                  maxlength="100"
+                  class="rsm-form-input"
+                  placeholder="给聊天室起个名字"
+                  :disabled="saving || dangerLoading"
+                />
+              </div>
+
+              <div class="rsm-form-group">
+                <label class="rsm-form-label" for="rsm-topic">主题</label>
+                <textarea
+                  id="rsm-topic"
+                  v-model="editedTopic"
+                  rows="3"
+                  maxlength="500"
+                  class="rsm-form-textarea"
+                  placeholder="简单描述这个聊天室讨论的主题（可选）"
+                  :disabled="saving || dangerLoading"
+                ></textarea>
+                <div class="rsm-form-hint">{{ editedTopic.length }} / 500</div>
+              </div>
+            </section>
 
             <!-- 危险操作区 -->
             <section class="rsm-danger">
@@ -225,9 +324,18 @@ async function confirmDangerous() {
             <button
               type="button"
               class="rsm-btn rsm-btn-cancel"
+              :disabled="saving"
               @click="emit('close')"
             >
-              关闭
+              取消
+            </button>
+            <button
+              type="button"
+              class="rsm-btn rsm-btn-primary"
+              :disabled="!canSave"
+              @click="handleSave"
+            >
+              {{ saving ? '保存中…' : '保存' }}
             </button>
           </footer>
         </div>
@@ -720,6 +828,97 @@ async function confirmDangerous() {
 :deep(.dark) .rsm-action-card-danger {
   background: rgba(127, 29, 29, 0.20);
   border-color: rgba(220, 38, 38, 0.50);
+}
+
+/* ===== 基本信息表单 ===== */
+/* 复用项目里 CreateRoomModal 同款 form-* 视觉：scoped 不能直接跨组件复用样式名，
+   在此复制一份保持 modal 间一致。颜色变量沿用全局 --input-bg / --input-border，
+   支持 dark mode 不必额外声明。 */
+.rsm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.rsm-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  margin: 0;
+}
+
+.rsm-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rsm-form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #475569);
+}
+
+.rsm-required {
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+.rsm-form-input,
+.rsm-form-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--input-border, #e2e8f0);
+  background: var(--input-bg, #f8fafc);
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary, #0f172a);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.rsm-form-input:focus,
+.rsm-form-textarea:focus {
+  outline: none;
+  border-color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+
+.rsm-form-input:disabled,
+.rsm-form-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rsm-form-textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+.rsm-form-hint {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  text-align: right;
+}
+
+/* 主操作按钮：蓝色高亮「保存」。与现有 .rsm-btn-cancel（深色，语义虽叫 cancel 但视觉是 neutral）
+   形成对比：primary = 行动指引，cancel = 次要。 */
+.rsm-btn-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.20);
+}
+
+.rsm-btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 :deep(.dark) .rsm-action-card-danger:hover:not(:disabled) {

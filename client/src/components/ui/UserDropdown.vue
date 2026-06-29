@@ -26,9 +26,6 @@ const avatarError = ref(false)
 
 const menuItems = [
   { id: 'settings', label: '设置', emoji: '⚙️', action: () => { settingsStore.openSettings(); closeMenu() } },
-  // disabled 项预留后续功能入口，先占位避免菜单结构后续频繁改动。
-  { id: 'my-characters', label: '我的角色', emoji: '✨', disabled: true },
-  { id: 'my-rooms', label: '我的聊天', emoji: '💬', disabled: true },
 ]
 
 function goAdmin() {
@@ -65,7 +62,6 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 function handleMenuItemClick(item: typeof menuItems[0]) {
-  if (item.disabled) return
   if (item.action) {
     item.action()
   }
@@ -105,12 +101,10 @@ onUnmounted(() => {
           v-for="item in menuItems"
           :key="item.id"
           class="menu-item"
-          :class="{ disabled: item.disabled }"
           @click="handleMenuItemClick(item)"
         >
           <span class="item-emoji">{{ item.emoji }}</span>
           <span class="item-label">{{ item.label }}</span>
-          <span v-if="item.disabled" class="item-soon">soon</span>
         </button>
 
         <!-- 分隔线 -->
@@ -288,12 +282,8 @@ onUnmounted(() => {
   text-align: left;
 }
 
-.menu-item:hover:not(.disabled) {
+.menu-item:hover {
   background: var(--bg-primary);
-}
-
-.menu-item.disabled {
-  cursor: default;
 }
 
 .logout-item {
@@ -321,13 +311,6 @@ onUnmounted(() => {
 .logout-item .item-label {
   color: #EF4444;
   font-weight: 500;
-}
-
-.item-soon {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  opacity: 0.7;
 }
 
 .menu-divider {

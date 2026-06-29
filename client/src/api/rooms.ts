@@ -1,5 +1,5 @@
 import { api } from './auth'
-import type { Room, CreateRoomRequest, UpdateRoomModeRequest } from '@/types'
+import type { Room, CreateRoomRequest, UpdateRoomModeRequest, UpdateRoomNameRequest, UpdateRoomTopicRequest } from '@/types'
 
 // 聊天室域 REST 客户端，对接后端 RoomController（/rooms/*）。
 // 职责：聊天室 CRUD、成员管理、模式切换（dialogue/discussion）、记录进入事件。
@@ -13,6 +13,8 @@ export interface RoomApi {
   remove: (id: string) => Promise<void>
   addCharacter: (roomId: string, characterId: string) => Promise<Room>
   updateMode: (roomId: string, data: UpdateRoomModeRequest) => Promise<Room>
+  updateName: (roomId: string, data: UpdateRoomNameRequest) => Promise<Room>
+  updateTopic: (roomId: string, data: UpdateRoomTopicRequest) => Promise<Room>
   getRoomMembers: (roomId: string) => Promise<RoomMemberResponse[]>
   inviteMember: (roomId: string, keyword: string) => Promise<RoomMemberResponse>
   recordEnter: (roomId: string) => Promise<void>
@@ -91,6 +93,22 @@ export const roomsApi: RoomApi = {
    */
   updateMode: (roomId: string, data: UpdateRoomModeRequest) =>
     api.patch<Room>(`/rooms/${roomId}/mode`, data).then(res => res.data),
+
+  /**
+   * 修改聊天室名称。仅 owner 可改（后端校验）。
+   * HTTP PATCH /rooms/{roomId}/name（body: { name }）。
+   * 调用方：RoomSettingsModal 的"基本信息"区。
+   */
+  updateName: (roomId: string, data: UpdateRoomNameRequest) =>
+    api.patch<Room>(`/rooms/${roomId}/name`, data).then(res => res.data),
+
+  /**
+   * 修改聊天室主题。仅 owner 可改（后端校验）；topic 可空（前端空串由后端归一为 null）。
+   * HTTP PATCH /rooms/{roomId}/topic（body: { topic }）。
+   * 调用方：RoomSettingsModal 的"基本信息"区。
+   */
+  updateTopic: (roomId: string, data: UpdateRoomTopicRequest) =>
+    api.patch<Room>(`/rooms/${roomId}/topic`, data).then(res => res.data),
 
   /**
    * 列出房间成员。

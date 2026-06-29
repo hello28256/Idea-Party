@@ -12,7 +12,7 @@ import { changePassword } from '@/api/auth'
 import { evaluatePassword } from '@/composables/usePasswordStrength'
 
 // TabKey: 强类型约束，避免与 store / 模板里的字符串拼接散落。
-type TabKey = 'account' | 'preferences' | 'ai' | 'advanced'
+type TabKey = 'account' | 'preferences' | 'ai' | 'advanced' | 'privacy' | 'terms'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -24,7 +24,7 @@ const activeTab = ref<TabKey>('account')
 
 // consumePendingTab 是“读后即清”的语义：调用方（如缺 Key 弹窗）只能把用户跳一次到目标 tab，
 // 之后再开设置就不会被旧请求劫持——所以这里不在 watch 里轮询，只在 mount 时取一次。
-const validTabs: TabKey[] = ['account', 'preferences', 'ai', 'advanced']
+const validTabs: TabKey[] = ['account', 'preferences', 'ai', 'advanced', 'privacy', 'terms']
 const requested = settingsStore.consumePendingTab()
 if (requested && (validTabs as string[]).includes(requested)) {
   activeTab.value = requested as TabKey
@@ -78,14 +78,18 @@ const settingTabs = [
   { key: 'account' as TabKey, label: '账户设置', icon: 'user' },
   { key: 'preferences' as TabKey, label: '偏好设置', icon: 'settings' },
   { key: 'ai' as TabKey, label: 'AI 配置', icon: 'bot' },
-  { key: 'advanced' as TabKey, label: '高级', icon: 'wrench' }
+  { key: 'advanced' as TabKey, label: '高级', icon: 'wrench' },
+  { key: 'privacy' as TabKey, label: '隐私条款', icon: 'shield' },
+  { key: 'terms' as TabKey, label: '服务条款', icon: 'file-text' }
 ]
 
 const tabTitles: Record<TabKey, { title: string; desc: string }> = {
   account: { title: '账户设置', desc: '管理你的个人资料和账户信息' },
   preferences: { title: '偏好设置', desc: '自定义界面外观和行为' },
   ai: { title: 'AI 配置', desc: '配置 AI 服务和 API 设置' },
-  advanced: { title: '高级设置', desc: '高级选项和开发者设置' }
+  advanced: { title: '高级设置', desc: '高级选项和开发者设置' },
+  privacy: { title: '隐私条款', desc: '我们如何收集、使用和保护你的数据' },
+  terms: { title: '服务条款', desc: '你与平台之间的使用约定' }
 }
 
 // Computed
@@ -338,6 +342,9 @@ function handleClose() {
               <svg v-else-if="tab.icon === 'wrench'" class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
               </svg>
+              <svg v-else-if="tab.icon === 'shield'" class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
               <span>{{ tab.label }}</span>
             </button>
           </nav>
@@ -345,8 +352,8 @@ function handleClose() {
 
         <!-- 右侧内容 -->
         <main class="settings-content">
-          <!-- 头部 -->
-          <header class="content-header">
+          <!-- 头部:privacy/terms tab 用 iframe 内嵌完整页面,自带标题,这里重复显示,直接隐藏 -->
+          <header v-if="activeTab !== 'privacy' && activeTab !== 'terms'" class="content-header">
             <div class="header-text">
               <h2 class="header-title">{{ tabTitles[activeTab].title }}</h2>
               <p class="header-desc">{{ tabTitles[activeTab].desc }}</p>
@@ -664,6 +671,31 @@ function handleClose() {
                 <div class="advanced-info">
                   <p>更多高级设置正在开发中...</p>
                 </div>
+              </div>
+            </div>
+
+            <!-- 隐私条款 tab:复用 /privacy 路由(注册页同款),不在内部弹窗渲染,
+                 而是用 iframe 内嵌,保持"在设置里看完就走"的一站式体验。
+                 ?embed=1 让 LegalLayout 隐藏顶栏的 logo 和"返回登录",避免在弹窗里多余 -->
+            <div v-else-if="activeTab === 'privacy'" class="settings-section">
+              <div class="section-card privacy-card">
+                <iframe
+                  src="/privacy?embed=1"
+                  class="privacy-iframe"
+                  title="隐私政策"
+                ></iframe>
+              </div>
+            </div>
+
+            <!-- 服务条款 tab:与隐私 tab 同款处理,用 iframe 内嵌 /terms。
+                 复用 privacy-card / privacy-iframe 样式,避免重复定义。 -->
+            <div v-else-if="activeTab === 'terms'" class="settings-section">
+              <div class="section-card privacy-card">
+                <iframe
+                  src="/terms?embed=1"
+                  class="privacy-iframe"
+                  title="服务条款"
+                ></iframe>
               </div>
             </div>
           </div>
@@ -1260,6 +1292,23 @@ function handleClose() {
   padding: 20px 0;
   text-align: center;
   color: var(--text-muted);
+}
+
+/* 隐私条款 tab:用 iframe 内嵌 /privacy,撑满右侧内容区并自带滚动 */
+.privacy-card {
+  /* 顶掉 section-card 的内边距,让 iframe 边缘贴合卡片圆角 */
+  padding: 0;
+  overflow: hidden;
+}
+
+.privacy-iframe {
+  display: block;
+  width: 100%;
+  /* header 已隐藏,直接撑满设置弹窗右侧内容区 */
+  height: calc(100vh - 140px);
+  min-height: 500px;
+  border: 0;
+  background: var(--card-bg);
 }
 
 /*** Toast ***/

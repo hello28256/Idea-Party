@@ -146,7 +146,7 @@
       <p>
         如果你对本服务条款有任何问题，可以通过以下方式联系我们：
       </p>
-      <p><a href="mailto:support@ideaparty.ai">support@ideaparty.ai</a></p>
+      <p><a href="mailto:hello28256@gmail.com">hello28256@gmail.com</a></p>
     </section>
   </LegalLayout>
 </template>

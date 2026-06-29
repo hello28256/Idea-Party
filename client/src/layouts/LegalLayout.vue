@@ -1,10 +1,11 @@
 <template>
-  <div class="legal-page">
+  <div class="legal-page" :class="{ 'is-embed': isEmbed }">
     <!-- 法务页布局：条款页（/terms）与隐私页（/privacy）共用此 layout。
          设计要点：sticky 头栏 + 单列卡片正文 + 居中 footer，强调"长文阅读"而非"操作表单"，
          与登录/注册的双栏布局刻意区分开。 -->
-    <!-- 顶栏两个入口都跳 /login：法务页对未登录用户开放，但所有交互最终仍需登录态，故品牌与"返回"共用一个出口。 -->
-    <header class="legal-header">
+    <!-- 顶栏两个入口都跳 /login：法务页对未登录用户开放，但所有交互最终仍需登录态，故品牌与"返回"共用一个出口。
+         嵌入模式(?embed=1)隐藏顶栏,避免在设置弹窗里出现冗余的 logo 和"返回登录"按钮。 -->
+    <header v-if="!isEmbed" class="legal-header">
       <RouterLink to="/login" class="brand">Idea Party</RouterLink>
       <RouterLink to="/login" class="back-button">返回登录</RouterLink>
     </header>
@@ -32,9 +33,17 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
 // 法务类静态页（条款 / 隐私政策等）共用布局：统一头尾视觉与暗色主题，便于各法务页只关注正文内容。
 // 之所以独立成 layout 而非复用 AuthLayout：法务页对未登录访客也必须可访问，且视觉走"长文阅读"卡片风，而非登录的双栏表单，故刻意拆开。
 // title / subtitle 由各法务页传入：标题块与正文 slot 解耦，方便复用同一布局且每页可独立文案；不内嵌文案是为了避免每个页面重复相同的 <h1>/<p> 结构。
+// embed: ?embed=1 时隐藏顶栏(logo + 返回登录),用于被设置弹窗 iframe 嵌入的场景;
+//   独立访问 /privacy 或 /terms 时顶栏仍保留,保证法务页"长文阅读"的基本导航。
+const route = useRoute()
+const isEmbed = computed(() => route.query.embed === '1')
+
 defineProps<{
   title: string
   subtitle: string
@@ -96,6 +105,11 @@ defineProps<{
   max-width: 960px;
   margin: 0 auto;
   padding: 72px 24px 48px;
+}
+
+/* 嵌入模式:没有顶栏,顶部留白从 72px 减到 16px,iframe 内页更紧凑 */
+.legal-page.is-embed .legal-main {
+  padding-top: 16px;
 }
 
 .legal-card {

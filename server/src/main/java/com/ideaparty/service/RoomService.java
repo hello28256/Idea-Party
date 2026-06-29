@@ -319,6 +319,61 @@ public class RoomService {
     }
 
     /**
+     * 更新聊天室名称。仅房主可改（与 deleteIfOwner 同样的 owner 校验模式）：
+     * 名称是房间的"身份"标识，破坏性等同于误删，因此沿用 owner-only 策略。
+     * 修前后 trim() 一遍：前端 maxlength=100 + 后端 @Size(max=100) 已防止超长，但空格收尾仍要剥掉。
+     *
+     * @param roomId 目标房间 UUID
+     * @param userId 操作者 UUID（来自 JWT）
+     * @param name   新名称（已通过 @NotBlank + @Size 校验）
+     * @return       更新后的 RoomResponse
+     */
+    public RoomResponse updateName(UUID roomId, UUID userId, String name) {
+        log.info("[DEBUG] Updating room {} name by user {}", roomId, userId);
+
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+
+        if (!room.getOwner().getId().equals(userId)) {
+            log.warn("[DEBUG] User {} is not the owner of room {}", userId, roomId);
+            throw new AccessDeniedException("Only the room owner can update the room name");
+        }
+
+        room.setName(name.trim());
+        Room saved = roomRepository.save(room);
+        log.info("[DEBUG] Room {} name updated", roomId);
+        return RoomResponse.fromEntity(saved);
+    }
+
+    /**
+     * 更新聊天室主题。仅房主可改。
+     * null / 空串归一为 null（清空主题），与 createRoom 时"未填主题→null"的语义对齐，
+     * 让用户在前端清空 textarea 再保存即可移除主题。
+     *
+     * @param roomId 目标房间 UUID
+     * @param userId 操作者 UUID
+     * @param topic  新主题（可空）
+     * @return       更新后的 RoomResponse
+     */
+    public RoomResponse updateTopic(UUID roomId, UUID userId, String topic) {
+        log.info("[DEBUG] Updating room {} topic by user {}", roomId, userId);
+
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
+
+        if (!room.getOwner().getId().equals(userId)) {
+            log.warn("[DEBUG] User {} is not the owner of room {}", userId, roomId);
+            throw new AccessDeniedException("Only the room owner can update the room topic");
+        }
+
+        String normalized = (topic == null || topic.trim().isEmpty()) ? null : topic.trim();
+        room.setTopic(normalized);
+        Room saved = roomRepository.save(room);
+        log.info("[DEBUG] Room {} topic updated", roomId);
+        return RoomResponse.fromEntity(saved);
+    }
+
+    /**
      * 规范化请求的房间模式。
      * 接受 "single" 或 "group"（大小写不敏感）。其它任意值回退为 "group"，
      * 以保证遗留客户端（以及现有的"以角色开始对话"流程）仍可正常工作。

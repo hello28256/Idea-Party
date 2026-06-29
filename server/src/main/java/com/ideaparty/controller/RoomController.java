@@ -3,6 +3,8 @@ package com.ideaparty.controller;
 import com.ideaparty.dto.CreateRoomRequest;
 import com.ideaparty.dto.RoomResponse;
 import com.ideaparty.dto.UpdateRoomModeRequest;
+import com.ideaparty.dto.UpdateRoomNameRequest;
+import com.ideaparty.dto.UpdateRoomTopicRequest;
 import com.ideaparty.service.RoomService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -118,5 +120,31 @@ public class RoomController {
 
         roomService.recordEnter(id, userId);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 修改聊天室名称。仅房主可改（owner 校验在 Service 层），与其他成员可改的 /mode 形成清晰对比：
+     * /mode 是"运营态"调整（可逆），/name 是"身份标识"修改（语义上更接近 delete 那种 owner-only 操作）。
+     */
+    @PatchMapping("/{id}/name")
+    public ResponseEntity<RoomResponse> updateRoomName(Authentication auth, @PathVariable UUID id, @Valid @RequestBody UpdateRoomNameRequest request) {
+        UUID userId = UUID.fromString(auth.getName());
+        log.info("[DEBUG] Updating room {} name by user {}", id, userId);
+
+        RoomResponse room = roomService.updateName(id, userId, request.getName());
+        return ResponseEntity.ok(room);
+    }
+
+    /**
+     * 修改聊天室主题。仅房主可改，校验规则与 /name 完全对称。
+     * topic 可空：前端清空 textarea 后提交空串 → Service 归一为 null 落库。
+     */
+    @PatchMapping("/{id}/topic")
+    public ResponseEntity<RoomResponse> updateRoomTopic(Authentication auth, @PathVariable UUID id, @Valid @RequestBody UpdateRoomTopicRequest request) {
+        UUID userId = UUID.fromString(auth.getName());
+        log.info("[DEBUG] Updating room {} topic by user {}", id, userId);
+
+        RoomResponse room = roomService.updateTopic(id, userId, request.getTopic());
+        return ResponseEntity.ok(room);
     }
 }

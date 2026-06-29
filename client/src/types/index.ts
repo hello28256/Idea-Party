@@ -76,6 +76,16 @@ export interface UpdateRoomModeRequest {
   maxDiscussionRounds?: number
 }
 
+// 修改聊天室名称（必填，后端 @NotBlank）
+export interface UpdateRoomNameRequest {
+  name: string
+}
+
+// 修改聊天室主题（可选；空串由后端归一为 null 表示清空）
+export interface UpdateRoomTopicRequest {
+  topic?: string
+}
+
 // 角色分类枚举（与后端 CharacterCategory 严格对齐，发现页"分类标签条"id 也用这套 name）。
 // 加新分类时：后端枚举 + presets.json + 这里三处同步更新。
 export type CharacterCategory =

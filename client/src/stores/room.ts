@@ -242,24 +242,79 @@ export const useRoomStore = defineStore('room', () => {
       const updatedRoom = await roomsApi.updateMode(roomId, data)
       console.log('[DEBUG] API returned updatedRoom:', updatedRoom)
       console.log('[DEBUG] updatedRoom.chatMode:', updatedRoom.chatMode)
-      const index = rooms.value.findIndex(r => r.id === roomId)
-      if (index !== -1) {
-        rooms.value[index] = updatedRoom
-        console.log('[DEBUG] Updated rooms at index:', index)
-      }
-      const myIndex = myRooms.value.findIndex(r => r.id === roomId)
-      if (myIndex !== -1) {
-        myRooms.value[myIndex] = updatedRoom
-        console.log('[DEBUG] Updated myRooms at index:', myIndex)
-      }
-      if (currentRoom.value?.id === roomId) {
-        currentRoom.value = updatedRoom
-        console.log('[DEBUG] Updated currentRoom')
-      }
+      syncRoomArrays(roomId, updatedRoom)
       return updatedRoom
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to update room mode'
       console.error('[DEBUG] updateRoomMode error:', e)
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+ * 把后端返回的最新 Room 对象就地同步到三个内部数组（rooms / myRooms / currentRoom）。
+ * 抽出来是因为 updateRoomMode / updateRoomName / updateRoomTopic 三处都要做完全相同的三段 findIndex + 替换：
+ * 既要保证 UI 立即响应（ChatRoomPanel 头部读 currentRoom，RoomListView 列表读 myRooms），
+ * 又要避免重复代码日后漂移。
+ * 未命中（房间不在某数组中）静默跳过——常见于「成员视角下的房间在 myRooms 而不在 rooms」等局部缓存差异。
+ */
+  function syncRoomArrays(roomId: string, updatedRoom: Room) {
+    const index = rooms.value.findIndex(r => r.id === roomId)
+    if (index !== -1) {
+      rooms.value[index] = updatedRoom
+      console.log('[DEBUG] Updated rooms at index:', index)
+    }
+    const myIndex = myRooms.value.findIndex(r => r.id === roomId)
+    if (myIndex !== -1) {
+      myRooms.value[myIndex] = updatedRoom
+      console.log('[DEBUG] Updated myRooms at index:', myIndex)
+    }
+    if (currentRoom.value?.id === roomId) {
+      currentRoom.value = updatedRoom
+      console.log('[DEBUG] Updated currentRoom')
+    }
+  }
+
+  /**
+ * 修改聊天室名称。仅房主可改，后端 owner 校验失败时抛 AccessDeniedException → axios 401/403。
+ * 命名/参数风格与 updateRoomMode 完全对称：同样走 syncRoomArrays 三数组同步，让 ChatRoomPanel
+ * 头部 + RoomListView 列表自动刷新，无需手动 emit。
+ */
+  async function updateRoomName(roomId: string, name: string): Promise<Room> {
+    loading.value = true
+    error.value = null
+    console.log('[DEBUG] updateRoomName called:', { roomId, name })
+    try {
+      const updated = await roomsApi.updateName(roomId, { name: name.trim() })
+      syncRoomArrays(roomId, updated)
+      return updated
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to update room name'
+      console.error('[DEBUG] updateRoomName error:', e)
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+ * 修改聊天室主题。仅房主可改。topic 为 null/空串时后端归一为 null（清空主题），
+ * 前端只需把空字符串透传即可——避免在 store 层做归一逻辑重复。
+ */
+  async function updateRoomTopic(roomId: string, topic: string): Promise<Room> {
+    loading.value = true
+    error.value = null
+    console.log('[DEBUG] updateRoomTopic called:', { roomId, topic })
+    try {
+      // 空串透传：后端 updateTopic 会归一为 null
+      const updated = await roomsApi.updateTopic(roomId, { topic })
+      syncRoomArrays(roomId, updated)
+      return updated
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to update room topic'
+      console.error('[DEBUG] updateRoomTopic error:', e)
       throw e
     } finally {
       loading.value = false
@@ -315,6 +370,8 @@ export const useRoomStore = defineStore('room', () => {
     deleteRoom,
     addCharacterToRoom,
     updateRoomMode,
+    updateRoomName,
+    updateRoomTopic,
     recordEnter,
     setCurrentRoom
   }
