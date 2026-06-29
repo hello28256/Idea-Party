@@ -97,7 +97,8 @@ const avatarSearchError = ref<string | null>(null)
 const showAvatarCandidates = ref(false)
 
 // 聊天室内上下文中的 tab 状态
-const activeTab = ref<'create' | 'library'>('create')
+// 顺序与 UI 同步：默认进入"角色库",方便用户在已有角色基础上直接挑选。
+const activeTab = ref<'create' | 'library'>('library')
 
 // 弹窗每次重新显示时重置表单：避免上次编辑残留。
 // 编辑模式下从 props.character 回填，新建模式下清空；avatarPreview 跟随 avatarUrl 同步，便于提交后立刻看到新头像。
@@ -105,7 +106,7 @@ watch(() => props.show, (newShow) => {
   if (newShow) {
     error.value = null
     showApiKeyPrompt.value = false
-    activeTab.value = 'create'
+    activeTab.value = 'library'
     // In edit mode, initialize form with character data
     if (isEditMode.value && props.character) {
       console.log('[edit modal] initializing with character:', props.character)
@@ -513,17 +514,17 @@ async function handleAvatarFileChange(event: Event) {
           <div v-if="context === 'room' && !isEditMode" class="modal-tabs">
             <button
               class="modal-tab"
-              :class="{ active: activeTab === 'create' }"
-              @click="activeTab = 'create'"
-            >
-              创建角色
-            </button>
-            <button
-              class="modal-tab"
               :class="{ active: activeTab === 'library' }"
               @click="activeTab = 'library'"
             >
               角色库
+            </button>
+            <button
+              class="modal-tab"
+              :class="{ active: activeTab === 'create' }"
+              @click="activeTab = 'create'"
+            >
+              创建角色
             </button>
           </div>
 
