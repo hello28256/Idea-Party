@@ -13,6 +13,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 // 标记方法为特定异常类型的处理器：Spring MVC 路由异常到此处统一收口。
 import org.springframework.web.bind.annotation.ExceptionHandler;
+// Spring 在静态资源(RH = ResourceHttpRequestHandler)找不到匹配文件时抛的异常;
+// 默认会冒泡到兜底 handler 被当 500 处理,但语义上应该返 404。
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 // 全局控制器增强：拦截所有 @RestController 抛出的异常，等价于 AOP 切面。
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -56,6 +59,24 @@ public class GlobalExceptionHandler {
         log.warn("[DEBUG] AccessDenied: {}", ex.getMessage());
         ErrorResponse error = new ErrorResponse(403, "Forbidden", ex.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    /**
+     * 处理静态资源 404：用户访问不存在的头像/封面图时,Spring 的 ResourceHttpRequestHandler
+     * 抛 NoResourceFoundException。默认会冒泡到下方 @ExceptionHandler(Exception.class)
+     * 兜底被当 500,语义错误(404 才是"资源不存在",不是"服务器故障")。
+     *
+     * 加在兜底之前由 Spring 按"最具体"匹配,优先级自动高于 @ExceptionHandler(Exception.class)。
+     * 触发场景:前端拼错 cover 路径 / 旧 URL 已下架 / Nginx 把不存在的 URL 反代过来。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex) {
+        // 用 info 而非 warn:这属于"客户端请求了不存在的资源"日常事件,不是异常;
+        // 大流量扫描(404 爬虫)时避免刷屏。message 保留 resourcePath 方便排查具体哪个文件。
+        log.info("[DEBUG] NoResource: {}", ex.getMessage());
+        ErrorResponse error = new ErrorResponse(404, "Not Found",
+            "Resource not found: " + ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
     /**
