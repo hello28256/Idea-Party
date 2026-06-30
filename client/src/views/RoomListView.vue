@@ -2546,17 +2546,24 @@ async function handleInviteMember() {
               @keyup.enter="startChat(char)"
             >
               <div class="character-avatar-wrap">
+                <!-- 始终渲染占位符（首字母），图片加载完才覆盖在上层。
+                     loading="lazy" 让浏览器只在接近视口时才请求图片，
+                     配合 decoding="async" 解码不阻塞主线程；
+                     一个分类下几十个推荐角色 + 浏览器并发限制 6/域名的场景下，
+                     585 张同时请求 nginx 不再是问题——视口外根本不发请求。 -->
+                <div class="character-avatar character-avatar-fallback" :data-name="char.name">
+                  {{ char.name.charAt(0) }}
+                </div>
                 <img
                   v-if="!avatarLoadFailed[char.id]"
                   :src="resolveAvatarUrl(char.avatar)"
                   :alt="char.name"
-                  class="character-avatar"
+                  class="character-avatar character-avatar-img"
+                  loading="lazy"
+                  decoding="async"
                   @error="(e) => { console.error('[DEBUG] avatar error', char.name, char.avatar, e); avatarLoadFailed[char.id] = true }"
                   @load="console.log('[DEBUG] avatar ok', char.name, char.avatar)"
                 />
-                <div v-else class="character-avatar character-avatar-fallback" :data-name="char.name">
-                  {{ char.name.charAt(0) }}
-                </div>
                 <span v-if="char.online" class="online-indicator"></span>
               </div>
               <!-- DEBUG: 显示真实 avatar URL，便于排查 -->
@@ -3454,6 +3461,14 @@ async function handleInviteMember() {
   font-weight: 600;
   font-size: 1.1rem;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* 真实图片盖在占位符上：绝对定位 + 同尺寸,
+   这样图片 lazy load 之前用户看到首字母渐变,加载完无缝替换,布局零抖动 */
+.character-avatar-img {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .online-indicator {

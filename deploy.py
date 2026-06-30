@@ -84,7 +84,9 @@ DEPLOY_UPLOADS_VOLUME = os.environ.get("DEPLOY_UPLOADS_VOLUME", "idea-server-upl
 DEPLOY_UPLOADS_IMAGE = os.environ.get("DEPLOY_UPLOADS_IMAGE", "alpine:3.19").strip()
 # Subdirs under server/uploads/avatars/ to sync into the volume.
 # 新增子目录时,同步在 .gitignore 加 !server/uploads/avatars/<sub>/ 让 rsync 能带上文件。
-DEPLOY_UPLOADS_SUBDIRS = ("presets", "hot-rooms", "scenarios")
+# presets-webp 是由 scripts/generate-preset-webp.sh 预生成的 192x192 WebP 头像,
+# nginx 通过 Accept 头协商命中这里,不再反代 Spring Boot。
+DEPLOY_UPLOADS_SUBDIRS = ("presets", "presets-webp", "hot-rooms", "scenarios")
 # Minimum preset file count inside container for verification to pass.
 DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "100"))
 
