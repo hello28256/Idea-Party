@@ -28,6 +28,9 @@ server/uploads/avatars/*
 !server/uploads/avatars/hot-rooms/
 !server/uploads/avatars/hot-rooms/*
 !server/uploads/avatars/hot-rooms/CREDITS.md
+!server/uploads/avatars/scenarios/
+!server/uploads/avatars/scenarios/*
+!server/uploads/avatars/scenarios/CREDITS.md
 *.class
 *.war
 
