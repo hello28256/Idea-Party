@@ -377,9 +377,9 @@ function formatDate(dateStr: string): string {
 
 .card-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.85rem;
 }
 
 .character-avatar {
@@ -407,7 +407,7 @@ function formatDate(dateStr: string): string {
 }
 
 .character-info {
-  flex: 1;
+  width: 100%;
   min-width: 0;
 }
 
@@ -421,9 +421,9 @@ function formatDate(dateStr: string): string {
 .character-tagline {
   font-size: 0.875rem;
   color: var(--text-secondary);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -431,6 +431,7 @@ function formatDate(dateStr: string): string {
 .character-date {
   font-size: 0.75rem;
   color: var(--text-muted);
+  margin: 0;
 }
 
 @media (max-width: 768px) {
