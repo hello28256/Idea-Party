@@ -260,6 +260,39 @@ docker compose down
 docker compose down -v
 ```
 
+### 6.1.1 同步静态资源（avatars）
+
+`python3 deploy.py` 默认会执行 **Step 1.5**：把本地
+`server/uploads/avatars/{presets,hot-rooms}` 同步到服务器
+`idea-server-uploads` named volume，让 Spring Boot 能立即读
+到最新的预设头像和热门聊天室封面。
+
+实现原理是用 `docker run --rm alpine:3.19` 临时容器以 root
+身份挂载 volume 写文件，绕开宿主 `/var/lib/docker/.../idea-server-uploads/_data/`
+所有者 `dhcpcd:lxd`（uid=100）对 ubuntu 用户的写权限限制。
+
+跳过方式（仅调试 / 已知 volume 健康时）：
+
+```bash
+python3 deploy.py --skip-uploads
+```
+
+调优环境变量（写到 `.env.deploy`）：
+
+```bash
+DEPLOY_UPLOADS_VOLUME=idea-server-uploads   # 与 docker-compose.yml 一致
+DEPLOY_UPLOADS_IMAGE=alpine:3.19            # 必须含 cp -a
+DEPLOY_UPLOADS_MIN_PRESETS=100              # 验证阈值，低于此值 deploy 失败
+```
+
+验证命令：
+
+```bash
+# 容器内 preset 数量
+docker exec idea-server sh -c 'find /app/uploads/avatars/presets -maxdepth 1 -type f | wc -l'
+# 期望 ≥ 600
+```
+
 ### 6.2 备份与恢复
 
 **MySQL**（最重要）：

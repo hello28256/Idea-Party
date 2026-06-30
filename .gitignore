@@ -25,6 +25,9 @@ server/logs/
 server/uploads/avatars/*
 !server/uploads/avatars/presets/
 !server/uploads/avatars/presets/*
+!server/uploads/avatars/hot-rooms/
+!server/uploads/avatars/hot-rooms/*
+!server/uploads/avatars/hot-rooms/CREDITS.md
 *.class
 *.war
 
@@ -61,6 +64,9 @@ yarn-error.log*
 
 # Planning (personal)
 .planning/
+
+# Deploy staging directory (rsync writes script here temporarily)
+.deploy-staging/
 
 # Test files
 *.mjs

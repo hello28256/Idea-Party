@@ -8,8 +8,9 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
   - 支持查看状态 / 拉日志 / 重启单个服务
 
 用法：
-  python3 deploy.py                 # 完整部署（同步 + 构建 + 重启）
+  python3 deploy.py                 # 完整部署（同步 + uploads + 构建 + 重启）
   python3 deploy.py --sync-only     # 只同步，不触发部署
+  python3 deploy.py --skip-uploads  # 跳过 uploads volume 同步（仅调试）
   python3 deploy.py --status        # 查看容器状态
   python3 deploy.py --logs          # tail 所有服务日志
   python3 deploy.py --logs server   # tail 指定服务日志
@@ -25,6 +26,7 @@ import os
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Sequence
@@ -74,6 +76,17 @@ SSH_KEY = os.environ.get("DEPLOY_SSH_KEY", "~/.ssh/id_ed25519").strip()
 REMOTE_DIR = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/ideaparty").strip()
 REMOTE_ENV_FILE = os.environ.get("DEPLOY_REMOTE_ENV_FILE", ".env.production").strip()
 
+# ---- Uploads volume sync (Step 1.5) ----
+# Volume name that docker-compose maps to /app/uploads on the server container.
+DEPLOY_UPLOADS_VOLUME = os.environ.get("DEPLOY_UPLOADS_VOLUME", "idea-server-uploads").strip()
+# Helper image used by `docker run --rm` to copy local uploads into the volume.
+# Must include `cp -a` (BusyBox >= 1.30 or GNU coreutils).
+DEPLOY_UPLOADS_IMAGE = os.environ.get("DEPLOY_UPLOADS_IMAGE", "alpine:3.19").strip()
+# Subdirs under server/uploads/avatars/ to sync into the volume.
+DEPLOY_UPLOADS_SUBDIRS = ("presets", "hot-rooms")
+# Minimum preset file count inside container for verification to pass.
+DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "100"))
+
 if not DEPLOY_HOST:
     die("DEPLOY_HOST 未设置。请在 .env.deploy 中配置（IP 地址或 SSH config alias）。")
 
@@ -120,11 +133,19 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: s
     )
 
 
-def ssh_cmd(remote_cmd: str, *, capture: bool = False) -> subprocess.CompletedProcess:
-    """在远程服务器上跑一条命令。"""
+def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+    """在远程服务器上跑一条命令。check=False 用于 best-effort 操作
+    （如 docker pull 镜像——已经缓存时仍要容忍非零退出）。"""
     ssh_path = os.path.expanduser(SSH_KEY)
     cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, remote_cmd]
-    return run(cmd, capture=capture)
+    return run(cmd, capture=capture, check=check)
+
+
+# Dry-run 模式下跳过 verification —— 没有真同步，凭空检查会假阳性。
+def _is_dry_run() -> bool:
+    """判断当前是否 dry-run 模式（run 被 monkey-patch 过）。"""
+    src = getattr(run, "__name__", "")
+    return src == "dry_run"
 
 
 # =============================================================================
@@ -157,22 +178,157 @@ def action_sync() -> None:
     run(cmd)
 
 
-def action_deploy(*, sync_only: bool = False) -> None:
-    """完整部署：同步 → 远程构建 → 远程重启。"""
-    log("=== Step 0/3: ensure remote dir ===")
+def action_sync_uploads() -> None:
+    """Sync server/uploads/avatars/{presets,hot-rooms} into idea-server-uploads
+    named volume on the server.
+
+    Bypasses host dhcpcd:lxd ownership trap by using a throwaway alpine
+    container as root: bind-mount a remote staging path (already populated
+    by Step 1 rsync) as :ro, mount the volume as /dst, cp -a into
+    /dst/avatars/, chown to the container's app user uid:gid.
+
+    Why this design (vs sudo chown / bind mount):
+    - Container root writing the volume = effective root on host, so the
+      dhcpcd:lxd /var/lib/docker/volumes/idea-server-uploads/_data/ drwx--x--x
+      perms don't block writes.
+    - No new sudo dependency on the deploy host beyond what ensure_remote_dir
+      already does.
+    - Idempotent: cp -a is additive (user-uploaded avatars at /dst/avatars/*.jpg
+      are preserved); preset/hot-rooms files are overwritten when local changes.
+    - Self-healing on Dockerfile uid drift: we read app's uid:gid at runtime
+      instead of hardcoding 100:101.
+
+    Dependency on Step 1: the local uploads tree must already be at
+    {REMOTE_DIR}/server/uploads/avatars/{presets,hot-rooms}/ on the server.
+    Step 1 (action_sync) does this via rsync. We use the SERVER-side path
+    as the bind-mount source, not the local path — docker run executes on
+    the server, so it can't see the macOS file system.
+    """
+    # Source path on the server (populated by Step 1 rsync).
+    remote_src_root = f"{REMOTE_DIR}/server/uploads/avatars"
+
+    # Probe what subdirs exist on the remote side (rsync may have skipped
+    # some if they don't exist locally).
+    probe = ssh_cmd(f"ls -d {remote_src_root}/{{presets,hot-rooms}} 2>/dev/null || true", capture=True)
+    present = []
+    for line in (probe.stdout or "").splitlines():
+        line = line.strip()
+        if line and line.endswith(("/presets", "/hot-rooms")):
+            present.append(line.rsplit("/", 1)[1])
+    if not present:
+        die(f"[uploads] no subdirs found under {remote_src_root} — refusing to wipe volume")
+
+    # Best-effort pull: helper image may already be cached.
+    log(f"[uploads] ensure helper image: {DEPLOY_UPLOADS_IMAGE}")
+    ssh_cmd(f"docker pull --quiet {DEPLOY_UPLOADS_IMAGE}", check=False)
+
+    # Build bind-mount args for each present subdir (read-only).
+    mount_args: list[str] = []
+    for sub in present:
+        mount_args += ["-v", f"{remote_src_root}/{sub}:/src/{sub}:ro"]
+
+    # Inner shell script — written to a local temp file and bind-mounted
+    # into the helper. Sidesteps the `sh -c "..."` quoting nightmare.
+    cp_steps = " && ".join(
+        f"mkdir -p /dst/avatars/{sub} && cp -a /src/{sub}/. /dst/avatars/{sub}/"
+        for sub in present
+    )
+    script_body = (
+        "#!/bin/sh\n"
+        "set -e\n"
+        "APP_UID=$(docker exec idea-server sh -c 'id -u app' 2>/dev/null || echo 100)\n"
+        "APP_GID=$(docker exec idea-server sh -c 'id -g app' 2>/dev/null || echo 101)\n"
+        'echo "[uploads] using uid:gid = $APP_UID:$APP_GID"\n'
+        f"{cp_steps}\n"
+        "chown -R $APP_UID:$APP_GID /dst/avatars\n"
+        'echo "[uploads] container-side copy OK"\n'
+    )
+    script_path = Path(tempfile.mkdtemp(prefix="deploy-uploads-")) / "sync.sh"
+    script_path.write_text(script_body, encoding="utf-8")
+    script_path.chmod(0o755)
+
+    # Push the script to the server (it needs to live on the server FS
+    # because docker run bind-mount needs server-side paths).
+    remote_script_dir = f"{REMOTE_DIR}/.deploy-staging"
+    ssh_cmd(f"mkdir -p {remote_script_dir}")
+    remote_script = f"{remote_script_dir}/sync.sh"
+    # rsync single file (no --delete, won't touch anything else).
+    rsync_script_cmd = [
+        "rsync", "-av",
+        "-e", f"ssh -i {os.path.expanduser(SSH_KEY)}",
+        str(script_path), f"{SSH_TARGET}:{remote_script}",
+    ]
+    run(rsync_script_cmd)
+
+    script_mount = ["-v", f"{remote_script}:/sync.sh:ro"]
+    remote_cmd = (
+        f"docker run --rm "
+        f"-v {DEPLOY_UPLOADS_VOLUME}:/dst "
+        + " ".join(script_mount + mount_args)
+        + f" {DEPLOY_UPLOADS_IMAGE} sh /sync.sh"
+    )
+
+    log(f"[uploads] sync into {DEPLOY_UPLOADS_VOLUME} ...")
+    ssh_cmd(remote_cmd)
+
+    # Clean up local + remote temp files.
+    try:
+        script_path.unlink()
+        script_path.parent.rmdir()
+    except OSError:
+        pass
+    ssh_cmd(f"rm -rf {remote_script_dir}", check=False)
+
+    # Post-sync verification — count presets inside running container.
+    # If idea-server isn't running (e.g. first-ever deploy), skip with a warn.
+    # Dry-run mode: skip entirely (rsync 没真跑，凭空检查会假阳性失败).
+    if _is_dry_run():
+        log("[uploads] dry-run: skipping verification")
+        return
+
+    probe = ssh_cmd(
+        "docker exec idea-server sh -c 'ls /app/uploads/avatars/presets 2>/dev/null | wc -l'",
+        capture=True,
+    )
+    try:
+        actual = int((probe.stdout or "0").strip())
+    except ValueError:
+        actual = 0
+    threshold = DEPLOY_UPLOADS_MIN_PRESETS
+    stderr_text = (probe.stderr or "")
+    if actual == 0 and "No such container" in stderr_text:
+        log("[uploads] WARN: idea-server not running — skipping count verification")
+    elif actual < threshold:
+        die(
+            f"[uploads] verification FAILED: presets count = {actual}, "
+            f"expected >= {threshold}. Check volume and bind-mount paths."
+        )
+    else:
+        log(f"[uploads] verification OK: presets count = {actual} (>= {threshold})")
+
+
+def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> None:
+    """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。"""
+    log("=== Step 0/4: ensure remote dir ===")
     ensure_remote_dir()
 
-    log("=== Step 1/3: rsync local → remote ===")
+    log("=== Step 1/4: rsync local → remote ===")
     action_sync()
+
+    if not skip_uploads:
+        log("=== Step 1.5/4: sync uploads into idea-server-uploads volume ===")
+        action_sync_uploads()
+    else:
+        log("[uploads] skipped via --skip-uploads")
 
     if sync_only:
         log("sync-only 模式，跳过构建和重启")
         return
 
-    log("=== Step 2/3: docker compose build ===")
+    log("=== Step 2/4: docker compose build ===")
     ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} build")
 
-    log("=== Step 3/3: docker compose up -d ===")
+    log("=== Step 3/4: docker compose up -d ===")
     ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} up -d")
 
     log("=== Status check ===")
@@ -221,6 +377,7 @@ def parse_args() -> argparse.Namespace:
         epilog="示例：\n  python3 deploy.py --logs server\n  python3 deploy.py --restart client",
     )
     p.add_argument("--sync-only", action="store_true", help="只同步，不构建/重启")
+    p.add_argument("--skip-uploads", action="store_true", help="跳过 uploads volume 同步（仅调试 / 已知 volume 健康时使用）")
     p.add_argument("--status", action="store_true", help="查看容器状态")
     p.add_argument("--logs", nargs="?", const="", metavar="SERVICE", help="tail 日志，可指定服务名")
     p.add_argument("--restart", metavar="SERVICE", help="重启指定服务")
@@ -255,7 +412,7 @@ def main() -> None:
         elif args.shell:
             action_shell(args.shell)
         else:
-            action_deploy(sync_only=args.sync_only)
+            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
     except subprocess.CalledProcessError as e:
         die(f"命令执行失败 (exit {e.returncode}): {e.cmd}")
 
