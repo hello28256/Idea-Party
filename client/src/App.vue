@@ -6,6 +6,7 @@
 // 不把这些浮层放进 router-view 是为了避免被路由切换销毁：销毁后正在展示的 toast 会瞬间消失，UX 抖动。
 import SettingsModal from '@/components/settings/SettingsModal.vue'
 import Toast from '@/components/ui/Toast.vue'
+import MobileGuard from '@/components/ui/MobileGuard.vue'
 </script>
 
 <template>
@@ -13,6 +14,8 @@ import Toast from '@/components/ui/Toast.vue'
     <router-view />
     <SettingsModal />
     <Toast />
+    <!-- 移动端拦截：CSS @media 控制显隐，<768px 时全屏覆盖遮罩 -->
+    <MobileGuard />
   </div>
 </template>
 
