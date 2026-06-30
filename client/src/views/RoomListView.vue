@@ -178,6 +178,33 @@ function resolveAvatarUrl(url: string | null | undefined): string {
   return url
 }
 
+// 场景卡片封面渐变色:用 id 哈希挑 1 个调色板,保证 22 个预设场景视觉差异明显
+// 没用 1 张 cover 图,避免新增静态资源;用线性渐变 + emoji 居中已经能撑起 16:9 封面的视觉重量。
+// 私有场景(id 是 UUID 字符串)也走同一函数,哈希结果均匀分布,不会和预设场景撞色。
+const SCENARIO_COVER_PALETTES: [string, string][] = [
+  ['#fef3c7', '#f59e0b'], // 暖黄
+  ['#dbeafe', '#3b82f6'], // 天空蓝
+  ['#ede9fe', '#8b5cf6'], // 紫罗兰
+  ['#fce7f3', '#ec4899'], // 粉
+  ['#d1fae5', '#10b981'], // 薄荷
+  ['#ffe4e6', '#f43f5e'], // 玫红
+  ['#e0e7ff', '#6366f1'], // 靛
+  ['#fef9c3', '#eab308'], // 柠檬
+  ['#ccfbf1', '#14b8a6'], // 青
+  ['#fee2e2', '#ef4444'], // 番茄
+  ['#f3e8ff', '#a855f7'], // 薰衣草
+  ['#cffafe', '#06b6d4']  // 湖蓝
+]
+function scenarioCover(id: string): string {
+  // 简单 djb2 字符串哈希:稳态分布在 0..palette.length-1
+  let h = 5381
+  for (let i = 0; i < id.length; i++) {
+    h = ((h << 5) + h + id.charCodeAt(i)) >>> 0
+  }
+  const [c1, c2] = SCENARIO_COVER_PALETTES[h % SCENARIO_COVER_PALETTES.length]
+  return `linear-gradient(135deg, ${c1} 0%, ${c2} 100%)`
+}
+
 // 从 localStorage 加载折叠状态
 // 解析失败时静默回退到默认值：避免一次坏数据导致整个页面布局异常。
 function loadLayoutState() {
@@ -1764,10 +1791,41 @@ async function handleInviteMember() {
               class="scenario-card"
               @click="openScenario(s)"
             >
-              <div class="scenario-emoji">{{ s.emoji }}</div>
+              <!-- 16:9 封面:有 cover 用图(配暗遮罩 + 标题压底),无 cover 用 emoji 渐变居中。
+                   resolveAvatarUrl 加 cache-buster,与热门聊天室头像同款策略。 -->
+              <div
+                class="scenario-cover"
+                :class="{ 'has-image': !!s.cover, 'is-emoji': !s.cover }"
+                :style="!s.cover ? { background: scenarioCover(s.id) } : null"
+              >
+                <img
+                  v-if="s.cover"
+                  :src="resolveAvatarUrl(s.cover)"
+                  :alt="s.title"
+                  class="cover-img"
+                />
+                <!-- 暗遮罩:让标题压底时白字可读,只在有图时显示 -->
+                <div v-if="s.cover" class="cover-overlay"></div>
+                <!-- emoji 居中:仅在无图时显示 -->
+                <span v-if="!s.cover" class="scenario-cover-emoji">{{ s.emoji }}</span>
+                <!-- 标题压底:仅在有图时显示,叠在 cover 内部 -->
+                <div v-if="s.cover" class="scenario-cover-title-wrap">
+                  <h3 class="scenario-cover-title">{{ s.title }}</h3>
+                </div>
+              </div>
+
               <div class="scenario-body">
-                <h3 class="scenario-title">{{ s.title }}</h3>
+                <!-- 有图时:body 不再重复标题(已在 cover 上),只显示描述 + 示例片段 -->
+                <template v-if="!s.cover">
+                  <h3 class="scenario-title">{{ s.title }}</h3>
+                </template>
                 <p class="scenario-desc">{{ s.description }}</p>
+
+                <!-- 示例片段:与热门聊天室"最新消息"区视觉一致,
+                     用引号引出,营造"对话感"。 -->
+                <div v-if="s.sampleQuote" class="scenario-quote">
+                  <span class="scenario-quote-text">"{{ s.sampleQuote }}"</span>
+                </div>
               </div>
             </button>
             <!-- 用户私有场景：右上角 hover 出现编辑/删除按钮 -->
@@ -3913,34 +3971,160 @@ async function handleInviteMember() {
 
 .scenarios-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
 }
 
-.scenario-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.875rem;
-  padding: 1.25rem;
-  background: var(--bg-secondary, #fff);
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 16px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s ease;
-  width: 100%;
+@media (max-width: 1400px) {
+  .scenarios-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
-.scenario-card:hover {
-  border-color: #0f172a;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+
+@media (max-width: 900px) {
+  .scenarios-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 卡片外层 wrap：用于承载右上角 actions（编辑/删除按钮） */
 .scenario-card-wrap {
   position: relative;
 }
+
+/* 场景卡片：与 .room-card 同款（16:9 渐变封面 + body + hover 抬起） */
+.scenario-card {
+  position: relative;
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+}
+.scenario-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  border-color: #27272a;
+}
+
+/* 16:9 封面:有 cover 用图 + 暗遮罩 + 标题压底,无 cover 用渐变 + emoji 居中 */
+.scenario-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+.scenario-cover.has-image {
+  display: block;
+}
+.scenario-cover.is-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+.scenario-card:hover .cover-img {
+  transform: scale(1.05);
+}
+/* 暗遮罩:仅在有图时显示,让底部白字标题可读 */
+.cover-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,0) 40%, rgba(0,0,0,0.65) 100%);
+}
+/* 标题压底:仅在有图时显示,叠在 cover 内左下 */
+.scenario-cover-title-wrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.75rem 1rem;
+  z-index: 1;
+}
+.scenario-cover-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* emoji 居中:仅在无图时显示 */
+.scenario-cover-emoji {
+  font-size: 64px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.12));
+  transition: transform 0.3s ease;
+}
+.scenario-card:hover .scenario-cover-emoji {
+  transform: scale(1.08);
+}
+
+/* 卡片正文：与 .room-body 间距一致 */
+.scenario-body {
+  padding: 1rem;
+}
+.scenario-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.4rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color 0.25s ease;
+}
+.scenario-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.6rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 示例片段区：与 .latest-message 同款（panel 背景 + padding + 单行 ellipsis） */
+.scenario-quote {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--panel-bg);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  transition: background-color 0.25s ease;
+}
+.scenario-quote-text {
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 暗色模式覆盖：与 .latest-message / .message-sender 暗色处理同档 */
+.dark .scenario-quote-text {
+  color: #cbd5e1;
+}
+
 .scenario-actions {
   position: absolute;
   top: 8px;
@@ -4013,24 +4197,6 @@ async function handleInviteMember() {
   font-size: 1.1rem;
   line-height: 1;
   font-weight: 600;
-}
-.scenario-emoji {
-  font-size: 32px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.scenario-body { flex: 1; min-width: 0; }
-.scenario-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary, #111827);
-  margin: 0 0 4px;
-}
-.scenario-desc {
-  font-size: 13px;
-  color: var(--text-secondary, #6b7280);
-  margin: 0;
-  line-height: 1.5;
 }
 
 /* Scenario template-preview modal */
