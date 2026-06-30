@@ -83,18 +83,16 @@ async function patchMissingAvatarUrls() {
 // 获取当前用户的角色
 // 仅展示当前用户创建的自定义角色：排除 isPreset 的系统预置角色，
 // 是因为业务上预置角色由系统统一提供，用户不应在"我的角色库"里看到/编辑它们。
+// 按 createdAt 降序：新创建的角色排在前面（用户创建完想立刻找到/编辑时不必滚到底）。
+// 缺失 createdAt 的旧数据用空串兜底排序到末尾，不抛错。
 const myCharacters = computed(() => {
   if (!authStore.user) return []
   const filtered = characterStore.characters.filter(
     c => c.ownerId === authStore.user!.id && !c.isPreset
   )
-  console.log('[DEBUG] myCharacters过滤:', {
-    totalCharacters: characterStore.characters.length,
-    userId: authStore.user.id,
-    filteredCount: filtered.length,
-    filtered
-  })
   return filtered
+    .slice()
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
 })
 
 function openCreateModal() {
@@ -211,11 +209,11 @@ function formatDate(dateStr: string): string {
                 :alt="character.name"
               />
               <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
+              <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
             <div class="character-info">
               <h3 class="character-name">{{ character.name }}</h3>
               <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
-              <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
           </div>
         </div>
@@ -383,20 +381,26 @@ function formatDate(dateStr: string): string {
 }
 
 .character-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.character-avatar > img,
+.character-avatar > .avatar-placeholder {
   width: 56px;
   height: 56px;
   border-radius: 12px;
-  overflow: hidden;
-  flex-shrink: 0;
   background: var(--bg-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  object-fit: cover;
 }
 
 .character-avatar img {
-  width: 100%;
-  height: 100%;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
   object-fit: cover;
 }
 
@@ -404,6 +408,9 @@ function formatDate(dateStr: string): string {
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .character-info {
@@ -429,9 +436,10 @@ function formatDate(dateStr: string): string {
 }
 
 .character-date {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
   margin: 0;
+  white-space: nowrap;
 }
 
 @media (max-width: 768px) {
