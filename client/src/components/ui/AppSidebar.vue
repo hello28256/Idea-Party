@@ -5,6 +5,7 @@
 // 组件本身无全局单例：随父级路由一起挂载/卸载，由 HomeView / RoomListView 等各自持有。
 
 import { useRouter } from 'vue-router'
+import { Compass, UsersRound, Sparkles, Flame, FolderOpen, MessageSquare } from 'lucide-vue-next'
 import type { NavItem } from '@/config/sidebar'
 
 defineProps<{
@@ -13,6 +14,20 @@ defineProps<{
 }>()
 
 const router = useRouter()
+
+// 侧边栏 nav item.icon (PascalCase 字符串) -> lucide 组件。
+// 与 RoomListView 同款映射：集中维护，避免每个 view 各自写一份
+const NAV_ICONS: Record<string, unknown> = {
+  Compass,
+  UsersRound,
+  Sparkles,
+  Flame,
+  FolderOpen,
+  MessageSquare
+}
+function navIcon(name?: string) {
+  return name ? NAV_ICONS[name] : null
+}
 
 // 用 router.push 而非 <router-link>：因为外层 <a href="#"> + @click.prevent 的写法更便于自定义 hover/active 样式，
 // 同时避免在多次重渲染时 router-link 触发默认 scrollBehavior 的副作用。
@@ -42,7 +57,9 @@ function go(route: string) {
         :class="{ active: item.id === activeId }"
         @click.prevent="go(item.route)"
       >
-        <span v-if="item.emoji" class="nav-emoji">{{ item.emoji }}</span>
+        <span v-if="item.icon" class="nav-emoji">
+          <component :is="navIcon(item.icon)" class="w-5 h-5" :stroke-width="1.75" />
+        </span>
         <span class="nav-label">{{ item.label }}</span>
       </a>
     </nav>
@@ -118,9 +135,11 @@ function go(route: string) {
 }
 
 .nav-emoji {
-  font-size: 1rem;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-label {

@@ -14,6 +14,7 @@ import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { charactersApi } from '@/api/characters'
 import { hotRoomsApi, type HotRoom } from '@/api/hotRooms'
 import { scenariosApi } from '@/api/scenarios'
+import { Compass, UsersRound, Sparkles, MessageSquare } from 'lucide-vue-next'
 import { useRouter, useRoute } from 'vue-router'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
@@ -35,6 +36,18 @@ const roomStore = useRoomStore()
 const toast = useToast()
 const characterStore = useCharacterStore()
 const authStore = useAuthStore()
+
+// 侧边栏 nav item.icon (PascalCase 字符串) -> lucide 组件。
+// 用静态映射而非 resolveComponent：保留 Vite tree-shake，避免把整个 lucide 包打进去。
+const NAV_ICONS: Record<string, unknown> = {
+  Compass,
+  UsersRound,
+  Sparkles,
+  MessageSquare
+}
+function navIcon(name?: string) {
+  return name ? NAV_ICONS[name] : null
+}
 
 const showCreateModal = ref(false)
 const showCreateCharacterModal = ref(false)
@@ -1547,8 +1560,8 @@ async function handleInviteMember() {
       'role-panel-collapsed': isRolePanelCollapsed
     }"
     :style="{
-      '--global-sidebar-width': isGlobalSidebarCollapsed ? '72px' : '260px',
-      '--room-list-width': isRoomListCollapsed ? '0px' : '320px',
+      '--global-sidebar-width': isGlobalSidebarCollapsed ? '72px' : '220px',
+      '--room-list-width': isRoomListCollapsed ? '0px' : '280px',
       '--role-panel-width': isRolePanelCollapsed ? '0px' : '280px'
     }"
   >
@@ -1616,7 +1629,9 @@ async function handleInviteMember() {
           :class="{ active: item.id === activeNavId }"
           @click.prevent="handleNavClick(item.id)"
         >
-          <span v-if="item.emoji" class="nav-emoji">{{ item.emoji }}</span>
+          <span v-if="item.icon" class="nav-emoji">
+            <component :is="navIcon(item.icon)" class="w-5 h-5" :stroke-width="1.75" />
+          </span>
           <span class="nav-label">{{ item.label }}</span>
         </a>
       </nav>
@@ -2664,7 +2679,9 @@ async function handleInviteMember() {
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  /* 缩 padding 到 0.75rem：原 1rem + 侧边栏缩到 220px 时，「+ 创建」按钮（160px）
+     + 左右 padding 共 192px，加边距仍能 fit；原 1rem 会让内容区只有 188px 太挤 */
+  padding: 0.75rem;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -2743,11 +2760,29 @@ async function handleInviteMember() {
 
 .page-layout.global-collapsed .nav-item {
   justify-content: center;
+  align-items: center;
   padding: 0.6rem;
+}
+
+/* 折叠态：彻底从布局中移除 label（默认规则是 opacity:0 + width:0，但 height 还在，
+   让 flex 子项仍占一行的 vertical space，把图标挤到顶部） */
+.page-layout.global-collapsed .nav-item .nav-label {
+  display: none;
 }
 
 .page-layout.global-collapsed .nav-emoji {
   margin: 0;
+}
+
+/* 折叠态下的选中态：缩成 40x40 深色方块，只露图标。
+   默认 .nav-item.active 是 160px 宽 + padding 1rem，会撑爆 72px 的折叠侧栏；
+   这里覆盖成 40x40 与「+ 创建」按钮（48x48）保持视觉节奏一致。 */
+.page-layout.global-collapsed .nav-item.active {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0 auto;
+  border-radius: 8px;
 }
 
 .page-layout.global-collapsed .recent-chats {
@@ -2892,7 +2927,8 @@ async function handleInviteMember() {
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 400;
-  transition: all 0.15s ease;
+  /* 不加 transition：激活态切换时 background/color 渐变会让"原激活项先变色再切到新项"
+     出现一帧瞬时可见的中间态，看起来像"变大闪一下"。瞬变更干脆。 */
 }
 
 .nav-item:hover {
@@ -2900,16 +2936,29 @@ async function handleInviteMember() {
   color: var(--text-primary);
 }
 
+/* 选中态：纯深色实心块 + 白字 + 加粗。
+   width 锁 160px，跟顶部「+ 创建」按钮完全对齐，避免短文字（发现）显得比按钮窄一截。 */
 .nav-item.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--color-space, #111827);
+  color: #ffffff;
   font-weight: 500;
+  width: 160px;
+  padding: 0.5rem 1rem;
+}
+
+.nav-item.active:hover {
+  /* 选中态再 hover 仍保持深色块，只在颜色上轻微提亮，
+     避免「选中态被 hover 覆盖成浅色」导致视觉跳动 */
+  background: #1f2937;
+  color: #ffffff;
 }
 
 .nav-emoji {
-  font-size: 1rem;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -4502,7 +4551,7 @@ async function handleInviteMember() {
 
 .rooms-list-header {
   height: 88px;
-  padding: 20px 18px 14px;
+  padding: 20px 14px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4559,7 +4608,7 @@ async function handleInviteMember() {
 }
 
 .rooms-search {
-  padding: 0 14px 12px;
+  padding: 0 12px 12px;
   flex-shrink: 0;          /* 保持搜索框完整高度，不被压缩 */
 }
 
@@ -4634,7 +4683,7 @@ async function handleInviteMember() {
 .rooms-list-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 10px 16px;
+  padding: 8px 8px 16px;
 }
 
 .room-list-item {
