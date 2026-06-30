@@ -530,8 +530,12 @@ async function handleAvatarFileChange(event: Event) {
 
           <!-- 主体 -->
           <div class="character-modal-body">
-            <!-- 创建 tab / 编辑模式 -->
-            <div v-if="activeTab === 'create' || isEditMode" class="character-form">
+            <!-- 创建 tab / 编辑模式
+                 三种情况显示创建表单:
+                 1) 编辑模式 (强制显示,无论 tab)
+                 2) room 上下文 + activeTab='create' (用户在 tab 里点回了创建)
+                 3) 非 room 上下文 (角色库/其他入口:无 tab UI,activeTab 无关) -->
+            <div v-if="isEditMode || (context === 'room' ? activeTab === 'create' : true)" class="character-form">
               <!-- 隐藏的文件输入 -->
               <input
                 ref="fileInputRef"
@@ -695,8 +699,8 @@ async function handleAvatarFileChange(event: Event) {
             </div>
           </div>
 
-          <!-- 底部 -->
-          <footer v-if="activeTab === 'create' || isEditMode" class="character-modal-footer">
+          <!-- 底部:同 body,只在 room + library tab 时隐藏,其余都显示 -->
+          <footer v-if="isEditMode || (context === 'room' ? activeTab === 'create' : true)" class="character-modal-footer">
             <div class="footer-left">
               <button
                 v-if="isEditMode"
