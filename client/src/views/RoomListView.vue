@@ -46,6 +46,11 @@ const editingCharacter = ref<any>(null)
 // 在聊天室内创建角色的上下文状态
 const createCharacterRoomId = ref<string | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
+// Teleport 到 body 后的下拉菜单位置（fixed 定位）。
+// 注意：必须在每次展开、resize、滚动、sidebar 折叠态切换时基于按钮 getBoundingClientRect
+// 重算——如果只在 toggle 时缓存，按钮随后移动（侧边栏展开/收起、滚动等）菜单就会留在
+// 旧坐标，看起来像"飘到了头像下面"。
+const dropdownPos = ref({ top: 0, left: 0 })
 const selectedCategory = ref('all')
 const searchQuery = ref('')
 // mounted 在 onMounted 延迟 50ms 后置 true，触发 .page-layout 渐显动画（避免首帧空白闪烁）
@@ -1188,6 +1193,13 @@ onMounted(() => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('click', onRoomMenuOutsideClick)
 
+  // + 创建菜单跟随按钮：
+  // - resize：视口尺寸变化时按钮位置可能变（断点切换等）
+  // - scroll：用 capture 模式监听任意滚动容器（包括菜单内部、未来若嵌套 scrollview 也能触发）
+  // 任意一个事件触发时，如果菜单是开的，就重算坐标保证菜单紧贴按钮。
+  window.addEventListener('resize', handleDropdownRelocate)
+  window.addEventListener('scroll', handleDropdownRelocate, true)
+
   // 加载已保存的折叠状态
   loadLayoutState()
 })
@@ -1195,6 +1207,20 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('click', onRoomMenuOutsideClick)
+  window.removeEventListener('resize', handleDropdownRelocate)
+  window.removeEventListener('scroll', handleDropdownRelocate, true)
+})
+
+// resize/scroll 共用：菜单开着就重算坐标
+function handleDropdownRelocate() {
+  if (showCreateDropdown.value) updateDropdownPos()
+}
+
+// sidebar 折叠态切换会改变按钮的 rect.left/right（72px ↔ 260px）。
+// 折叠切换的瞬间即使菜单没在动，也要把 fixed 菜单拉回按钮旁边——这是之前「菜单
+// 飘到头像下面」的真正原因：折叠后按钮横移 ~190px，菜单还停留在旧坐标。
+watch(isGlobalSidebarCollapsed, () => {
+  if (showCreateDropdown.value) updateDropdownPos()
 })
 
 function handleClickOutside(e: MouseEvent) {
@@ -1418,8 +1444,29 @@ async function cloneParticipantsToMyLibrary(
   return { ids, missing }
 }
 
+// 根据触发按钮的当前位置实时计算菜单的 fixed 坐标。
+// 菜单宽 150px：展开在按钮右侧（按钮右沿 + 6px），顶部与按钮顶部对齐。
+// 若按钮距视口右边不足菜单宽，则改为「按钮下方居中」作为安全回退，避免菜单溢出视口右侧。
+function updateDropdownPos() {
+  if (!dropdownRef.value) return
+  const rect = dropdownRef.value.getBoundingClientRect()
+  const MENU_WIDTH = 150
+  const GAP = 6
+  // 优先：按钮右侧，顶部对齐
+  let left = rect.right + GAP
+  if (left + MENU_WIDTH > window.innerWidth) {
+    // 回退：按钮下方居中
+    left = rect.left + rect.width / 2 - MENU_WIDTH / 2
+  }
+  dropdownPos.value = { top: rect.top, left }
+}
+
 function toggleCreateDropdown(e: Event) {
   e.stopPropagation()
+  if (!showCreateDropdown.value) {
+    // 打开时立刻计算一次初值（避免首帧菜单短暂停留在旧坐标）
+    updateDropdownPos()
+  }
   showCreateDropdown.value = !showCreateDropdown.value
 }
 
@@ -1528,34 +1575,35 @@ async function handleInviteMember() {
       </div>
 
       <!-- 创建按钮（下拉菜单） -->
-      <div
-        class="create-dropdown-wrapper"
-        ref="dropdownRef"
-      >
-        <button class="create-btn" @click.stop="toggleCreateDropdown">
+      <div class="create-dropdown-wrapper">
+        <button ref="dropdownRef" class="create-btn" @click.stop="toggleCreateDropdown">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
           <span>创建</span>
         </button>
 
-        <!-- 下拉菜单 -->
-        <Transition name="dropdown">
-          <div
-            v-if="showCreateDropdown"
-            class="create-dropdown-menu"
-            @click.stop
-          >
-            <button class="dropdown-item" @click.stop="handleCreateCharacter">
-              <span class="dropdown-icon">👤</span>
-              <span class="dropdown-label">创建角色</span>
-            </button>
-            <button class="dropdown-item" @click="handleCreateRoom">
-              <span class="dropdown-icon">💬</span>
-              <span class="dropdown-label">创建聊天室</span>
-            </button>
-          </div>
-        </Transition>
+        <!-- 下拉菜单：Teleport 到 body 避免被 sidebar/page-layout 的 overflow:hidden 裁剪
+             或被 stacking context 错位（之前菜单会"穿透"到主内容区遮住角色卡片）。 -->
+        <Teleport to="body">
+          <Transition name="dropdown">
+            <div
+              v-if="showCreateDropdown"
+              class="create-dropdown-menu"
+              :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
+              @click.stop
+            >
+              <button class="dropdown-item" @click.stop="handleCreateCharacter">
+                <span class="dropdown-icon">👤</span>
+                <span class="dropdown-label">创建角色</span>
+              </button>
+              <button class="dropdown-item" @click="handleCreateRoom">
+                <span class="dropdown-icon">💬</span>
+                <span class="dropdown-label">创建聊天室</span>
+              </button>
+            </div>
+          </Transition>
+        </Teleport>
       </div>
 
       <!-- 导航 -->
@@ -2759,18 +2807,16 @@ async function handleInviteMember() {
   opacity: 0.9;
 }
 
-/* Create Dropdown Wrapper */
+/* Create Dropdown Wrapper —— Teleport 后这个容器本身没有 absolute 子节点，
+   所以 position: relative 已无意义，保留 wrapper 仅为模板结构清晰。 */
 .create-dropdown-wrapper {
-  position: relative;
   display: inline-block;
   width: fit-content;
   margin-bottom: 1rem;
 }
 
 .create-dropdown-menu {
-  position: absolute;
-  left: calc(100% + 6px);
-  top: 0;
+  position: fixed;
   width: 150px;
   background: #1f1f1f;
   border-radius: 16px;
