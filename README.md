@@ -1,6 +1,6 @@
 # Idea Party
 
-> AI 多角色聊天室平台：在一个对话框里同时和多个 AI 角色对话,类似群聊或圆桌讨论。
+> AI 多角色聊天室平台：在一个对话框里同时和多个 AI 角色对话，类似群聊或圆桌讨论。
 
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-6db33f)](https://spring.io/projects/spring-boot)
@@ -38,8 +38,8 @@
 - 由 **Moderator Agent** 智能编排发言顺序,避免一拥而上或冷场
 - 角色 prompt 可由系统根据角色名自动联网检索公开信息生成(Firecrawl + LLM)
 - **DeepSeek API Key 只存后端**,前端永远拿不到
-- 内置 4 个开箱即用的「场景」模板(面试模拟 / 产品头脑风暴 / 英语陪练 / 写作助手)
-- 内置 **120 个** 预设角色(苏格拉底、爱因斯坦、孔子、马云、乔布斯等),按分类筛选与推荐
+- 内置 **22 个** 开箱即用的「场景」模板(面试模拟 / 论文答辩 / 客户谈判 / 健身咨询 / 心理倾听 等)
+- 内置 **585 个** 预设角色(苏格拉底、爱因斯坦、孔子、马云、乔布斯等),按 **12 个分类** 筛选与推荐
 
 适合用来做:技术面试模拟、产品头脑风暴、语言学习陪练、稿件审阅、圆桌讨论等。
 
@@ -47,12 +47,12 @@
 
 ## 功能特性
 
-- 🎭 **角色系统** — 120 个预设角色 + 自定义角色;按分类筛选与推荐(`/api/characters/recommended?category=...`);支持上传头像、按角色名自动检索维基百科生成 persona prompt
+- 🎭 **角色系统** — 585 个预设角色 + 自定义角色;12 类筛选(`/api/characters/recommended?category=...`);支持上传头像、按角色名自动检索维基百科生成 persona prompt
 - 💬 **两种房间模式** — `dialogue`(@提及 + 智能选人)/ `discussion`(多轮 Moderator 编排 + 暂停/恢复/停止)
 - ⚡ **实时流式聊天** — 字符级推送,多角色用一次 LLM 调用并行输出(联合 prompt + 行内解析器)
 - 👍👎 **反馈系统** — Like / Dislike + 5 类差评(答非所问 / 事实不准 / 不安全 / 风格差 / 其他)+ 备注;后台汇总观测量
 - 📊 **管理后台** — `/admin/feedbacks` 查看所有 AI 消息的反馈、流式状态(成功/空/失败)、响应延迟分桶
-- 🪟 **场景模板** — 一键启动 4 个常用场景,会先问用户补充输入再创建角色
+- 🪟 **场景模板** — 一键启动 22 个常用场景,会先问用户补充输入再创建角色;**用户也可创建私有场景**(`POST /api/user-scenarios`)
 - 🎨 **主题切换** — 浅色 / 深色 / 跟随系统,后端持久化
 - 🛡 **速率限制** — Bucket4j 按 IP 限流,避免误用
 - 📎 **简历解析** — 上传 .docx / .pdf / .txt 自动提取文本(Apache Tika)
@@ -133,7 +133,7 @@ Idea-Party/
 │   │   ├── service/                       # 23 个服务(ModeratorAgent/AIService/MockAiService/FirecrawlService/...)
 │   │   ├── socket/                        # ChatSocketHandler — 当前活跃 WS handler(Socket.IO framing)
 │   │   ├── websocket/                     # ChatWebSocketHandler — 旧 STOMP 实现,保留作回退
-│   │   ├── entity/                        # 12 个 JPA 实体(含 2 个枚举:CharacterCategory / FeedbackCategory / FeedbackType)
+│   │   ├── entity/                        # 12 个 JPA 实体(含 3 个枚举:CharacterCategory / FeedbackCategory / FeedbackType)
 │   │   ├── repository/                    # 9 个 Spring Data 仓库
 │   │   ├── dto/                           # 33 个 DTO
 │   │   ├── config/                        # Security/Socket/WebSocket/Cors/Web/LangChain4j/RestTemplate/OpenApi/RateLimiter/DataLoader
@@ -142,8 +142,8 @@ Idea-Party/
 │   │   └── exception/                     # GlobalExceptionHandler + 自定义异常
 │   ├── src/main/resources/
 │   │   ├── application.yml                # 默认配置
-│   │   ├── presets.json                   # 120 个预设角色(JSON 驱动,内存缓存)
-│   │   ├── prompts/                       # 4 个 prompt 模板(character-prompt-generator/interview-prompt-generator/moderator/moderator-joint)
+│   │   ├── presets.json                   # 585 个预设角色(JSON 驱动,内存缓存)
+│   │   ├── prompts/                       # prompt 模板(character-prompt-generator/interview-prompt-generator/moderator/moderator-joint)
 │   │   └── db/migration/                  # Flyway 早期 SQL 迁移
 │   └── pom.xml
 │
@@ -269,12 +269,29 @@ cd client && pnpm typecheck
 
 为避免「上百个角色难挑选」的问题,系统提供 **分类枚举 + 推荐接口**,由 `CharacterCategory` 驱动前端 chip 筛选。
 
-- **数据源**:`server/src/main/resources/presets.json`(120 个角色)
+- **数据源**:`server/src/main/resources/presets.json`(585 个角色)
 - **加载时机**:应用启动时由 `PresetCharacterCache`(`server/src/main/java/com/ideaparty/cache/`)加载到内存
 - **接口**:
   - `GET /api/characters/presets` — 全量预设
   - `GET /api/characters/recommended?category=philosopher` — 按分类推荐
-- **前端**:「角色库」页面顶部按 `CharacterCategory` 渲染 chip 筛选条;点击创建 / 编辑走 `CreateCharacterModal`(支持 `mode='create' | 'edit'`,复用同一组件,不再有独立的 `CharacterEditView.vue`)
+- **前端**:「角色库」页面顶部按 `CharacterCategory` 渲染 chip 筛选条;点击创建 / 编辑走 `CreateCharacterModal`(支持 `mode='create' | 'edit'`,复用同一组件)
+
+**12 个分类枚举**(`server/.../entity/CharacterCategory.java`):
+
+| 枚举值 | 标签 | 典型角色 |
+|--------|------|---------|
+| `SCIENTIST` | 🔬 科学家 | 爱因斯坦、霍金、居里夫人 |
+| `STAR` | 🌟 明星 | 演艺/音乐/体育公众人物 |
+| `ENTREPRENEUR` | 🚀 企业家 | 乔布斯、马云、马斯克 |
+| `PHILOSOPHER` | 💭 哲学家 | 苏格拉底、孔子、尼采 |
+| `ATHLETE` | 🏆 运动员 | 足球/篮球/拳击传奇 |
+| `WRITER` | 📖 作家 | 鲁迅、博尔赫斯、村上春树 |
+| `ANIME` | 🎨 动漫 | 动画/漫画领域虚拟或创作者 |
+| `HISTORICAL` | 🏛️ 历史人物 | 政治/军事/宗教历史人物 |
+| `ARTIST` | 🖼️ 艺术家 | 画家/雕塑家/音乐家 |
+| `FICTIONAL` | 🎭 虚构角色 | 唐僧、蜘蛛侠、蝙蝠侠 |
+| `POLITICIAN` | 🏛️ 政治家 | 政治领袖/改革者 |
+| `MILITARY_LEADER` | ⚔️ 军事家 | 拿破仑、成吉思汗 |
 
 > 预设角色数据曾以 SQL seed 形式存储,现已迁出数据库到 JSON 文件,便于版本管理与不重启服务的本地化扩展(`b2aba88` / `b0e92e6`)。
 
@@ -282,14 +299,17 @@ cd client && pnpm typecheck
 
 ## 场景模板
 
-项目内置 **4 个场景模板**,写在 `client/src/stores/scenario.ts`,开箱即用。每个场景都会先弹窗让用户补充输入(岗位描述 / 产品 idea / 题材 / 草稿),然后自动生成角色 + 创建房间。
+项目内置 **22 个场景模板**,写在 `client/src/stores/scenario.ts`,开箱即用。每个场景都会先弹窗让用户补充输入(岗位描述 / 产品 idea / 题材 / 草稿),然后自动生成角色 + 创建房间。用户也可创建**私有场景**(`POST /api/user-scenarios`)。
 
-| Emoji | ID | 场景 | 房间模式 | 用户输入 |
-|-------|------|---------|---------|---------|
-| 🎤 | `interview-coach` | **面试模拟** | single | 你想面试什么岗位 / 行业? |
-| 💡 | `product-brainstorm` | **产品头脑风暴** | group | 你想打磨什么样的产品 idea? |
-| 🇬🇧 | `english-tutor` | **英语陪练** | single | 想练什么场景? |
-| ✍️ | `writing-coach` | **写作助手** | single | 这次要审什么稿子? |
+### 预设场景速览
+
+| 分类 | 场景 | 房间模式 |
+|------|------|---------|
+| 面试与工作 | 面试模拟 / 论文答辩 / 客户谈判 / 薪资谈判 / 绩效面谈 | single / group |
+| 决策咨询 | 产品头脑风暴 / 创业路演 / 买房决策 / 装修评审 / 跳槽决策 | single / group |
+| 学习成长 | 苏格拉底式提问 / 英语陪练 / 日语陪练 / 读书会 / 辩论陪练 / 学科辅导 | single |
+| 创意生活 | 写作助手 / 旅行规划 / 健身咨询 / 心理倾听 | single |
+| 编程技术 | 代码 Review / 编程搭子 | single |
 
 支持 **JD 截图 OCR**:在「面试模拟」场景里,可直接把招聘网站的 JD 截图拖到弹窗下方,自动识别文字填充到「岗位描述」输入框。
 
@@ -323,13 +343,14 @@ cd client && pnpm typecheck
 |------|------|------|------|
 | POST | `/api/auth/register` | 无 | 注册 |
 | POST | `/api/auth/login` | 无 | 登录(返回 JWT) |
-| GET  | `/api/characters/presets` | 无 | 120 个预设角色 |
+| GET  | `/api/characters/presets` | 无 | 585 个预设角色 |
 | GET  | `/api/characters/recommended?category=...` | 无 | 按 `CharacterCategory` 推荐 |
 | POST | `/api/characters/generate-prompt` | JWT | LLM 根据角色名生成 system prompt |
 | GET  | `/api/rooms` | JWT | 我的房间列表 |
 | POST | `/api/rooms` | JWT | 创建房间 |
 | POST | `/api/rooms/{id}/messages` | JWT | 发送消息(也走 WebSocket) |
 | POST | `/api/messages/{id}/feedback` | JWT | 点赞 / 点踩 |
+| GET/POST/PUT/DELETE | `/api/user-scenarios` | JWT | 用户私有场景 CRUD |
 | GET  | `/api/admin/feedbacks` | Admin | 后台反馈列表 |
 
 WebSocket 端点 **`/ws`**(前端用 Socket.IO framing 自实现):
@@ -427,8 +448,8 @@ FeedbackCategory / FeedbackType (枚举)
 | `DEEPSEEK_API_KEY` | ✅ | — | LLM Key;缺省则走 `MockAiService` 不报错 |
 | `DEEPSEEK_BASE_URL` | — | `https://api.deepseek.com` | OpenAI 兼容 base URL |
 | `DEEPSEEK_MODEL` | — | `deepseek-chat` | 模型名 |
-| `PUBLIC_BASE_URL` | — | `http://localhost` | 用于 CORS / OAuth 回调 |
-| `APP_CORS_ALLOWED_ORIGINS` | — | 写死 localhost:5173-5177 | 逗号分隔;生产请覆盖为正式域名 |
+| `PUBLIC_BASE_URL` | ✅ | — | 用于 CORS / OAuth 回调;Docker 部署必填,否则启动失败 |
+| `APP_CORS_ALLOWED_ORIGINS` | — | 自动拼接 `PUBLIC_BASE_URL` + 本地 Vite 端口 | 逗号分隔;生产请显式覆盖 |
 | `APP_ADMIN_USERNAME` | — | `admin123` | 首次启动 DataLoader 种子管理员(仅在该用户名不存在时生效) |
 | `APP_ADMIN_PASSWORD` | — | `admin123` | 同上;生产务必覆盖 |
 | `CLIENT_PORT` | — | `80` | Nginx 对外端口 |
