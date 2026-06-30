@@ -310,7 +310,7 @@ def action_sync_uploads() -> None:
         log(f"[uploads] verification OK: presets count = {actual} (>= {threshold})")
 
 
-def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, fast: bool = False) -> None:
+def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> None:
     """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。"""
     log("=== Step 0/4: ensure remote dir ===")
     ensure_remote_dir()
@@ -328,14 +328,10 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, fast: 
         log("sync-only 模式，跳过构建和重启")
         return
 
-    log("=== Step 2/4: docker compose build --no-cache ===")
-    # 始终加 --no-cache:docker BuildKit 缓存层对 COPY 进来的文件(mtime / hash 判定)
-    # 偶尔漏判,导致 nginx.conf / dist / jar 不更新;client 镜像 dist 是烤进镜像的(见 CLAUDE.md / memory),
-    # 改 client/ 源码后 build 缓存层会判定"无关变更"跳过。
-    # 代价:build 30s → 90s,部署多花 1 分钟,换"绝对不会因为缓存漏掉改动"的可预期性。
-    # 如果想跳过(日常 .env 变更等无关构建),传 --fast 走普通 build。
-    no_cache = "" if fast else " --no-cache"
-    ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} build{no_cache}")
+    log("=== Step 2/4: docker compose build ===")
+    # 默认用 Docker BuildKit 缓存层(快,~30s);漏判场景下用户手动 docker compose build --no-cache 重建。
+    # 不要在这里默认加 --no-cache:会拖慢日常部署(只改 .env / 文档时白白多花 1 分钟)。
+    ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} build")
 
     log("=== Step 3/4: docker compose up -d ===")
     ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} up -d")
@@ -386,7 +382,6 @@ def parse_args() -> argparse.Namespace:
         epilog="示例：\n  python3 deploy.py --logs server\n  python3 deploy.py --restart client",
     )
     p.add_argument("--sync-only", action="store_true", help="只同步，不构建/重启")
-    p.add_argument("--fast", action="store_true", help="跳过 --no-cache(只改 .env 等无关构建时用,节省 1 分钟)")
     p.add_argument("--skip-uploads", action="store_true", help="跳过 uploads volume 同步（仅调试 / 已知 volume 健康时使用）")
     p.add_argument("--status", action="store_true", help="查看容器状态")
     p.add_argument("--logs", nargs="?", const="", metavar="SERVICE", help="tail 日志，可指定服务名")
@@ -422,7 +417,7 @@ def main() -> None:
         elif args.shell:
             action_shell(args.shell)
         else:
-            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads, fast=args.fast)
+            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
     except subprocess.CalledProcessError as e:
         die(f"命令执行失败 (exit {e.returncode}): {e.cmd}")
 
