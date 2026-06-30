@@ -83,7 +83,8 @@ DEPLOY_UPLOADS_VOLUME = os.environ.get("DEPLOY_UPLOADS_VOLUME", "idea-server-upl
 # Must include `cp -a` (BusyBox >= 1.30 or GNU coreutils).
 DEPLOY_UPLOADS_IMAGE = os.environ.get("DEPLOY_UPLOADS_IMAGE", "alpine:3.19").strip()
 # Subdirs under server/uploads/avatars/ to sync into the volume.
-DEPLOY_UPLOADS_SUBDIRS = ("presets", "hot-rooms")
+# 新增子目录时,同步在 .gitignore 加 !server/uploads/avatars/<sub>/ 让 rsync 能带上文件。
+DEPLOY_UPLOADS_SUBDIRS = ("presets", "hot-rooms", "scenarios")
 # Minimum preset file count inside container for verification to pass.
 DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "100"))
 
@@ -208,12 +209,14 @@ def action_sync_uploads() -> None:
     remote_src_root = f"{REMOTE_DIR}/server/uploads/avatars"
 
     # Probe what subdirs exist on the remote side (rsync may have skipped
-    # some if they don't exist locally).
-    probe = ssh_cmd(f"ls -d {remote_src_root}/{{presets,hot-rooms}} 2>/dev/null || true", capture=True)
+    # some if they don't exist locally). 用 brace expansion 一次性探测
+    # DEPLOY_UPLOADS_SUBDIRS 全部子目录,避免逐条 ls 多一次 ssh 调用。
+    sub_brace = ",".join(DEPLOY_UPLOADS_SUBDIRS)
+    probe = ssh_cmd(f"ls -d {remote_src_root}/{{{sub_brace}}} 2>/dev/null || true", capture=True)
     present = []
     for line in (probe.stdout or "").splitlines():
         line = line.strip()
-        if line and line.endswith(("/presets", "/hot-rooms")):
+        if line and any(line.endswith(f"/{sub}") for sub in DEPLOY_UPLOADS_SUBDIRS):
             present.append(line.rsplit("/", 1)[1])
     if not present:
         die(f"[uploads] no subdirs found under {remote_src_root} — refusing to wipe volume")

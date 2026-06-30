@@ -409,6 +409,42 @@ docker compose logs -f
 - `nginx-cache` 命名卷用于保留 nginx 代理缓存,避免每次部署后第一次访问吃 cache-miss 延迟
 - 改了 `presets.json` 必须 `docker compose build server --no-cache`,否则命中 Maven 缓存,jar 不更新
 
+### Nginx 缓存策略
+
+`client/nginx.conf` 已为静态资源 + 头像图配置多层缓存。生产环境部署后,运营换图最多 1 天内在用户浏览器侧生效(浏览器 `max-age=86400`),Nginx 磁盘侧最多 30 天。
+
+**缓存时间表**:
+
+| 路径 | Nginx 磁盘 | 浏览器 | 命中收益 |
+|------|-----------|--------|----------|
+| `/api/upload/avatars/scenarios/*` | **30 天** | 1 天 | 22 张场景封面,~50KB/张,~1MB 总量 |
+| `/api/upload/avatars/presets/*` | **30 天** | 1 天 | 预设角色头像,~30MB |
+| `/api/upload/avatars/hot-rooms/*` | **30 天** | 1 天 | 热门聊天室封面 |
+| `/api/characters/presets` | 5 分钟 | 跟随上游 | 角色元数据 |
+| `/api/characters/recommended` | 5 分钟 | 跟随上游 | 按分类推荐角色 |
+| `/uploads/*` | 7 天 | 1 天 | 用户上传头像 |
+| `/assets/*` (vite fingerprinted) | 不缓存(nginx 端) | **1 年 + immutable** | Vite 编译产物,文件名带 hash 永久不变 |
+| `/api/*` (其他) | 不缓存 | 跟随上游 | 业务接口 |
+
+**缓存校验**:
+
+```bash
+# 第一次:MISS,第二次:HIT
+curl -I https://ideaparty.example.com/api/upload/avatars/scenarios/scn-interview-coach.jpg
+# 看 X-Cache-Status 响应头
+```
+
+**运营换图后立即生效**(Nginx 磁盘侧):
+
+```bash
+docker exec idea-client rm -rf /var/cache/nginx/api/*
+docker exec idea-client nginx -s reload
+```
+
+**让单个文件立即失效**(绕过 1 天浏览器缓存):在前端代码里给 URL 加 `?v=<hash>`(`Scenario.cover` 字段更新即可),浏览器收到 200 后会重新 GET,新内容进入 Nginx 缓存并替换。
+
+**`nginx-cache` 卷必须保留**:`docker-compose.yml` 里 `nginx-cache` 命名卷用于保留 `proxy_cache_path` 的磁盘缓存,删除会丢失缓存但不影响功能(下次访问重建)。
+
 ---
 
 ## 环境变量
