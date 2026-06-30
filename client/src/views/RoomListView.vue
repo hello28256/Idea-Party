@@ -821,6 +821,19 @@ const myCharacters = computed(() => {
   )
 })
 
+// 场景页搜索:与角色库 myCharacters 同款,按 title / description 子串匹配;
+// 预制和用户自定义都参与过滤,避免搜不到自定义场景。
+const scenarioSearchQuery = ref('')
+const filteredScenarios = computed(() => {
+  const q = scenarioSearchQuery.value.trim().toLowerCase()
+  const base = scenarioStore.scenarios
+  if (!q) return base
+  return base.filter(s =>
+    s.title.toLowerCase().includes(q) ||
+    (s.description || '').toLowerCase().includes(q)
+  )
+})
+
 // Format date
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -1692,23 +1705,56 @@ async function handleInviteMember() {
     <main class="main-content">
       <!-- 场景视图 -->
       <template v-if="isScenariosView">
-        <header class="content-header">
-          <div class="content-header-text">
-            <h1 class="page-title">场景</h1>
+        <header class="content-header discover-header">
+          <h1 class="page-title">场景</h1>
+          <!-- 中间搜索 + 右侧自定义场景按钮：复用角色库的 .search-box 视觉，
+               .header-actions 保持三者横向对齐 -->
+          <div class="header-actions">
+            <div class="search-box">
+              <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+              <input
+                v-model="scenarioSearchQuery"
+                type="text"
+                class="search-input"
+                placeholder="搜索场景名或描述…"
+                aria-label="搜索场景"
+              />
+              <button
+                v-if="scenarioSearchQuery"
+                type="button"
+                class="search-clear"
+                aria-label="清除搜索"
+                @click="scenarioSearchQuery = ''"
+              >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <button
+              type="button"
+              class="btn-create-scenario"
+              @click="openCreateCustomScenario"
+            >
+              <span class="btn-create-icon">＋</span>
+              自定义场景
+            </button>
           </div>
-          <!-- 右上角「+ 自定义场景」按钮 -->
-          <button
-            type="button"
-            class="btn-create-scenario"
-            @click="openCreateCustomScenario"
-          >
-            <span class="btn-create-icon">＋</span>
-            自定义场景
-          </button>
         </header>
-        <div class="scenarios-grid">
+
+        <!-- 搜索无结果:与"列表本身为空"区分,避免误以为系统没数据 -->
+        <div v-if="filteredScenarios.length === 0 && scenarioSearchQuery.trim()" class="empty-state scenarios-empty">
+          <div class="empty-icon">🔍</div>
+          <h2 class="empty-title">未找到匹配的场景</h2>
+          <p class="empty-desc">没有匹配「{{ scenarioSearchQuery }}」的场景，试试别的关键词？</p>
+          <button class="empty-btn" @click="scenarioSearchQuery = ''">清除搜索</button>
+        </div>
+
+        <div v-else class="scenarios-grid">
           <div
-            v-for="s in scenarioStore.scenarios"
+            v-for="s in filteredScenarios"
             :key="s.id"
             class="scenario-card-wrap"
             :class="{ 'is-user': !s.isPreset }"
@@ -3934,23 +3980,25 @@ async function handleInviteMember() {
   border-color: #ef4444;
 }
 
-/* 「+ 自定义场景」按钮（content-header 右上角） */
+/* 「+ 自定义场景」按钮：与「场景」标题同行右侧贴近（不再悬浮右上角） */
 .content-header-text {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
 }
 
+/* 按钮尺寸调小：之前是 page-title 高度的 2 倍，放在标题旁边会喧宾夺主 */
 .btn-create-scenario {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.85rem 1.5rem;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
   background: linear-gradient(135deg, #18181b 0%, #3f3f46 100%);
   color: #ffffff;
   border: none;
-  border-radius: 12px;
-  font-size: 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -3963,7 +4011,7 @@ async function handleInviteMember() {
   box-shadow: 0 4px 12px rgba(24, 24, 27, 0.25);
 }
 .btn-create-icon {
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   line-height: 1;
   font-weight: 600;
 }
