@@ -47,6 +47,9 @@ services:
     # Uncomment the next line if you need to inspect the DB from outside.
     # ports:
     #   - "127.0.0.1:3306:3306"
+    # 本地开发临时启用：让宿主机 Java 进程（mvn spring-boot:run）能直接连 localhost:3306
+    ports:
+      - "127.0.0.1:3306:3306"
 
   # ---------------------------------------------------------------------------
   # Spring Boot backend
