@@ -80,17 +80,6 @@ export const charactersApi = {
     api.post<{ prompt: string }>('/characters/generate-prompt', data),
 
   /**
-   * 头像搜索：根据角色名从维基百科拉 2-3 个候选头像缩略图 URL，供用户挑选。
-   * HTTP GET /characters/avatar-search?name=xxx
-   * 调用方：CreateCharacterModal 的"自动获取头像"按钮。
-   */
-  searchAvatars: (name: string) =>
-    api.get<Array<{ thumbnailUrl: string; title: string; wikiUrl: string }>>(
-      '/characters/avatar-search',
-      { params: { name } }
-    ),
-
-  /**
    * 更新角色。
    * HTTP PUT /characters/{id}。
    * 调用方：EditCharacterModal。

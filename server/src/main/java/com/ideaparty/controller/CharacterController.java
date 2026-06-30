@@ -6,7 +6,6 @@ import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.dto.GeneratePromptRequest;
 import com.ideaparty.dto.GeneratePromptResponse;
 import com.ideaparty.service.CharacterService;
-import com.ideaparty.service.FirecrawlService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,16 +30,13 @@ public class CharacterController {
 
     // 业务编排委托给 Service；Controller 只做参数解析、认证注入、状态码映射，保持薄层便于单元测试
     private final CharacterService characterService;
-    // 头像搜索：被 /avatar-search 直接调用，跳过 Service 层避免污染 CharacterService 业务面。
-    private final FirecrawlService firecrawlService;
 
     /**
      * Spring 容器注入业务服务。
      * 走构造器注入而非字段注入，便于在测试中手动传入 mock 实现，并保证字段不可变。
      */
-    public CharacterController(CharacterService characterService, FirecrawlService firecrawlService) {
+    public CharacterController(CharacterService characterService) {
         this.characterService = characterService;
-        this.firecrawlService = firecrawlService;
     }
 
     /**
@@ -107,39 +103,6 @@ public class CharacterController {
         return new GeneratePromptResponse(prompt);
     }
 
-    /**
-     * 头像搜索：根据角色名返回维基百科候选头像（缩略图 URL）。
-     *
-     * <p>流程：
-     *   1) FirecrawlService.searchCharacterAvatarCandidates(name) 拉多个 wikipedia 页面 URL
-     *   2) 对每个候选调 fetchWikipediaThumbnail(...) 拿 REST summary API 的 thumbnail 直链
-     *   3) 返回 List<{thumbnailUrl, title, wikiUrl}> 给前端弹选择器
-     *
-     * <p>为什么搜索和取缩略图分两步：Firecrawl search 响应里 metadata 不一定有图片字段，
-     * 而维基官方 REST summary API 专门返回 thumbnail / originalimage，命中率最高。
-     *
-     * <p>空数组即"未找到"：前端用 toast 提示并显示 DiceBear fallback。
-     */
-    @GetMapping("/avatar-search")
-    @ResponseBody
-    public java.util.List<java.util.Map<String, String>> avatarSearch(@RequestParam("name") String name) {
-        java.util.List<FirecrawlService.AvatarCandidate> candidates =
-                firecrawlService.searchCharacterAvatarCandidates(name, 3);
-        java.util.List<java.util.Map<String, String>> result = new java.util.ArrayList<>();
-        for (FirecrawlService.AvatarCandidate c : candidates) {
-            // 用 title 而不是 wikiUrl，因为 list=search 返回的 wikiUrl 是 ?curid= 形式，
-            // summary API 需要 title 才能正确路由（curid 不被 summary 端点接受）。
-            String thumb = firecrawlService.fetchWikipediaThumbnailByTitle(c.getTitle());
-            if (thumb == null || thumb.isBlank()) continue;
-            java.util.Map<String, String> entry = new java.util.LinkedHashMap<>();
-            entry.put("thumbnailUrl", thumb);
-            entry.put("title", c.getTitle());
-            entry.put("wikiUrl", c.getWikiUrl());
-            result.add(entry);
-        }
-        log.info("[DEBUG] /avatar-search '{}' returned {} candidates", name, result.size());
-        return result;
-    }
 
     /**
      * 按 ID 查询单个角色。Service 返回 Optional，此处把"不存在"显式映射为 404。
