@@ -97,8 +97,7 @@ const avatarSearchError = ref<string | null>(null)
 const showAvatarCandidates = ref(false)
 
 // 聊天室内上下文中的 tab 状态
-// 顺序与 UI 同步：默认进入"角色库",方便用户在已有角色基础上直接挑选。
-const activeTab = ref<'create' | 'library'>('library')
+const activeTab = ref<'create' | 'library'>('create')
 
 // 弹窗每次重新显示时重置表单：避免上次编辑残留。
 // 编辑模式下从 props.character 回填，新建模式下清空；avatarPreview 跟随 avatarUrl 同步，便于提交后立刻看到新头像。
@@ -106,7 +105,7 @@ watch(() => props.show, (newShow) => {
   if (newShow) {
     error.value = null
     showApiKeyPrompt.value = false
-    activeTab.value = 'library'
+    activeTab.value = 'create'
     // In edit mode, initialize form with character data
     if (isEditMode.value && props.character) {
       console.log('[edit modal] initializing with character:', props.character)
@@ -514,28 +513,24 @@ async function handleAvatarFileChange(event: Event) {
           <div v-if="context === 'room' && !isEditMode" class="modal-tabs">
             <button
               class="modal-tab"
-              :class="{ active: activeTab === 'library' }"
-              @click="activeTab = 'library'"
-            >
-              角色库
-            </button>
-            <button
-              class="modal-tab"
               :class="{ active: activeTab === 'create' }"
               @click="activeTab = 'create'"
             >
               创建角色
             </button>
+            <button
+              class="modal-tab"
+              :class="{ active: activeTab === 'library' }"
+              @click="activeTab = 'library'"
+            >
+              角色库
+            </button>
           </div>
 
           <!-- 主体 -->
           <div class="character-modal-body">
-            <!-- 创建 tab / 编辑模式
-                 三种情况显示创建表单:
-                 1) 编辑模式 (强制显示,无论 tab)
-                 2) room 上下文 + activeTab='create' (用户在 tab 里点回了创建)
-                 3) 非 room 上下文 (角色库/其他入口:无 tab UI,activeTab 无关) -->
-            <div v-if="isEditMode || (context === 'room' ? activeTab === 'create' : true)" class="character-form">
+            <!-- 创建 tab / 编辑模式 -->
+            <div v-if="activeTab === 'create' || isEditMode" class="character-form">
               <!-- 隐藏的文件输入 -->
               <input
                 ref="fileInputRef"
@@ -699,8 +694,8 @@ async function handleAvatarFileChange(event: Event) {
             </div>
           </div>
 
-          <!-- 底部:同 body,只在 room + library tab 时隐藏,其余都显示 -->
-          <footer v-if="isEditMode || (context === 'room' ? activeTab === 'create' : true)" class="character-modal-footer">
+          <!-- 底部 -->
+          <footer v-if="activeTab === 'create' || isEditMode" class="character-modal-footer">
             <div class="footer-left">
               <button
                 v-if="isEditMode"
