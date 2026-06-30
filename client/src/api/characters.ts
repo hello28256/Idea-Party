@@ -46,12 +46,25 @@ export const charactersApi = {
    * 不传 category 返回全部预设；传单枚举名按"包含"语义过滤（用于发现页"分类标签条"）。
    * 后端会把角色的 categories 集合与入参做 contains 判断，多分类的角色会被多个 chip 命中。
    * 调用方：CharacterLibraryView 推荐 Tab、RoomListView 发现页。
+   *
+   * 不传 _t cache buster:Nginx 5min 缓存命中后 0ms 返回,加 _t 会强制每次 MISS
+   * 打 Spring(原始 payload 1.5MB → gzip 627KB → CVM 350KB/s 出口 1.4s)。
+   * 角色创建/编辑后的本地缓存失效由 store.invalidateRecommended() 负责
+   * (清 store.presets + 调 fetchPresets 重新拉)。
    */
-  // 后端基于当前用户画像/热点推荐的个性化角色列表，与 presets 的区别是会随用户行为变化。
   getRecommended: (category?: string) => {
-    // 加时间戳参数强制不走浏览器/中间层缓存，避免角色头像更新后还显示旧数据
     const params: Record<string, string> = category ? { category } : {}
-    params._t = String(Date.now())
+    return api.get<Character[]>('/characters/recommended', { params })
+  },
+
+  /**
+   * 强刷推荐接口:URL 加随机 v= 参数绕过 Nginx 5min 缓存。
+   * 仅在角色创建/编辑/删除后由 store 调用(运营/用户主动改动了角色数据),
+   * 不在普通浏览时调用。
+   */
+  getRecommendedForceRefresh: (category?: string) => {
+    const params: Record<string, string> = { v: String(Date.now()) }
+    if (category) params.category = category
     return api.get<Character[]>('/characters/recommended', { params })
   },
 

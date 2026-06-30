@@ -3,6 +3,7 @@ package com.ideaparty.controller;
 import com.ideaparty.dto.CharacterReferencesResponse;
 import com.ideaparty.dto.CharacterRequest;
 import com.ideaparty.dto.CharacterResponse;
+import com.ideaparty.dto.CharacterSummaryResponse;
 import com.ideaparty.dto.GeneratePromptRequest;
 import com.ideaparty.dto.GeneratePromptResponse;
 import com.ideaparty.service.CharacterService;
@@ -43,21 +44,31 @@ public class CharacterController {
      * 列出当前用户可见的全部角色（预设 + 本人创建）。
      * Authentication 由 Spring Security 注入：访问此接口本身已被 SecurityFilterChain 保护，
      * 此处暂未基于 auth 做差异化过滤，等价于"登录后即可看到全部预设 + 自己的角色"。
+     *
+     * 返回精简 Summary（去掉 prompt）：列表/推荐场景不需要 prompt,完整 CharacterResponse
+     * 包含每个角色的 system prompt (2-3KB × 585 = 1.5MB) 在 CVM 350KB/s 出口带宽下
+     * 第一次加载要 1.4s。getById(/{id}) 仍返回完整 CharacterResponse 给编辑页用。
      */
     @GetMapping
-    public ResponseEntity<List<CharacterResponse>> getAllCharacters(Authentication auth) {
-        // 为已认证用户返回全部角色（预设 + 本人的）
-        List<CharacterResponse> characters = characterService.findAll();
+    public ResponseEntity<List<CharacterSummaryResponse>> getAllCharacters(Authentication auth) {
+        List<CharacterSummaryResponse> characters = characterService.findAll().stream()
+                .map(CharacterSummaryResponse::fromResponse)
+                .toList();
         return ResponseEntity.ok(characters);
     }
 
     /**
      * 列出系统预设角色（与具体用户无关，因此不需要 Authentication）。
      * 用于"加入聊天室前先挑一个预设人物"的场景，与 /recommended 互为补充。
+     *
+     * 返回 Summary 不含 prompt：preset 角色没有 owner,描述由前端卡片展示足够;
+     * 同 /recommended:压缩后 200KB → gzip 50KB,CVM 带宽下 110ms 返回。
      */
     @GetMapping("/presets")
-    public ResponseEntity<List<CharacterResponse>> getPresetCharacters() {
-        List<CharacterResponse> presets = characterService.findPresets();
+    public ResponseEntity<List<CharacterSummaryResponse>> getPresetCharacters() {
+        List<CharacterSummaryResponse> presets = characterService.findPresets().stream()
+                .map(CharacterSummaryResponse::fromResponse)
+                .toList();
         // preset 是静态系统数据（V10 之后走内存缓存），响应可由浏览器/网关缓存 5 分钟。
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(5, java.util.concurrent.TimeUnit.MINUTES).cachePublic())
@@ -72,14 +83,18 @@ public class CharacterController {
      *
      * 可选 ?category= 参数：传入枚举 name（SCIENTIST/STAR/ENTREPRENEUR/.../ARTIST）按分类过滤；
      * 非法值或缺失都按"全部"处理（前端分类标签条的"全部"chip 不带参数）。
+     *
+     * 返回 Summary 不含 prompt：见 getPresetCharacters 注释。
      */
     @GetMapping("/recommended")
-    public ResponseEntity<List<CharacterResponse>> getRecommendedCharacters(
+    public ResponseEntity<List<CharacterSummaryResponse>> getRecommendedCharacters(
             @RequestParam(value = "category", required = false) String category
     ) {
         com.ideaparty.entity.CharacterCategory catEnum =
                 com.ideaparty.entity.CharacterCategory.fromName(category);
-        List<CharacterResponse> recommended = characterService.findRecommendedByCategory(catEnum);
+        List<CharacterSummaryResponse> recommended = characterService.findRecommendedByCategory(catEnum).stream()
+                .map(CharacterSummaryResponse::fromResponse)
+                .toList();
         // 同 /presets：preset 是静态数据，5 分钟浏览器缓存
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(5, java.util.concurrent.TimeUnit.MINUTES).cachePublic())

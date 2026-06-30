@@ -93,3 +93,5 @@ server/uploads/avatars/presets/_backup/
 # 任何 .bak 备份文件
 *.bak
 *.bak.*
+server/src/main/resources/uploads/avatars/scenarios/_tmp/
+server/src/main/resources/uploads/avatars/scenarios/KEYWORDS.md
