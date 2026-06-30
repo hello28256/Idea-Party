@@ -2070,7 +2070,6 @@ async function handleInviteMember() {
             <div class="character-info">
               <h3 class="character-name">{{ character.name }}</h3>
               <p class="character-tagline">{{ character.description || '暂无描述' }}</p>
-              <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
           </div>
         </div>
@@ -4281,10 +4280,19 @@ async function handleInviteMember() {
   gap: 1.25rem;
 }
 
+/* 角色卡片用 2 列 × 1 行 Grid:
+     - 左列固定 56px 头像
+     - 右列占剩余空间放角色名 + 描述
+   用 Grid 而非 Flex row 的原因:
+     - 列宽约束更直观(第一列 = 56px,第二列 = 1fr),不用 flex 容器 + flex-shrink
+     - 日后想加新元素(例如"创建于"再回来)直接扩 grid-template-areas,不用改结构
+     - column-gap 表达"两列之间间距",比 margin/gap 在子项上更符合布局语义 */
 .character-card-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-areas: "avatar info";
+  column-gap: 1rem;
+  align-items: start;
   padding: 1.25rem;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -4299,11 +4307,11 @@ async function handleInviteMember() {
 }
 
 .character-card-item .character-avatar {
+  grid-area: avatar;
   width: 56px;
   height: 56px;
   border-radius: 12px;
   overflow: hidden;
-  flex-shrink: 0;
   background: var(--bg-primary);
   display: flex;
   align-items: center;
@@ -4323,7 +4331,10 @@ async function handleInviteMember() {
 }
 
 .character-card-item .character-info {
-  flex: 1;
+  grid-area: info;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   min-width: 0;
 }
 
@@ -4331,22 +4342,16 @@ async function handleInviteMember() {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 0.25rem;
 }
 
 .character-card-item .character-tagline {
   font-size: 0.875rem;
   color: var(--text-secondary);
-  margin-bottom: 0.5rem;
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.character-card-item .character-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
 }
 
 /* ===== My Rooms Styles ===== */

@@ -800,7 +800,9 @@ public class CharacterService {
      * 调用方：管理后台角色管理页。
      */
     public List<CharacterResponse> findAll() {
-        return characterRepository.findAll()
+        // 按 createdAt 降序：保证「我的角色库」页新创建的角色排到最前。
+        // Spring Data JPA 的方法命名约定 findAllByOrderByCreatedAtDesc 自动生成 ORDER BY created_at DESC。
+        return characterRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
                 .map(CharacterResponse::fromEntity)
                 .collect(Collectors.toList());

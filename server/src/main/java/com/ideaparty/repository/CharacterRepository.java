@@ -24,6 +24,13 @@ public interface CharacterRepository extends JpaRepository<Character, UUID> {
     List<Character> findByOwnerId(UUID ownerId);
 
     /**
+     * 全量角色按 createdAt 降序：服务层 findAll() 调用，
+     * 让「我的角色库」页拿到的就是新创建的角色排最前的列表，
+     * 前端再按 ownerId 过滤出当前用户的私有副本。
+     */
+    List<Character> findAllByOrderByCreatedAtDesc();
+
+    /**
      * 查询平台预置角色（ownerId 为 NULL 的官方角色）。
      * 供新用户“开箱即用”展示，与用户自建角色解耦。
      */

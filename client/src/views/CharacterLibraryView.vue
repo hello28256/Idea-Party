@@ -139,11 +139,19 @@ function handleCharacterUpdated(updatedCharacter: Character) {
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const diffMs = now.getTime() - date.getTime()
+  const minutes = Math.floor(diffMs / (1000 * 60))
+  const hours = Math.floor(diffMs / (1000 * 60 * 60))
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  if (days === 0) return '今天'
-  if (days === 1) return '昨天'
+  // padStart: 时分十位补 0，统一 08:05 这种格式，避免出现 8:5
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+
+  if (minutes < 1) return '刚刚'
+  if (hours < 1) return `${minutes}分钟前`
+  if (days === 0) return `今天 ${hh}:${mm}`
+  if (days === 1) return `昨天 ${hh}:${mm}`
   if (days < 7) return `${days}天前`
   if (days < 30) return `${Math.floor(days / 7)}周前`
   return date.toLocaleDateString('zh-CN')
@@ -202,13 +210,16 @@ function formatDate(dateStr: string): string {
           @keydown.space.prevent="openEditModal(character)"
         >
           <div class="card-header">
-            <div class="character-avatar">
-              <img
-                v-if="character.avatarUrl"
-                :src="character.avatarUrl"
-                :alt="character.name"
-              />
-              <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
+            <!-- 左侧固定列：头像 + 创建时间，不随右侧内容上下移动 -->
+            <div class="character-meta">
+              <div class="character-avatar">
+                <img
+                  v-if="character.avatarUrl"
+                  :src="character.avatarUrl"
+                  :alt="character.name"
+                />
+                <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
+              </div>
               <p class="character-date">创建于 {{ formatDate(character.createdAt) }}</p>
             </div>
             <div class="character-info">
@@ -380,31 +391,40 @@ function formatDate(dateStr: string): string {
   gap: 0.85rem;
 }
 
-.character-avatar {
+/* 左侧固定列：纵向排列头像 + 创建时间。
+   用 gap 而不是 margin-top 来表达"头像和日期之间的间距"——
+   gap 是 Flex/Grid 原生的布局语义，描述"子项之间的距离"；
+   而 margin 是在子项自身上加"距上一个兄弟多少像素"的位置偏移。
+   两种都能用，但 gap 把"间距"和"元素自身属性"解耦，更符合"布局驱动样式"。
+   align-items: flex-start 保证头像+日期从上到下紧贴顶端开始排，
+   不会被右侧 description 多行撑高后把日期挤到中间 */
+.character-meta {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.4rem;
   flex-shrink: 0;
 }
 
-.character-avatar > img,
-.character-avatar > .avatar-placeholder {
+.character-avatar {
+  flex-shrink: 0;
   width: 56px;
   height: 56px;
   border-radius: 12px;
   background: var(--bg-primary);
-  object-fit: cover;
+  overflow: hidden;
 }
 
-.character-avatar img {
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
+.character-avatar > img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .avatar-placeholder {
+  width: 100%;
+  height: 100%;
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-muted);
@@ -414,6 +434,9 @@ function formatDate(dateStr: string): string {
 }
 
 .character-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
   width: 100%;
   min-width: 0;
 }
@@ -422,24 +445,24 @@ function formatDate(dateStr: string): string {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 0.25rem;
-}
-
-.character-tagline {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin-bottom: 0.4rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .character-date {
   font-size: 0.72rem;
   color: var(--text-muted);
-  margin: 0;
   white-space: nowrap;
+  /* 左对齐：与头像左边缘保持一致（avatar 是 12px 圆角方形，文本起点和头像起点相同） */
+  text-align: left;
+}
+
+.character-tagline {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
