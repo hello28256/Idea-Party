@@ -303,14 +303,6 @@ watch(selectedCategory, (newCat) => {
   fetchFeaturedCharacters(newCat)
 })
 
-// Navigation items
-const navItems = [
-  { id: 'discover', label: '发现', emoji: '🔍' },
-  { id: 'characters', label: '角色库', emoji: '📚' },
-  { id: 'scenarios', label: '场景', emoji: '💡' },
-  { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
-]
-
 // 根据当前路由决定激活的导航项
 // 优先级：query.tab > 路径前缀。'/chat/*' 仍归为 discover：因为新版三栏布局已替代独立聊天路由。
 const activeNavId = computed(() => {
@@ -1681,7 +1673,7 @@ async function handleInviteMember() {
       <!-- 导航 -->
       <nav class="nav-menu">
         <a
-          v-for="item in navItems"
+          v-for="item in MINIMAL_NAV_ITEMS"
           :key="item.id"
           href="#"
           class="nav-item"

@@ -4,10 +4,12 @@
 
 // 导航项契约：id 在同一数组内唯一，用于匹配 activeId 与过滤；route 支持 path 或 path+query，
 // 由消费方在 router.push / RouterLink 中直接消费，组件本身不做跳转解析。
+// emoji 可空：emoji 缺失时模板用 v-if 跳过渲染，
+// 避免空 span 占位导致该项文字左对齐位置与其他项不一致。
 export interface NavItem {
   id: string
   label: string
-  emoji: string
+  emoji?: string
   route: string
 }
 

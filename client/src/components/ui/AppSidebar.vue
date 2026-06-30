@@ -42,7 +42,7 @@ function go(route: string) {
         :class="{ active: item.id === activeId }"
         @click.prevent="go(item.route)"
       >
-        <span class="nav-emoji">{{ item.emoji }}</span>
+        <span v-if="item.emoji" class="nav-emoji">{{ item.emoji }}</span>
         <span class="nav-label">{{ item.label }}</span>
       </a>
     </nav>

@@ -304,14 +304,6 @@ watch(selectedCategory, (newCat) => {
   fetchFeaturedCharacters(newCat)
 })
 
-// Navigation items
-const navItems = [
-  { id: 'discover', label: '发现', emoji: '🔍' },
-  { id: 'characters', label: '角色库', emoji: '📚' },
-  { id: 'scenarios', label: '场景', emoji: '💡' },
-  { id: 'my-rooms', label: '我的聊天', emoji: '💬' },
-]
-
 // 根据当前路由决定激活的导航项
 // 优先级：query.tab > 路径前缀。'/chat/*' 仍归为 discover：因为新版三栏布局已替代独立聊天路由。
 const activeNavId = computed(() => {
@@ -1569,14 +1561,14 @@ async function handleInviteMember() {
       <!-- 导航 -->
       <nav class="nav-menu">
         <a
-          v-for="item in navItems"
+          v-for="item in MINIMAL_NAV_ITEMS"
           :key="item.id"
           href="#"
           class="nav-item"
           :class="{ active: item.id === activeNavId }"
           @click.prevent="handleNavClick(item.id)"
         >
-          <span class="nav-emoji">{{ item.emoji }}</span>
+          <span v-if="item.emoji" class="nav-emoji">{{ item.emoji }}</span>
           <span class="nav-label">{{ item.label }}</span>
         </a>
       </nav>
@@ -1890,7 +1882,7 @@ async function handleInviteMember() {
 
       <!-- 角色库视图 -->
       <template v-else-if="isCharactersView">
-        <header class="content-header">
+        <header class="content-header discover-header">
           <h1 class="page-title">角色库</h1>
           <div class="header-actions">
             <div class="search-box">
@@ -2330,9 +2322,6 @@ async function handleInviteMember() {
         <header class="content-header discover-header">
           <h1 class="page-title">发现</h1>
           <div class="search-bar search-bar-compact">
-            <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
             <input
               v-model="searchQuery"
               type="text"
@@ -2461,10 +2450,9 @@ async function handleInviteMember() {
               :class="{ 'is-entering': enteringHotRoomId === room.id }"
               @click="enterRoom(room.id)"
             >
-              <!-- 封面图 -->
+              <!-- 封面图：本地路径加 cache-buster，避免 WebConfig 1 小时缓存住旧图 -->
               <div class="room-cover">
-                <img :src="room.cover" :alt="room.title" class="cover-img" />
-                <div v-if="room.isHot" class="hot-tag">🔥 热门</div>
+                <img :src="resolveAvatarUrl(room.cover)" :alt="room.title" class="cover-img" />
                 <div class="cover-overlay"></div>
               </div>
 
@@ -3070,11 +3058,6 @@ async function handleInviteMember() {
   box-shadow: none; /* 去掉黑色 outline */
 }
 
-.search-icon {
-  color: #6b7280; /* 中等灰，比 placeholder 深、比文字浅 */
-  flex-shrink: 0;
-}
-
 .search-input {
   flex: 1;
   border: none;
@@ -3467,18 +3450,6 @@ async function handleInviteMember() {
   position: absolute;
   inset: 0;
   background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.5) 100%);
-}
-
-.hot-tag {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
-  padding: 0.3rem 0.6rem;
-  background: rgba(255, 100, 50, 0.9);
-  border-radius: 6px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: white;
 }
 
 .room-body {
