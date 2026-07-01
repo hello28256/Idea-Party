@@ -41,6 +41,18 @@ def log(msg: str) -> None:
     print(f"[{ts}] [DEBUG] {msg}", flush=True)
 
 
+# Secret 字符串脱敏:把 "ALIYUN_STS_ACCESS_KEY_SECRET=GXZ9lVhF5EOY9fxWGVIDOM4uvruohp"
+# 里的 value 替换成 "****",只保留前 4 字符用于排查。
+# 避免 deploy 日志 / shell history / Claude chat 留下完整 Secret。
+def _mask_secrets(s: str, secrets: list[str]) -> str:
+    for secret in secrets:
+        if not secret:
+            continue
+        if len(secret) > 4:
+            s = s.replace(secret, secret[:4] + "****")
+    return s
+
+
 def die(msg: str, code: int = 1) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
     sys.exit(code)
@@ -151,8 +163,13 @@ def _load_aliyun_env_from_file(env_file: str = ".env.production") -> None:
 
 
 def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess:
-    """执行本地命令。check=True 时失败抛 CalledProcessError。"""
+    """执行本地命令。check=True 时失败抛 CalledProcessError。
+
+    安全: 打 DEBUG 日志前对 Secret 变量值脱敏,避免 STS / DB 密码
+    之类进 shell history / chat 历史 / log 文件。
+    """
     printable = " ".join(shlex.quote(c) for c in cmd)
+    printable = _mask_secrets(printable, _collect_secrets())
     log(f"$ {printable}")
     return subprocess.run(
         list(cmd),
@@ -163,6 +180,20 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: s
     )
 
 
+def _collect_secrets() -> list[str]:
+    """收集所有 *_SECRET / *_PASSWORD / *_TOKEN / *_KEY 变量值,准备脱敏。
+    只在 log/print 时用,不改 os.environ,不影响实际进程传值。
+    """
+    secrets: list[str] = []
+    for k, v in os.environ.items():
+        if not v or len(v) < 8:
+            continue
+        kl = k.lower()
+        if any(suffix in kl for suffix in ("secret", "password", "token", "_key")):
+            secrets.append(v)
+    return secrets
+
+
 def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forward_env: Sequence[str] = ()) -> subprocess.CompletedProcess:
     """在远程服务器上跑一条命令。check=False 用于 best-effort 操作
     （如 docker pull 镜像——已经缓存时仍要容忍非零退出）。
@@ -171,6 +202,11 @@ def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forwa
     SSH 走的是新 shell,默认不继承本机环境变量,需要显式 SendEnv(env 名要在
     ~/.ssh/config 或 /etc/ssh_config 配 AcceptEnv)。
     简单办法:用 VAR=val $VAR2=val2 cmd 语法直接在命令前拼。
+
+    安全: 转发 Secret 时只把变量名打到 debug 日志,值要脱敏。Secret 不进
+    log/print/chat 历史。本函数返回的是 subprocess.CompletedProcess,不
+    自动打印 stdout/stderr(调用方决定是否打印),所以 Secret 不会从本函数
+    泄到日志。
     """
     ssh_path = os.path.expanduser(SSH_KEY)
     if forward_env:
@@ -181,6 +217,7 @@ def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forwa
         for name in forward_env:
             val = os.environ.get(name, "")
             if val:
+                # 用 shlex.quote 包裹值,防止空格/特殊字符破坏 export 语法
                 env_prefix_parts.append(f"export {name}={shlex.quote(val)}")
         env_prefix = "; ".join(env_prefix_parts)
         # shlex.quote 整个 remote_cmd 防止 cmd 含单引号破坏 bash -c
