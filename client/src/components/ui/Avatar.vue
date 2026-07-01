@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { BRAND_LOGO } from '@/constants/brand'
 
-// 通用头像组件：支持图片源失败回退为首字母占位、思考中状态指示。
-// 配合聊天消息列表使用：聊天室中每个 AI 角色都需要稳定可识别的头像展示。
-// 非全局单例：每条消息渲染一次，由 MessageList 在 v-for 中实例化。
-//
-// Fallback 逻辑（按优先级）：
-//   1. props.src —— 用户上传/AI 生成的头像 URL
-//   2. /image.png —— 项目根静态资源兜底，保证 UI 不留空白
-//   3. name.charAt(0) —— 任意图片加载失败（404/网络断开）时显示首字母占位（渐变色背景）
+// 通用头像组件：始终渲染 <img>,src 直接绑定,失败时切到 OSS 占位图 (BRAND_LOGO)。
+// 之前的 v-if/v-else 设计会在 <img> onerror 时切到首字占位 — 但首字占位与"图片加载中"的视觉
+// 一致性差,尤其是页面快速滚动时多张头像连续切换,首字闪一下很碍眼。
+// 新设计:src 始终是有效 URL (props.src || BRAND_LOGO),@error 时 fallback 到 BRAND_LOGO。
+// 浏览器永远显示一张图,不会有"破图"或"首字"。
 
 interface Props {
   src?: string | null
@@ -22,7 +20,6 @@ const props = withDefaults(defineProps<Props>(), {
   src: null,
   size: 'medium',
   isThinking: false,
-  // 海军蓝渐变作为占位背景：与品牌主色调一致，避免在缺少头像时出现突兀的纯色块。
   gradient: 'linear-gradient(135deg, var(--color-navy) 0%, var(--color-navy-light) 100%)'
 })
 
@@ -32,38 +29,31 @@ const sizeClasses = {
   large: 'avatar-large',
 }
 
-// 项目根静态资源 fallback：用户未上传头像时使用，保证 UI 不留空白。
-const DEFAULT_AVATAR = '/image.png'
+// 当前显示的 src:有 props.src 时用它,加载失败后切到 BRAND_LOGO 占位。
+const currentSrc = ref<string>(props.src || BRAND_LOGO)
 
-// 优先使用用户上传的头像，缺失时回退到项目默认图；保持 template 单条件渲染的简洁性。
-const avatarSrc = computed(() => props.src || DEFAULT_AVATAR)
-const imageError = ref(false)
+// 监听 props.src 变化,重置 currentSrc 让浏览器重新加载。
+watch(() => props.src, (newSrc) => {
+  currentSrc.value = newSrc || BRAND_LOGO
+}, { immediate: true })
 
-// 标记图片加载失败：浏览器 <img> 触发 @error 时（如 404/网络断开），
-// 必须切到占位首字母显示，否则会留下破图图标影响观感。
 function handleImageError() {
-  imageError.value = true
+  // 加载失败时切到 BRAND_LOGO(OSS 完整 URL,确保可达)。
+  // 避免 fallback 到首字 — 用户反馈首字占位与图片切换有"闪一下"的视觉问题。
+  if (currentSrc.value !== BRAND_LOGO) {
+    currentSrc.value = BRAND_LOGO
+  }
 }
-
-// 监听 src 变化时重置错误态：换源后要重新允许尝试加载，
-// 否则一次失败后即使换图也会永久停留在占位态。
-watch(() => props.src, () => {
-  imageError.value = false
-})
 </script>
 
 <template>
   <div class="avatar-wrapper" :class="{ 'is-thinking': isThinking }">
     <div class="avatar" :class="sizeClasses[size || 'medium']">
       <img
-        v-if="avatarSrc && !imageError"
-        :src="avatarSrc"
+        :src="currentSrc"
         :alt="name"
         @error="handleImageError"
       />
-      <div v-else class="avatar-placeholder" :style="{ background: gradient }">
-        {{ name.charAt(0) }}
-      </div>
     </div>
     <div v-if="isThinking" class="thinking-ring"></div>
   </div>
@@ -111,41 +101,11 @@ watch(() => props.src, () => {
   object-fit: cover;
 }
 
-.avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-gold-light);
-  font-family: 'Playfair Display', serif;
-  font-weight: 600;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  letter-spacing: 0.02em;
-}
-
 @media (prefers-color-scheme: dark) {
-  .avatar-placeholder {
-    background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
-    color: #f0d78c;
-  }
-
   .avatar {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     border-color: rgba(255, 255, 255, 0.1);
   }
-}
-
-.avatar-small .avatar-placeholder {
-  font-size: 0.8rem;
-}
-
-.avatar-medium .avatar-placeholder {
-  font-size: 1.1rem;
-}
-
-.avatar-large .avatar-placeholder {
-  font-size: 1.4rem;
 }
 
 /* Thinking indicator - elegant gold pulsing ring */
