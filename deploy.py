@@ -374,6 +374,32 @@ def action_shell(service: str) -> None:
     run(cmd)
 
 
+def action_migrate_oss(*, dry_run: bool = False) -> None:
+    """把 server/uploads/avatars/ 推到阿里云 OSS 桶 idea-party-uploads。
+
+    一次性迁移,跑完即可禁用迁移用的 RAM 用户的 AK。
+
+    用法:
+      python3 deploy.py --migrate-oss            # 真传
+      python3 deploy.py --migrate-oss --dry-run  # 只列计划
+
+    依赖: 服务器装了 oss2(pip3 install --user oss2),环境变量从服务器
+          .env.production 读(aliyun.oss.* 和 aliyun.sts.*)。
+    """
+    cmd = (
+        f"cd {REMOTE_DIR} && "
+        # pip3 install 静默失败容错(--user 不需要 sudo,装不上也不致命,
+        # 后续会报 ModuleNotFoundError 让用户看清错)
+        f"pip3 install --user --quiet oss2 2>/dev/null; "
+        f"python3 server/scripts/migrate_uploads_to_oss.py"
+        f"{' --dry-run' if dry_run else ''}"
+    )
+    log(f"== 迁移 server/uploads/avatars/ → 阿里云 OSS ==")
+    if dry_run:
+        log("[DRY-RUN] 只列计划,不会真正上传")
+    ssh_cmd(cmd)
+
+
 def action_aliyun_test(*, head_bytes: int = 300) -> None:
     """在服务器上跑一次 STS AssumeRole,输出前 N 字节。
 
@@ -445,6 +471,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--shell", metavar="SERVICE", help="进入容器 shell")
     p.add_argument("--aliyun-test", action="store_true",
                    help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节")
+    p.add_argument("--migrate-oss", action="store_true",
+                   help="把 server/uploads/avatars/ 推到阿里云 OSS 桶(一次性,见 server/scripts/migrate_uploads_to_oss.py)")
     p.add_argument("--dry-run", action="store_true", help="只打印要执行的命令，不真正执行")
     return p.parse_args()
 
@@ -476,6 +504,8 @@ def main() -> None:
             action_shell(args.shell)
         elif args.aliyun_test:
             action_aliyun_test()
+        elif args.migrate_oss:
+            action_migrate_oss(dry_run=args.dry_run)
         else:
             action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
     except subprocess.CalledProcessError as e:
