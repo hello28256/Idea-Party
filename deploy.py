@@ -138,6 +138,10 @@ RSYNC_EXCLUDES = [
     "coverage",
     "deploy.py",           # 避免把 deploy 脚本自己同步到服务器
     "*.log",
+    # OSS 增量上传 manifest 由 server 端 python 维护(每次 deploy 写一次),
+    # 本地不入仓,deploy 时不要 rsync 删/覆盖 — 否则 --delete 会清空 server 端 manifest,
+    # 下一跑只能全量 PUT。
+    "server/uploads/avatars/.oss-manifest.json",
 ]
 
 
@@ -406,7 +410,7 @@ def action_sync_uploads() -> None:
         log(f"[uploads] verification OK: presets count = {actual} (>= {threshold})")
 
 
-def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> None:
+def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_upload: bool = False) -> None:
     """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。
 
     注意:.env.production 不在 deploy 流程里同步。
@@ -427,11 +431,10 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> Non
         log("[uploads] skipped via --skip-uploads")
 
     log("=== Step 1.6/4: upload uploads to OSS ===")
-    # 把所有子目录(presets/presets-webp/hot-rooms/scenarios/brand)推到 OSS。
-    # 全量 PutObject 覆盖(没 ListObject 权限做不了差量同步)。
+    # 默认走 manifest 增量 (--force-upload 强制全量 PUT 覆盖)。
     # 失败 warn 但不阻断 deploy。
     try:
-        action_upload_uploads()
+        action_upload_uploads(force=force_upload)
     except SystemExit:
         log("⚠️  uploads 上传失败,跳过 (deploy 主流程继续)")
 
@@ -681,7 +684,7 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     ssh_cmd(cmd)
 
 
-def action_upload_uploads(*, dry_run: bool = False) -> None:
+def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None:
     """把 server/uploads/avatars/ 下所有 DEPLOY_UPLOADS_SUBDIRS 子目录推到 OSS。
 
     每个子目录的 key 路径: uploads/avatars/<sub>/,与 OSS 桶结构对齐。
@@ -702,7 +705,10 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
     依赖: 服务器装了 oss2(.env.production 已配)。
     """
     subdirs = list(DEPLOY_UPLOADS_SUBDIRS)
-    log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS (manifest 增量) ==")
+    if force:
+        log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS (force 全量) ==")
+    else:
+        log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS (manifest 增量) ==")
     if dry_run:
         log("[DRY-RUN] 只列计划,不会真正上传")
     # 安全: 不通过 SSH 转发任何 Secret,改为让 server 端 Python 自己
@@ -712,6 +718,9 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
     subdirs_repr = repr(subdirs)
     # manifest 路径用 OSS_MANIFEST_PATH 常量,deploy 时 rsync 同步到服务器,
     # 路径在两端完全一致。
+    # force 模式: 把 manifest 看作空 dict,所有文件都重新 PUT (不走 skip 逻辑),
+    # 走完后写回新 manifest (覆盖旧记录,md5 重算)。
+    skip_check = "False" if force else "True"
     inline_py = textwrap.dedent("""\
         import hashlib, json, mimetypes, os, oss2, time
         from pathlib import Path
@@ -768,7 +777,8 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
                 prev = manifest.get(key)
                 # mtime+size+md5 三项都一致才 skip;md5 缺失(首次或上次 PUT 失败)会
                 # 视为变更,触发 PUT,PUT 成功后写新 md5 进 manifest。
-                if prev and prev.get('mtime') == mtime and prev.get('size') == size and prev.get('md5'):
+                # --force-upload 时 manifest 完全跳过,所有文件强制 PUT。
+                if __SKIP_CHECK__ and prev and prev.get('mtime') == mtime and prev.get('size') == size and prev.get('md5'):
                     skip += 1
                     continue
                 try:
@@ -802,7 +812,7 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
         elapsed = time.time() - t0
         print('[upload] all done: put=%d skip=%d fail=%d in %.1fs (manifest size=%d)'
               % (total_ok, total_skip, total_fail, elapsed, len(new_manifest)))
-    """).replace("__SUBDIRS__", subdirs_repr).replace("__MANIFEST__", repr(OSS_MANIFEST_PATH))    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 python3 执行。
+    """).replace("__SUBDIRS__", subdirs_repr).replace("__MANIFEST__", repr(OSS_MANIFEST_PATH)).replace("__SKIP_CHECK__", skip_check)    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 python3 执行。
     # 这样完全避开 bash -c / ssh escape 的复杂引用。
     local_script = Path(tempfile.mkdtemp(prefix="deploy-upload-")) / "upload_uploads.py"
     local_script.write_text(inline_py, encoding="utf-8")
@@ -890,6 +900,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--sync-only", action="store_true", help="只同步，不构建/重启")
     p.add_argument("--skip-uploads", action="store_true", help="跳过 uploads volume 同步（仅调试 / 已知 volume 健康时使用）")
+    p.add_argument("--force-upload", action="store_true", help="强制全量 PUT 所有 uploads 到 OSS,忽略 manifest (默认走增量)")
     p.add_argument("--status", action="store_true", help="查看容器状态")
     p.add_argument("--logs", nargs="?", const="", metavar="SERVICE", help="tail 日志，可指定服务名")
     p.add_argument("--restart", metavar="SERVICE", help="重启指定服务")
@@ -936,7 +947,7 @@ def main() -> None:
         elif args.sync_env:
             action_sync_env()
         else:
-            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
+            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads, force_upload=args.force_upload)
     except subprocess.CalledProcessError as e:
         die(f"命令执行失败 (exit {e.returncode}): {e.cmd}")
 
