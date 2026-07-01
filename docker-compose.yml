@@ -142,11 +142,8 @@ services:
       # Without this, every `docker compose up` wipes /var/cache/nginx/api and
       # the first 1000 requests after each deploy take the cache-miss penalty.
       - nginx-cache:/var/cache/nginx
-      # 挂 server-uploads 卷(只读)让 nginx 直接 serve 预设头像的 WebP 版:
-      # nginx 看到 Accept: image/webp 时,反代 /presets/{name}.webp
-      # 这个文件存在就直返磁盘(零耗时),不再打 Spring Boot。
-      # :ro 防止 nginx 误写 server 的数据。
-      - server-uploads:/var/uploads:ro
+      # OSS 迁移后:不再挂 server-uploads 卷(图片走阿里云 OSS 桶,
+      # nginx 看到 /uploads/ 和 /api/upload/avatars/ 直接 301 到 OSS 默认域名)。
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
       interval: 15s
