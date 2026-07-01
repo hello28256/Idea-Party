@@ -146,15 +146,20 @@ def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forwa
     简单办法:用 VAR=val $VAR2=val2 cmd 语法直接在命令前拼。
     """
     ssh_path = os.path.expanduser(SSH_KEY)
-    # 拼 prefix:  VAR=$VAR 其他_VAR=$OTHER_VAR cmd
-    # shlex.quote 防止 Secret 含特殊字符
-    env_prefix_parts = []
-    for name in forward_env:
-        val = os.environ.get(name, "")
-        if val:
-            env_prefix_parts.append(f"{name}={shlex.quote(val)}")
-    env_prefix = " ".join(env_prefix_parts)
-    final_cmd = f"{env_prefix} {remote_cmd}" if env_prefix else remote_cmd
+    if forward_env:
+        # 必须先 export 再跑 remote_cmd,否则 "VAR=val cd /dir" 会被 shell 解析成
+        # cd "VAR=val cd /dir" (cd 拿整段当参数,fallback 到 $HOME,后续 && 链断)
+        # 用 bash -c 包一层,内部先 export,再跑 remote_cmd
+        env_prefix_parts = []
+        for name in forward_env:
+            val = os.environ.get(name, "")
+            if val:
+                env_prefix_parts.append(f"export {name}={shlex.quote(val)}")
+        env_prefix = "; ".join(env_prefix_parts)
+        # shlex.quote 整个 remote_cmd 防止 cmd 含单引号破坏 bash -c
+        final_cmd = f"bash -c {shlex.quote(env_prefix + '; ' + remote_cmd)}"
+    else:
+        final_cmd = remote_cmd
     cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, final_cmd]
     return run(cmd, capture=capture, check=check)
 
