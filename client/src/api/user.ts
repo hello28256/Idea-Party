@@ -30,16 +30,15 @@ export const getProfile = () =>
 
 /**
  * 上传当前用户头像。
- * HTTP POST /user/avatar（multipart/form-data）。
- * 头像上传走 multipart/form-data：浏览器侧必须显式声明 Content-Type，
- * 让 axios 自动生成 boundary 而非手工拼接，否则后端解析会失败。
+ * 1) 拿 STS 临时凭证 → 2) 浏览器直传阿里云 OSS → 3) PUT URL 到后端
+ * 签名保留 { avatarUrl } 兼容 store 调用方。
  * 调用方：UserProfileView 头像裁剪组件。
  */
-// 头像走 STS 凭证浏览器直传阿里云 OSS,后端零带宽。
-// API 签名保留 { avatarUrl } 兼容 store 调用方。
 export const uploadAvatar = async (file: File) => {
   const avatarUrl = await uploadToOss(file)
-  return { data: { avatarUrl } } as { data: { avatarUrl: string } }
+  // 通知后端把这个 URL 存到 users.avatar_url
+  const resp = await api.put<{ avatarUrl: string }>('/user/avatar', { avatarUrl })
+  return { data: resp.data }
 }
 
 /**

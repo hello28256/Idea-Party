@@ -80,57 +80,41 @@ public class UserController {
      */
     @PostMapping("/avatar")
     public ResponseEntity<AvatarUploadResponse> uploadAvatar(@RequestHeader("Authorization") String authHeader, @RequestParam("file") MultipartFile file) {
-        UUID userId = extractUserIdFromToken(authHeader);
-
-        // 校验文件
-        if (file.isEmpty()) {
-            throw new IllegalArgumentException("头像文件不能为空");
-        }
-
-        String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_AVATAR_TYPES.contains(contentType)) {
-            throw new IllegalArgumentException("不支持的头像格式，仅支持 jpg/jpeg/png/webp");
-        }
-
-        if (file.getSize() > maxAvatarSize) {
-            throw new IllegalArgumentException("头像文件过大，最大 " + (maxAvatarSize / 1024 / 1024) + "MB");
-        }
-
-        try {
-            // 如不存在则创建上传目录
-            Path uploadPath = Paths.get(UPLOAD_DIR);
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
-            }
-
-            // 生成唯一文件名
-            String originalFilename = file.getOriginalFilename();
-            String extension = originalFilename != null && originalFilename.contains(".")
-                    ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                    : ".png";
-            String filename = "avatar_" + userId.toString() + "_" + System.currentTimeMillis() + extension;
-
-            // 保存文件
-            Path filePath = uploadPath.resolve(filename);
-            Files.copy(file.getInputStream(), filePath);
-
-            // 更新用户头像 URL
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
-            String avatarUrl = "/uploads/avatars/" + filename;
-            user.setAvatarUrl(avatarUrl);
-            userRepository.save(user);
-
-            log.info("[DEBUG] [uploadAvatar] userId={}, avatarUrl={}", userId, avatarUrl);
-
-            return ResponseEntity.ok(AvatarUploadResponse.builder()
-                    .avatarUrl(avatarUrl)
-                    .build());
-        } catch (Exception e) {
-            log.error("[DEBUG] [uploadAvatar] failed for userId={}, error={}", userId, e.getMessage());
-            throw new RuntimeException("头像上传失败");
-        }
+        // OSS 迁移后,头像上传走 STS 凭证浏览器直传(GET /api/uploads/sts-token 拿凭证 → 直接 PutObject 到 OSS)
+        // 前端拿到完整 URL 后会调 PUT /api/user/avatar 把 URL 存到 DB(见下方 saveAvatarUrl)
+        // 这个老接口保留 410 Gone 避免误调
+        log.warn("[DEBUG] uploadAvatar multipart called but endpoint is deprecated; use STS 直传 instead");
+        return ResponseEntity.status(410).body(AvatarUploadResponse.builder()
+                .avatarUrl("")
+                .build());
     }
+
+    /**
+     * 保存 STS 直传后的头像 URL 到 DB(只换 url,不传文件)。
+     * 流程: 前端 1) 调 /api/uploads/sts-token 拿凭证 2) oss.put 上传 3) 调本接口把返回的完整 URL 存到 users.avatar_url
+     * 校验:URL 必须是 https:// 开头且指向 idea-party-uploads.oss-cn-shenzhen.aliyuncs.com(防 SSRF)
+     */
+    @PutMapping("/avatar")
+    public ResponseEntity<AvatarUploadResponse> saveAvatarUrl(@RequestHeader("Authorization") String authHeader, @RequestBody AvatarUrlRequest request) {
+        UUID userId = extractUserIdFromToken(authHeader);
+        String url = request == null ? null : request.avatarUrl();
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("avatarUrl 不能为空");
+        }
+        // 简单 SSRF 防护:只允许 OSS 桶域名
+        if (!url.startsWith("https://idea-party-uploads.oss-cn-shenzhen.aliyuncs.com/")) {
+            throw new IllegalArgumentException("avatarUrl 必须指向 OSS 桶 idea-party-uploads.oss-cn-shenzhen.aliyuncs.com");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        user.setAvatarUrl(url);
+        userRepository.save(user);
+        log.info("[DEBUG] [saveAvatarUrl] userId={}, avatarUrl={}", userId, url);
+        return ResponseEntity.ok(AvatarUploadResponse.builder().avatarUrl(url).build());
+    }
+
+    /** STS 直传后保存 URL 的请求体 */
+    public record AvatarUrlRequest(String avatarUrl) {}
 
     /**
      * 更新当前用户的偏好设置（目前仅主题模式）。

@@ -47,26 +47,13 @@ public class FileUploadController {
      */
     @PostMapping("/avatar")
     public ResponseEntity<Map<String, String>> uploadAvatar(@RequestParam("avatar") MultipartFile file) {
-        log.debug("[DEBUG] uploadAvatar called with file: {}", file != null ? file.getOriginalFilename() : "null");
-
-        // 全部校验失败交给 GlobalExceptionHandler：保证错误体格式与其它接口一致 (ErrorResponse)
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("File is required");
-        }
-
-        String contentType = file.getContentType();
-        if (!fileStorageService.isAllowedContentType(contentType)) {
-            throw new IllegalArgumentException("Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.");
-        }
-
-        if (file.getSize() > maxAvatarSize) {
-            throw new IllegalArgumentException("File size exceeds " + (maxAvatarSize / 1024 / 1024) + "MB limit");
-        }
-
-        String filename = fileStorageService.store(file);
-        String url = "/api/upload/avatars/" + filename;
-        log.info("[DEBUG] Avatar uploaded successfully: {}", url);
-        return ResponseEntity.ok(Map.of("url", url));
+        // OSS 迁移后,头像上传走 STS 凭证浏览器直传(POST /api/uploads/sts-token 拿凭证 → 直接 PutObject 到 OSS)
+        // 这个老接口保留 410 Gone 避免误调,前端不会再发请求到这里
+        log.warn("[DEBUG] uploadAvatar called but endpoint is deprecated; use STS 直传 instead");
+        return ResponseEntity.status(410).body(Map.of(
+            "error", "Gone",
+            "message", "头像上传已迁移到阿里云 OSS 直传。请调用 GET /api/uploads/sts-token 拿凭证后 PutObject。"
+        ));
     }
 
     /**
