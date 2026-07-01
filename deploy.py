@@ -136,11 +136,26 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: s
     )
 
 
-def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forward_env: Sequence[str] = ()) -> subprocess.CompletedProcess:
     """在远程服务器上跑一条命令。check=False 用于 best-effort 操作
-    （如 docker pull 镜像——已经缓存时仍要容忍非零退出）。"""
+    （如 docker pull 镜像——已经缓存时仍要容忍非零退出）。
+
+    forward_env: 要从当前 shell 转发到 SSH 远端的环境变量名列表。
+    SSH 走的是新 shell,默认不继承本机环境变量,需要显式 SendEnv(env 名要在
+    ~/.ssh/config 或 /etc/ssh_config 配 AcceptEnv)。
+    简单办法:用 VAR=val $VAR2=val2 cmd 语法直接在命令前拼。
+    """
     ssh_path = os.path.expanduser(SSH_KEY)
-    cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, remote_cmd]
+    # 拼 prefix:  VAR=$VAR 其他_VAR=$OTHER_VAR cmd
+    # shlex.quote 防止 Secret 含特殊字符
+    env_prefix_parts = []
+    for name in forward_env:
+        val = os.environ.get(name, "")
+        if val:
+            env_prefix_parts.append(f"{name}={shlex.quote(val)}")
+    env_prefix = " ".join(env_prefix_parts)
+    final_cmd = f"{env_prefix} {remote_cmd}" if env_prefix else remote_cmd
+    cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, final_cmd]
     return run(cmd, capture=capture, check=check)
 
 
