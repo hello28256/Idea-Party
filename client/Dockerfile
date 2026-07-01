@@ -10,9 +10,11 @@ WORKDIR /build
 
 # Install deps with cache-friendly layer
 # --legacy-peer-deps: 项目把 vite 锁在 v8，但部分 dev-deps 的 peer 仍声明 v5/v6，
-# 不绕过的话 npm ci 会硬性退出。运行时无影响。
-COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund --legacy-peer-deps
+# 不绕过的话 npm install 会硬性退出。运行时无影响。
+# 用 npm install 而非 npm ci:package-lock.json 不在 git 里(deploy.py rsync 只带 tracked 文件),
+# npm ci 找不到 lockfile 会失败;npm install 从 package.json 装最新可用版本,慢但稳。
+COPY package.json ./
+RUN npm install --no-audit --no-fund --legacy-peer-deps
 
 # Build args → Vite env (VITE_* is exposed to client code at build time)
 ARG VITE_SERVER_PROXY_PORT=8080
