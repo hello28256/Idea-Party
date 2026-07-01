@@ -408,7 +408,20 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     log(f"== 迁移 server/uploads/avatars/ → 阿里云 OSS ==")
     if dry_run:
         log("[DRY-RUN] 只列计划,不会真正上传")
-    ssh_cmd(cmd)
+    # 把本地 shell 里的 ALIYUN_* 转发到远端,这样 Secret 不进命令历史也不进 chat
+    forward_envs = (
+        "ALIYUN_OSS_ENDPOINT", "ALIYUN_OSS_BUCKET", "ALIYUN_OSS_KEY_PREFIX",
+        "ALIYUN_OSS_BUCKET_DOMAIN",
+        "ALIYUN_STS_ACCESS_KEY_ID", "ALIYUN_STS_ACCESS_KEY_SECRET",
+        "ALIYUN_STS_ROLE_ARN",
+    )
+    missing = [n for n in forward_envs if not os.environ.get(n)]
+    if missing:
+        log(f"❌ 本地 shell 缺这些环境变量: {', '.join(missing)}")
+        log("  .env.production 应该 export 这些。也可以临时:")
+        log("  export $(grep ALIYUN_ .env.production | xargs)")
+        die("Aborted")
+    ssh_cmd(cmd, forward_env=forward_envs)
 
 
 def action_aliyun_test(*, head_bytes: int = 300) -> None:
