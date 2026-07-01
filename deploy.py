@@ -422,7 +422,7 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
         # 用 python3 -m pip,装到 --user 避免污染系统
         # --break-system-packages 绕过 PEP 668
         f"python3 -m pip install --user --break-system-packages --quiet oss2 2>&1 | tail -3; "
-        f"python3 server/scripts/migrate_uploads_to_oss.py"
+        f"python3 server/scripts/migrate_uploads_to_oss.py --src server/uploads/avatars"
         f"{' --dry-run' if dry_run else ''}"
     )
     log(f"== 迁移 server/uploads/avatars/ → 阿里云 OSS ==")
