@@ -31,6 +31,7 @@ server/uploads/avatars/*
 !server/uploads/avatars/scenarios/
 !server/uploads/avatars/scenarios/*
 !server/uploads/avatars/scenarios/CREDITS.md
+# 上面 3 行针对运行时卷目录,源码目录下的场景图另在底部"场景封面目录"段声明
 *.class
 *.war
 
@@ -93,5 +94,12 @@ server/uploads/avatars/presets/_backup/
 # 任何 .bak 备份文件
 *.bak
 *.bak.*
+
+# —— 场景封面目录:允许 22 张正式 scn-*.jpg + CREDITS.md + KEYWORDS.md 进仓
+# 但工作脚本/中间产物/_tmp/、old/ 不进
+!server/src/main/resources/uploads/avatars/scenarios/
+!server/src/main/resources/uploads/avatars/scenarios/*.jpg
+!server/src/main/resources/uploads/avatars/scenarios/CREDITS.md
+!server/src/main/resources/uploads/avatars/scenarios/KEYWORDS.md
 server/src/main/resources/uploads/avatars/scenarios/_tmp/
-server/src/main/resources/uploads/avatars/scenarios/KEYWORDS.md
+server/src/main/resources/uploads/avatars/scenarios/old/
