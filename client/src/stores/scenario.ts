@@ -28,7 +28,7 @@ export interface Scenario {
   // dynamicPrompt=true 场景不需要此字段（由后端动态生成）
   characterName?: string
   // ===== 卡片可视化字段（仅在 /scenarios 网格上展示用，不参与业务逻辑）=====
-  // 卡片封面图 URL（绝对路径或 /api/upload/avatars/... 相对路径）；
+  // 卡片封面图 URL（绝对路径或 /uploads/avatars/... 相对路径）；
   // undefined = 卡片使用 emoji 渐变背景（用户私有场景的默认形态）。
   cover?: string
   // 卡片底部"示例片段"区展示的金句/开场白。让用户一眼看出这个场景聊的是什么。
@@ -52,7 +52,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'interview-coach',
     emoji: '🎤',
-    cover: '/api/upload/avatars/scenarios/scn-interview-coach.jpg',
+    cover: '/uploads/avatars/scenarios/scn-interview-coach.jpg',
     title: '面试模拟',
     description: '挑选你心仪的面试官，模拟一场真实的技术/产品面试。',
     sampleQuote: '介绍一下你自己，并说明为什么你适合这个岗位。',
@@ -68,7 +68,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'product-brainstorm',
     emoji: '💡',
-    cover: '/api/upload/avatars/scenarios/scn-product-brainstorm.jpg',
+    cover: '/uploads/avatars/scenarios/scn-product-brainstorm.jpg',
     title: '产品头脑风暴',
     description: '和一位资深产品顾问，深度打磨你的产品 idea。',
     sampleQuote: '用户根本不知道自己想要什么，直到你把产品摆在他面前。',
@@ -95,7 +95,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'english-tutor',
     emoji: '🇬🇧',
-    cover: '/api/upload/avatars/scenarios/scn-english-tutor.jpg',
+    cover: '/uploads/avatars/scenarios/scn-english-tutor.jpg',
     title: '英语陪练',
     description: '和一个 native speaker 角色进行情景对话练习。',
     sampleQuote: "Hi! What scenario would you like to practice today?",
@@ -122,7 +122,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'writing-coach',
     emoji: '✍️',
-    cover: '/api/upload/avatars/scenarios/scn-writing-coach.jpg',
+    cover: '/uploads/avatars/scenarios/scn-writing-coach.jpg',
     title: '写作助手',
     description: '把你的草稿交给一个资深编辑，得到结构化反馈。',
     sampleQuote: '把不必要的一切都删掉,直击人心。',
@@ -154,7 +154,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'socratic-coach',
     emoji: '🤔',
-    cover: '/api/upload/avatars/scenarios/scn-socratic-coach.jpg',
+    cover: '/uploads/avatars/scenarios/scn-socratic-coach.jpg',
     title: '苏格拉底式提问',
     description: '不给你答案，只用问题带你找到答案。适合自我反思、决策、写作灵感。',
     sampleQuote: '未经省察的人生,是不值得过的。',
@@ -170,7 +170,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'thesis-defense',
     emoji: '🎓',
-    cover: '/api/upload/avatars/scenarios/scn-thesis-defense.jpg',
+    cover: '/uploads/avatars/scenarios/scn-thesis-defense.jpg',
     title: '论文答辩模拟',
     description: '把摘要交给 1 位虚拟答辩委员会主席，演练 5 个高频答辩问题并得到改进建议。',
     sampleQuote: '请用一句话说明你这项工作的研究动机。',
@@ -206,7 +206,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'client-negotiation',
     emoji: '🤝',
-    cover: '/api/upload/avatars/scenarios/scn-client-negotiation.jpg',
+    cover: '/uploads/avatars/scenarios/scn-client-negotiation.jpg',
     title: '客户谈判',
     description: '扮演一个难搞的客户，陪你磨合同条款、压价、拒绝方案。',
     sampleQuote: '你们这个价格,比另一家高了 15%,我没办法接受。',
@@ -241,7 +241,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'salary-negotiation',
     emoji: '💰',
-    cover: '/api/upload/avatars/scenarios/scn-salary-negotiation.jpg',
+    cover: '/uploads/avatars/scenarios/scn-salary-negotiation.jpg',
     title: '薪资谈判',
     description: '准备一场涨薪或 offer 谈薪，对面是个不见兔子不撒鹰的 HR。',
     sampleQuote: '你期望的薪资,已经超出我们的带宽了。',
@@ -275,7 +275,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'performance-review',
     emoji: '📊',
-    cover: '/api/upload/avatars/scenarios/scn-performance-review.jpg',
+    cover: '/uploads/avatars/scenarios/scn-performance-review.jpg',
     title: '绩效面谈',
     description: '扮演你的直属上级，做一次真实的季度绩效 review，可能是好消息也可能是坏消息。',
     sampleQuote: '你先说说,本季度你自己做得怎么样?',
@@ -308,7 +308,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'startup-pitch',
     emoji: '🚀',
-    cover: '/api/upload/avatars/scenarios/scn-startup-pitch.jpg',
+    cover: '/uploads/avatars/scenarios/scn-startup-pitch.jpg',
     title: '创业路演',
     description: '面对一个连环追问的投资人，把 3 分钟的项目介绍讲透。',
     sampleQuote: '停一下,关键是什么?你和 XX 的区别在哪?',
@@ -345,7 +345,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'home-buying-advisor',
     emoji: '🏠',
-    cover: '/api/upload/avatars/scenarios/scn-home-buying-advisor.jpg',
+    cover: '/uploads/avatars/scenarios/scn-home-buying-advisor.jpg',
     title: '买房决策',
     description: '准备买第一套房？和一位资深买家顾问聊聊地段、户型、风险。',
     sampleQuote: '买不买房是其次,关键是你现在该不该出手。',
@@ -379,7 +379,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'renovation-review',
     emoji: '🛋️',
-    cover: '/api/upload/avatars/scenarios/scn-renovation-review.jpg',
+    cover: '/uploads/avatars/scenarios/scn-renovation-review.jpg',
     title: '装修评审',
     description: '把你的装修方案交给一位挑剔的资深设计师，听听哪些地方要改。',
     sampleQuote: '你这个户型最大的问题不是 X,是 Y。',
@@ -413,7 +413,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'job-change-advisor',
     emoji: '🔀',
-    cover: '/api/upload/avatars/scenarios/scn-job-change-advisor.jpg',
+    cover: '/uploads/avatars/scenarios/scn-job-change-advisor.jpg',
     title: '跳槽决策',
     description: '在两个 offer 之间纠结？和一位资深职业规划师聊聊你的真实诉求。',
     sampleQuote: '如果 3 年后回头看这次决定,你会怎么选?',
@@ -449,7 +449,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'japanese-tutor',
     emoji: '🇯🇵',
-    cover: '/api/upload/avatars/scenarios/scn-japanese-tutor.jpg',
+    cover: '/uploads/avatars/scenarios/scn-japanese-tutor.jpg',
     title: '日语陪练',
     description: '和一个日语母语角色练 20 分钟，覆盖 N3-N1 各种生活场景。',
     sampleQuote: '今日はどの場面を練習したいですか?',
@@ -477,7 +477,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'book-club',
     emoji: '📚',
-    cover: '/api/upload/avatars/scenarios/scn-book-club.jpg',
+    cover: '/uploads/avatars/scenarios/scn-book-club.jpg',
     title: '读书会',
     description: '选一本书，和一位读过 1000 本的杂家，聊聊它到底在说什么。',
     sampleQuote: '这本书改变了你的什么?',
@@ -511,7 +511,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'debate-coach',
     emoji: '⚔️',
-    cover: '/api/upload/avatars/scenarios/scn-debate-coach.jpg',
+    cover: '/uploads/avatars/scenarios/scn-debate-coach.jpg',
     title: '辩论陪练',
     description: '选一个有争议的话题，扮演反方和你对辩，逼你把逻辑打结实。',
     sampleQuote: '你方所谓 X 的意思是?请定义一下。',
@@ -546,7 +546,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'teaching-tutor',
     emoji: '🎓',
-    cover: '/api/upload/avatars/scenarios/scn-teaching-tutor.jpg',
+    cover: '/uploads/avatars/scenarios/scn-teaching-tutor.jpg',
     title: '学科辅导',
     description: '把一道题或一个概念交给一位耐心但严格的老师，看他怎么让你真正搞懂。',
     sampleQuote: '你现在到底卡在哪一步?',
@@ -582,7 +582,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'travel-planner',
     emoji: '✈️',
-    cover: '/api/upload/avatars/scenarios/scn-travel-planner.jpg',
+    cover: '/uploads/avatars/scenarios/scn-travel-planner.jpg',
     title: '旅行规划',
     description: '把你的目的地和预算交给一位资深定制师，10 分钟拿到行程草案。',
     sampleQuote: '你这次旅行最想拍一张什么样的照片?',
@@ -616,7 +616,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'fitness-coach',
     emoji: '💪',
-    cover: '/api/upload/avatars/scenarios/scn-fitness-coach.jpg',
+    cover: '/uploads/avatars/scenarios/scn-fitness-coach.jpg',
     title: '健身咨询',
     description: '把你的身体数据交给一位不卖课的专业教练，听听他会让你怎么练。',
     sampleQuote: '你能不能 4 节课后回来说说效果?',
@@ -650,7 +650,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'mental-health-listener',
     emoji: '🌱',
-    cover: '/api/upload/avatars/scenarios/scn-mental-health-listener.jpg',
+    cover: '/uploads/avatars/scenarios/scn-mental-health-listener.jpg',
     title: '心理倾听',
     description: '不评判、不建议，只是被一个温暖的人认真听你说 20 分钟。',
     sampleQuote: '听起来这真的挺难的,你愿意多说说吗?',
@@ -685,7 +685,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'code-reviewer',
     emoji: '🧑‍💻',
-    cover: '/api/upload/avatars/scenarios/scn-code-reviewer.jpg',
+    cover: '/uploads/avatars/scenarios/scn-code-reviewer.jpg',
     title: '代码 Review',
     description: '把一段代码交给一位资深工程师，听听他会怎么挑刺。',
     promptTemplate: `你扮演一位从业 12 年的资深软件工程师，英文名 Eric，待过大厂和创业公司，擅长分布式系统和高并发。我有一段代码想请你 review。
@@ -722,7 +722,7 @@ const SEED_SCENARIOS: Scenario[] = [
   {
     id: 'coding-buddy',
     emoji: '👯',
-    cover: '/api/upload/avatars/scenarios/scn-coding-buddy.jpg',
+    cover: '/uploads/avatars/scenarios/scn-coding-buddy.jpg',
     title: '编程搭子',
     description: '和一个正在学同一样东西的伙伴结对，互相讲解、互问互答。',
     promptTemplate: `你扮演一位正在学 Rust 的前端工程师，姓宇，28 岁，2 年 React 经验，最近在转 Rust 方向。我也在学某个编程语言/技术，我们想组队一起学。

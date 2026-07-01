@@ -63,7 +63,7 @@ async function patchMissingAvatarUrls() {
     if (needPatch.length === 0) return
     console.log(`[AvatarPatch] patching ${needPatch.length} characters with missing avatars`)
     await Promise.all(needPatch.map(async (c) => {
-      const newUrl = presetAvatars.get(c.name) || `/api/upload/avatars/presets/${encodeURIComponent(c.name)}.jpg`
+      const newUrl = presetAvatars.get(c.name) || `/uploads/avatars/presets/${encodeURIComponent(c.name)}.jpg`
       console.log(`[AvatarPatch] '${c.name}': '${c.avatarUrl || ''}' -> '${newUrl}'`)
       await characterStore.updateCharacter(c.id, {
         name: c.name,
