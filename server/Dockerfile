@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # =============================================================================
 # Idea-Party Server Dockerfile
 # Multi-stage build: Maven (compile) → JRE (runtime)
@@ -8,15 +9,21 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /build
 
-# Cache dependencies first to leverage Docker layer cache
+# -s 指向烤进镜像的阿里云镜像 settings，强制 central 走国内 CDN，
+#   避免从 repo.maven.apache.org 直连被海外 CDN 限速，长期卡在 go-offline。
+# --mount=type=cache 把 ~/.m2/repository 持久化到 BuildKit cache，
+#   第二次 build 命中缓存后秒过，不再下载任何依赖。
+COPY .mvn/settings.xml .mvn/settings.xml
 COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn -B -s .mvn/settings.xml dependency:go-offline
 
 # Build the application.
 # -Dmaven.test.skip=true 既跳过测试运行也跳过测试编译（项目 src/test 跟主代码签名对不上）
 # CI 应当单独跑 mvn test（不在 Docker build 里做）。
 COPY src ./src
-RUN mvn -B -q -Dmaven.test.skip=true package \
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn -B -s .mvn/settings.xml -Dmaven.test.skip=true package \
     && cp target/ideaparty-server-*.jar /build/app.jar
 
 # ---- Stage 2: Runtime ----

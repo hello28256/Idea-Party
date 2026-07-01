@@ -8,7 +8,7 @@ target/
 logs/
 uploads/
 HELP.md
-.mvn/
+.mvn/wrapper/
 mvnw
 mvnw.cmd
 .DS_Store
