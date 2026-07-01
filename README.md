@@ -136,8 +136,8 @@ Idea-Party/
 │   ├── src/main/java/com/ideaparty/
 │   │   ├── IdeaPartyApplication.java      # @SpringBootApplication 入口
 │   │   ├── controller/                    # 16 个 REST 控制器
-│   │   ├── service/                       # 23 个服务
-│   │   │                                  # ModeratorAgent / AIService / MockAiService
+│   │   ├── service/                       # 22 个服务
+│   │   │                                  # ModeratorAgent / AIService
 │   │   │                                  # FirecrawlService / CharacterPromptBuilder / ...
 │   │   ├── socket/                        # ChatSocketHandler — 当前活跃 WS handler(Socket.IO framing)
 │   │   ├── websocket/                     # ChatWebSocketHandler — 旧 STOMP 实现,保留作回退
