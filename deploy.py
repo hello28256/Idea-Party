@@ -181,15 +181,17 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: s
 
 
 def _collect_secrets() -> list[str]:
-    """收集所有 *_SECRET / *_PASSWORD / *_TOKEN / *_KEY 变量值,准备脱敏。
-    只在 log/print 时用,不改 os.environ,不影响实际进程传值。
+    """收集所有 *_SECRET / *_PASSWORD / *_TOKEN 变量值,准备脱敏。
+    不匹配 *_KEY (会误伤 *_KEY_PREFIX 等公开配置) 与 STS_ROLE_ARN
+    (ARN 不是 Secret,只是标识)。只在 log/print 时用,不改 os.environ,
+    不影响实际进程传值。
     """
     secrets: list[str] = []
     for k, v in os.environ.items():
         if not v or len(v) < 8:
             continue
         kl = k.lower()
-        if any(suffix in kl for suffix in ("secret", "password", "token", "_key")):
+        if any(suffix in kl for suffix in ("secret", "password", "token")):
             secrets.append(v)
     return secrets
 
