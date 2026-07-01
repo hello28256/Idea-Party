@@ -253,7 +253,7 @@ public class DataLoader implements CommandLineRunner {
 
     /**
      * 老库回填：把现存 preset 角色里仍指向外网（http/https）的 avatarUrl 改为本地路径
-     * ({@code /api/upload/avatars/presets/<english-name>.<ext>})。
+     * ({@code /uploads/avatars/presets/<english-name>.<ext>})。
      *
      * <p>用途：buildPreset 把头像 URL 写死成维基百科地址，老库升级时 seedCharactersIfMissing
      * 按名字去重已跳过这些角色，导致 avatarUrl 不会跟着源码自动更新。本方法在每次启动跑一次，
@@ -261,7 +261,7 @@ public class DataLoader implements CommandLineRunner {
      */
     private void backfillPresetAvatarUrls(List<Character> freshPresets) {
         java.util.Map<String, String> nameToLocal = freshPresets.stream()
-                .filter(c -> c.getAvatarUrl() != null && c.getAvatarUrl().startsWith("/api/"))
+                .filter(c -> c.getAvatarUrl() != null && c.getAvatarUrl().startsWith("/uploads/"))
                 .collect(java.util.stream.Collectors.toMap(
                         Character::getName, Character::getAvatarUrl, (a, b) -> a));
         if (nameToLocal.isEmpty()) {
@@ -353,7 +353,7 @@ public class DataLoader implements CommandLineRunner {
     // 推荐区顺序由 findByIsPresetTrueOrderByNameAsc 决定（按 name Unicode 序），
     // 所以 List 内的写入顺序仅作为人类阅读时的"分组参考"，不依赖于此方法。
     // avatarUrl 用历史人物的真实肖像（英文维基百科 220px 缩略图，已下载到
-    // server/uploads/avatars/presets/，通过 /api/upload/avatars/presets/** 静态映射对外提供），
+    // server/uploads/avatars/presets/，通过 /uploads/avatars/presets/** 静态映射对外提供），
     // 离线可用、辨识度高于 DiceBear 抽象头像。
     //
     // prompt 字段：传 null 时启动期调用 CharacterService.generatePromptByName 用 LLM 生成

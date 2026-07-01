@@ -2,7 +2,7 @@
   {
     "id": "hot-0001",
     "title": "儒家群英会：何为修身齐家？",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0001.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0001.jpg",
     "participants": ["孔子", "孟子", "荀子", "王阳明", "曾国藩"],
     "latestMessage": { "sender": "孔子", "text": "吾日三省吾身..." },
     "onlineCount": 312,
@@ -12,7 +12,7 @@
   {
     "id": "hot-0002",
     "title": "道家与魏晋风度：老子、庄子与竹林名士",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0002.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0002.jpg",
     "participants": ["老子", "庄子", "王羲之", "诸葛亮"],
     "latestMessage": { "sender": "庄子", "text": "天地与我并生..." },
     "onlineCount": 178,
@@ -22,7 +22,7 @@
   {
     "id": "hot-0003",
     "title": "哲学三杰：苏格拉底、柏拉图与亚里士多德",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0003.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0003.jpg",
     "participants": ["苏格拉底", "柏拉图", "亚里士多德", "尼采"],
     "latestMessage": { "sender": "苏格拉底", "text": "我知道我一无所知..." },
     "onlineCount": 287,
@@ -32,7 +32,7 @@
   {
     "id": "hot-0004",
     "title": "启蒙时代的火把：康德、伏尔泰与卢梭",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0004.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0004.jpg",
     "participants": ["伏尔泰", "卢梭", "康德", "黑格尔", "马克思"],
     "latestMessage": { "sender": "伏尔泰", "text": "我不同意你的观点..." },
     "onlineCount": 203,
@@ -42,7 +42,7 @@
   {
     "id": "hot-0005",
     "title": "现代物理学双子星：爱因斯坦与玻尔",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0005.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0005.jpg",
     "participants": ["爱因斯坦", "玻尔", "海森堡", "牛顿", "伽利略"],
     "latestMessage": { "sender": "爱因斯坦", "text": "上帝不掷骰子..." },
     "onlineCount": 421,
@@ -52,7 +52,7 @@
   {
     "id": "hot-0006",
     "title": "中国数学之光：祖冲之、华罗庚与陈景润",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0006.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0006.jpg",
     "participants": ["华罗庚", "陈景润", "钱学森"],
     "latestMessage": { "sender": "华罗庚", "text": "数论之美..." },
     "onlineCount": 98,
@@ -62,7 +62,7 @@
   {
     "id": "hot-0007",
     "title": "IT 五巨头：谁定义了现代计算？",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0007.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0007.jpg",
     "participants": ["史蒂夫·乔布斯", "比尔·盖茨", "拉里·佩奇", "埃隆·马斯克", "马克·扎克伯格", "杰夫·贝佐斯"],
     "latestMessage": { "sender": "史蒂夫·乔布斯", "text": "Stay hungry, stay foolish..." },
     "onlineCount": 612,
@@ -72,7 +72,7 @@
   {
     "id": "hot-0008",
     "title": "中国互联网初代：马云、马化腾与雷军",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0008.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0008.jpg",
     "participants": ["马云", "马化腾", "雷军", "刘强东", "任正非", "丁磊"],
     "latestMessage": { "sender": "雷军", "text": "站在风口上..." },
     "onlineCount": 558,
@@ -82,7 +82,7 @@
   {
     "id": "hot-0009",
     "title": "特斯拉、爱迪生 vs. 交流电之父",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0009.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0009.jpg",
     "participants": ["特斯拉", "爱迪生", "爱因斯坦", "居里夫人"],
     "latestMessage": { "sender": "特斯拉", "text": "交流电终将统治世界..." },
     "onlineCount": 256,
@@ -92,7 +92,7 @@
   {
     "id": "hot-0010",
     "title": "唐诗宋词：诗仙诗圣到豪放词宗",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0010.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0010.jpg",
     "participants": ["李白", "杜甫", "王维", "苏轼", "辛弃疾", "岳飞"],
     "latestMessage": { "sender": "李白", "text": "床前明月光..." },
     "onlineCount": 489,
@@ -102,7 +102,7 @@
   {
     "id": "hot-0011",
     "title": "中国现代文学：鲁迅、巴金与曹禺的觉醒年代",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0011.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0011.jpg",
     "participants": ["林语堂", "巴金", "钱钟书", "沈从文", "曹禺"],
     "latestMessage": { "sender": "林语堂", "text": "幽默是智慧的光芒..." },
     "onlineCount": 267,
@@ -112,7 +112,7 @@
   {
     "id": "hot-0012",
     "title": "当代华语文学：莫言与余华谈诺奖时刻",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0012.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0012.jpg",
     "participants": ["莫言", "余华", "刘慈欣", "冰心"],
     "latestMessage": { "sender": "莫言", "text": "小说家应该说出心里话..." },
     "onlineCount": 198,
@@ -122,7 +122,7 @@
   {
     "id": "hot-0013",
     "title": "百年好莱坞：玛丽莲·梦露、奥黛丽·赫本",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0013.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0013.jpg",
     "participants": ["玛丽莲·梦露", "奥黛丽·赫本", "卓别林", "宫崎骏", "周星驰"],
     "latestMessage": { "sender": "卓别林", "text": "人生近看是悲剧..." },
     "onlineCount": 351,
@@ -132,7 +132,7 @@
   {
     "id": "hot-0014",
     "title": "音乐巨星：贝多芬、莫扎特与肖邦",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0014.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0014.jpg",
     "participants": ["贝多芬", "莫扎特", "巴赫", "肖邦", "披头士·列侬"],
     "latestMessage": { "sender": "贝多芬", "text": "我要扼住命运的咽喉..." },
     "onlineCount": 178,
@@ -142,7 +142,7 @@
   {
     "id": "hot-0015",
     "title": "艺术三杰：达·芬奇、米开朗基罗与拉斐尔",
-    "cover": "/api/upload/avatars/hot-rooms/room-hot-0015.jpg",
+    "cover": "/uploads/avatars/hot-rooms/room-hot-0015.jpg",
     "participants": ["达·芬奇", "米开朗基罗", "拉斐尔", "梵高", "毕加索"],
     "latestMessage": { "sender": "达·芬奇", "text": "艺术是不朽的..." },
     "onlineCount": 412,

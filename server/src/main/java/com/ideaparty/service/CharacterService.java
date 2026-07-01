@@ -165,10 +165,10 @@ public class CharacterService {
      * 检测 avatarUrl 是否指向外网（http/https），是则下载到本地 uploads/avatars/ 并改写成本地路径。
      *
      * <p>用于 create / update 角色时自动把"维基百科 / 用户粘贴的 URL" 落本地，避免后续
-     * 渲染头像每次都打外网（且国内访问维基常超时）。本地路径形如 {@code /api/upload/avatars/auto_<hash>.<ext>}。
+     * 渲染头像每次都打外网（且国内访问维基常超时）。本地路径形如 {@code /uploads/avatars/auto_<hash>.<ext>}。
      *
      * <p>行为契约：
-     *   - 入参为 null / 空 / 已是本地 {@code /api/...} → 原样返回；
+     *   - 入参为 null / 空 / 已是本地 {@code /uploads/...} 或 {@code /api/...} → 原样返回；
      *   - 下载失败 → 静默保留原 URL，不阻塞角色创建（与 prompt 生成失败降级策略一致）。
      *
      * @param avatarUrl 前端传入的 avatarUrl（可能是外网或本地）
@@ -176,8 +176,8 @@ public class CharacterService {
      */
     private String downloadAvatarIfExternal(String avatarUrl) {
         if (avatarUrl == null || avatarUrl.isBlank()) return avatarUrl;
-        // 已经是本地路径就不用处理
-        if (avatarUrl.startsWith("/api/")) return avatarUrl;
+        // 已经是本地路径就不用处理(兼容历史 /api/ 路径上的脏数据)
+        if (avatarUrl.startsWith("/uploads/") || avatarUrl.startsWith("/api/")) return avatarUrl;
         // 只处理 http/https 外网
         if (!avatarUrl.startsWith("http://") && !avatarUrl.startsWith("https://")) return avatarUrl;
         String stored = fileStorageService.storeFromUrl(avatarUrl);
@@ -185,7 +185,7 @@ public class CharacterService {
             log.warn("[DEBUG] downloadAvatarIfExternal failed to download, keeping original URL: {}", avatarUrl);
             return avatarUrl;
         }
-        return "/api/upload/avatars/" + stored;
+        return "/uploads/avatars/" + stored;
     }
 
     /**

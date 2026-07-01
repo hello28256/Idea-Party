@@ -417,9 +417,9 @@ docker compose logs -f
 
 | 路径 | Nginx 磁盘 | 浏览器 | 命中收益 |
 |------|-----------|--------|----------|
-| `/api/upload/avatars/scenarios/*` | **30 天** | 1 天 | 22 张场景封面,~50KB/张,~1MB 总量 |
-| `/api/upload/avatars/presets/*` | **30 天** | 1 天 | 预设角色头像,~30MB |
-| `/api/upload/avatars/hot-rooms/*` | **30 天** | 1 天 | 热门聊天室封面 |
+| `/uploads/avatars/scenarios/*` | **30 天** | 1 天 | 22 张场景封面,~50KB/张,~1MB 总量 |
+| `/uploads/avatars/presets/*` | **30 天** | 1 天 | 预设角色头像,~30MB |
+| `/uploads/avatars/hot-rooms/*` | **30 天** | 1 天 | 热门聊天室封面 |
 | `/api/characters/presets` | 5 分钟 | 跟随上游 | 角色元数据 |
 | `/api/characters/recommended` | 5 分钟 | 跟随上游 | 按分类推荐角色 |
 | `/uploads/*` | 7 天 | 1 天 | 用户上传头像 |
@@ -430,7 +430,7 @@ docker compose logs -f
 
 ```bash
 # 第一次:MISS,第二次:HIT
-curl -I https://ideaparty.example.com/api/upload/avatars/scenarios/scn-interview-coach.jpg
+curl -I https://ideaparty.example.com/uploads/avatars/scenarios/scn-interview-coach.jpg
 # 看 X-Cache-Status 响应头
 ```
 
