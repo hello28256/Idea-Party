@@ -684,13 +684,15 @@ def action_upload_brand(*, dry_run: bool = False) -> None:
         auth = oss2.Auth(os.environ['ALIYUN_STS_ACCESS_KEY_ID'], os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'])
         bucket = oss2.Bucket(auth, os.environ['ALIYUN_OSS_ENDPOINT'], os.environ['ALIYUN_OSS_BUCKET'])
         src = Path('server/uploads/avatars/brand')
-        prefix = os.environ['ALIYUN_OSS_KEY_PREFIX']
+        # 关键:brand 的 key 前缀是 uploads/avatars/brand/ (与 hot-rooms/presets 平级),
+        # ALIYUN_OSS_KEY_PREFIX 只是 uploads/ 顶层前缀,src 子目录需要自己拼上。
+        # 否则会把文件传到 uploads/image.png 而不是 uploads/avatars/brand/image.png。
         files = sorted([p for p in src.rglob('*') if p.is_file()])
         print(f'[brand] {len(files)} files to upload')
         ok = fail = 0
         for p in files:
             try:
-                key = f'{prefix}{p.relative_to(src).as_posix()}'
+                key = f'uploads/avatars/brand/{p.relative_to(src).as_posix()}'
                 bucket.put_object_from_file(key, str(p))
                 print(f'  [OK] {p.relative_to(src)}')
                 ok += 1
