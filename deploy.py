@@ -374,6 +374,60 @@ def action_shell(service: str) -> None:
     run(cmd)
 
 
+def action_aliyun_test(*, head_bytes: int = 300) -> None:
+    """在服务器上跑一次 STS AssumeRole,输出前 N 字节。
+
+    用于烟测 RAM 角色配置是否正确(用户绑了 AliyunSTSAssumeRoleAccess、
+    角色绑了 ideaparty-oss-put-only、信任策略指向当前云账号)。
+    截断输出避免意外把 STS 临时 AccessKeySecret 复制到 chat。
+
+    退出码:
+      0 = AssumeRole 拿到有效 Credentials
+      非 0 = aliyun CLI 没装、AK 没配、权限链断了
+    """
+    role_arn = os.environ.get("ALIYUN_STS_ROLE_ARN", "").strip()
+    if not role_arn:
+        die(
+            "ALIYUN_STS_ROLE_ARN 未设置。\n"
+            "在 .env.deploy 里 export 一下,例如:\n"
+            "  export ALIYUN_STS_ROLE_ARN=acs:ram::1076616112331319:role/idea-party-uploader"
+        )
+
+    # 服务器上跑 aliyun sts AssumeRole, 串 head -c 截断
+    # head -c 在 aliyun CLI 没装时也能定位错误(返回 No such file)
+    remote_cmd = (
+        f"aliyun sts AssumeRole "
+        f"--RoleArn {shlex.quote(role_arn)} "
+        f"--RoleSessionName {shlex.quote('ideaparty-smoke-test')} "
+        f"2>&1 | head -c {head_bytes}"
+    )
+    log(f"== 烟测 STS AssumeRole ==\nrole: {role_arn}\n截断输出 (前 {head_bytes} 字节):")
+    try:
+        result = ssh_cmd(remote_cmd, capture=True, check=False)
+    except Exception as e:
+        die(f"SSH 执行失败: {e}")
+
+    print(result.stdout or "(空输出)")
+
+    # 成功标志: 输出含 "Credentials" 子串
+    if "Credentials" in (result.stdout or ""):
+        log("✅ AssumeRole 返回有效 Credentials,RAM 链路通")
+    elif "does not exist" in (result.stdout or ""):
+        log("❌ 角色不存在或 ARN 拼错。检查 RAM 控制台角色名 / ARN 格式 (结尾应是 :role/...)")
+    elif "does not have permission" in (result.stdout or ""):
+        log("❌ RAM 用户没绑 AliyunSTSAssumeRoleAccess 策略,或 AK 配错")
+    elif "trust policy" in (result.stdout or ""):
+        log("❌ 角色信任策略没指向当前云账号。RAM 角色 → 信任策略 tab 修改")
+    elif "command not found" in (result.stdout or "") or result.returncode == 127:
+        log("❌ 服务器没装 aliyun CLI。SSH 进去装:\n"
+            "  curl -O https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz\n"
+            "  tar xzf aliyun-cli-linux-latest-amd64.tgz\n"
+            "  sudo cp aliyun /usr/local/bin/\n"
+            "  aliyun configure  # 填 AK + Region cn-shenzhen")
+    else:
+        log(f"❓ 未识别结果,returncode={result.returncode}。把上面输出贴给 Claude")
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -389,6 +443,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--logs", nargs="?", const="", metavar="SERVICE", help="tail 日志，可指定服务名")
     p.add_argument("--restart", metavar="SERVICE", help="重启指定服务")
     p.add_argument("--shell", metavar="SERVICE", help="进入容器 shell")
+    p.add_argument("--aliyun-test", action="store_true",
+                   help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节")
     p.add_argument("--dry-run", action="store_true", help="只打印要执行的命令，不真正执行")
     return p.parse_args()
 
@@ -418,6 +474,8 @@ def main() -> None:
             action_restart(args.restart)
         elif args.shell:
             action_shell(args.shell)
+        elif args.aliyun_test:
+            action_aliyun_test()
         else:
             action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
     except subprocess.CalledProcessError as e:
