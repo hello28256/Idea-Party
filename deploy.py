@@ -382,13 +382,14 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> Non
     else:
         log("[uploads] skipped via --skip-uploads")
 
-    log("=== Step 1.6/4: upload brand to OSS ===")
-    # 仅 2 张品牌图,几秒传完。失败 warn 但不阻断 deploy
-    # (后端代码不再读 OSS brand 路径,前端通过 BRAND_LOGO 常量引用)。
+    log("=== Step 1.6/4: upload uploads to OSS ===")
+    # 把所有子目录(presets/presets-webp/hot-rooms/scenarios/brand)推到 OSS。
+    # 全量 PutObject 覆盖(没 ListObject 权限做不了差量同步)。
+    # 失败 warn 但不阻断 deploy。
     try:
-        action_upload_brand()
+        action_upload_uploads()
     except SystemExit:
-        log("⚠️  brand 上传失败,跳过 (deploy 主流程继续)")
+        log("⚠️  uploads 上传失败,跳过 (deploy 主流程继续)")
 
     if sync_only:
         log("sync-only 模式，跳过构建和重启")
@@ -644,21 +645,21 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     ssh_cmd(cmd, forward_env=forward_envs)
 
 
-def action_upload_brand(*, dry_run: bool = False) -> None:
-    """把 server/uploads/avatars/brand/ 下的小批量文件推到 OSS uploads/avatars/brand/。
+def action_upload_uploads(*, dry_run: bool = False) -> None:
+    """把 server/uploads/avatars/ 下所有 DEPLOY_UPLOADS_SUBDIRS 子目录推到 OSS。
 
-    比 --migrate-oss 轻很多(只传 2 张品牌图,而 migrate 会传 600+ 张 preset),
-    设计目标:每次 deploy 顺带把 brand 同步到 OSS,无需手动操作。
+    每个子目录的 key 路径: uploads/avatars/<sub>/<filename>,与 OSS 桶结构对齐。
+    全量上传(不查 OSS 现状): RAM 用户没 ListObject 权限,无法做"差量同步",
+    所以 deploy 每次都全量 PutObject 覆盖。preset/hot-rooms 几百张图约 1-2 分钟,
+    失败 warn 但不阻断 deploy(后端代码不再读 OSS 头像,前端直连 OSS)。
 
-    实现: 内联 oss2 put_object_from_file 而非调 migrate_uploads_to_oss.py。
-    原因: migrate 脚本会先调 ObjectIterator(bucket, prefix=...) 探查 OSS 现状,
-    但这个 RAM 用户没有 ListObject 权限,探查时直接抛 AccessDenied 导致脚本
-    退出,不会进入 put 流程 — 而我们这里 PutObject 是有权限的。
-    内联实现直接跳过 ListObject,只做 PutObject。
+    不调 migrate_uploads_to_oss.py 是因为它会先 ListObject 探查,而这个 RAM 用户
+    没有 ListObject 权限(AccessDenied)。内联实现直接 PutObject,跳过 ListObject。
 
     依赖: 服务器装了 oss2(.env.production 已配)。
     """
-    log(f"== 上传 server/uploads/avatars/brand/ → 阿里云 OSS uploads/avatars/brand/ ==")
+    subdirs = list(DEPLOY_UPLOADS_SUBDIRS)
+    log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS ==")
     if dry_run:
         log("[DRY-RUN] 只列计划,不会真正上传")
     forward_envs = (
@@ -675,39 +676,53 @@ def action_upload_brand(*, dry_run: bool = False) -> None:
         log("  export $(grep ALIYUN_ .env.production | xargs)")
         die("Aborted")
 
-    # 内联 Python:遍历 brand 目录所有文件,直接 put_object_from_file 上传。
-    # 任何在 server/uploads/avatars/brand/ 下的新文件下次 deploy 都会自动同步。
-    # 用 heredoc 把 Python 脚本推到 stdin 避开 ssh bash -c 字符串转义噩梦。
+    # 关键: OSS key 路径固定 uploads/avatars/<sub>/<filename>,
+    # ALIYUN_OSS_KEY_PREFIX (="uploads/") 不能直接用,因为会拼成 uploads/<rel>,
+    # 漏掉 avatars/ 这一段。
+    # 用普通字符串而不是 f-string,避免在生成时就把 {sub}/{rel} 当成 f-string 变量求值
+    # (外层 f-string 看不到 inner Python 变量,会导致 NameError)。
+    # subdirs 列表用 repr() 安全注入到生成的 Python 脚本里。
+    subdirs_repr = repr(subdirs)
     inline_py = textwrap.dedent("""\
-        import os, oss2
+        import os, oss2, time
         from pathlib import Path
         auth = oss2.Auth(os.environ['ALIYUN_STS_ACCESS_KEY_ID'], os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'])
         bucket = oss2.Bucket(auth, os.environ['ALIYUN_OSS_ENDPOINT'], os.environ['ALIYUN_OSS_BUCKET'])
-        src = Path('server/uploads/avatars/brand')
-        # 关键:brand 的 key 前缀是 uploads/avatars/brand/ (与 hot-rooms/presets 平级),
-        # ALIYUN_OSS_KEY_PREFIX 只是 uploads/ 顶层前缀,src 子目录需要自己拼上。
-        # 否则会把文件传到 uploads/image.png 而不是 uploads/avatars/brand/image.png。
-        files = sorted([p for p in src.rglob('*') if p.is_file()])
-        print(f'[brand] {len(files)} files to upload')
-        ok = fail = 0
-        for p in files:
-            try:
-                key = f'uploads/avatars/brand/{p.relative_to(src).as_posix()}'
-                bucket.put_object_from_file(key, str(p))
-                print(f'  [OK] {p.relative_to(src)}')
-                ok += 1
-            except Exception as e:
-                print(f'  [FAIL] {p.relative_to(src)}: {type(e).__name__}: {e}')
-                fail += 1
-        print(f'[brand] done: ok={ok} fail={fail}')
-    """)
-    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 cat | python3 执行。
+        subdirs = __SUBDIRS__
+        t0 = time.time()
+        total_ok = total_fail = 0
+        for sub in subdirs:
+            src = Path('server/uploads/avatars') / sub
+            if not src.is_dir():
+                print('[upload] [%s] skip: local dir not exist' % sub)
+                continue
+            files = [p for p in src.rglob('*') if p.is_file()]
+            print('[upload] [%s] %d files' % (sub, len(files)))
+            ok = fail = 0
+            for p in files:
+                try:
+                    rel = p.relative_to(src).as_posix()
+                    key = 'uploads/avatars/%s/%s' % (sub, rel)
+                    bucket.put_object_from_file(key, str(p))
+                    ok += 1
+                    if ok % 50 == 0:
+                        print('[upload] [%s] %d/%d' % (sub, ok, len(files)))
+                except Exception as e:
+                    print('  [FAIL] %s: %s: %s' % (p.relative_to(src), type(e).__name__, e))
+                    fail += 1
+            print('[upload] [%s] done: ok=%d fail=%d' % (sub, ok, fail))
+            total_ok += ok
+            total_fail += fail
+        elapsed = time.time() - t0
+        print('[upload] all done: ok=%d fail=%d in %.1fs' % (total_ok, total_fail, elapsed))
+    """).replace("__SUBDIRS__", subdirs_repr)
+    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 python3 执行。
     # 这样完全避开 bash -c / ssh escape 的复杂引用。
-    local_script = Path(tempfile.mkdtemp(prefix="deploy-brand-")) / "upload_brand.py"
+    local_script = Path(tempfile.mkdtemp(prefix="deploy-upload-")) / "upload_uploads.py"
     local_script.write_text(inline_py, encoding="utf-8")
     remote_script_dir = f"{REMOTE_DIR}/.deploy-staging"
     ssh_cmd(f"mkdir -p {remote_script_dir}")
-    remote_script = f"{remote_script_dir}/upload_brand.py"
+    remote_script = f"{remote_script_dir}/upload_uploads.py"
     run([
         "rsync", "-av",
         "-e", f"ssh -i {os.path.expanduser(SSH_KEY)}",
