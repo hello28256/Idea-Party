@@ -13,6 +13,7 @@
 - **合规**: 不能让 AI 角色声称自己是真人
 - **技术**: 前后端接口必须真实打通，不允许只写 mock
 - **Fallback**: 暂时无法接入 Firecrawl 或 DeepSeek 时，需封装接口并提供 mock fallback
+- **图片存储**: 生产环境图片统一走阿里云 OSS（华南1，桶 `idea-party-uploads`，公共读）。前端拿 STS 临时凭证浏览器直传 OSS，**不再写入 server/uploads 卷**。后端代码里所有 OSS 配置走 `${ALIYUN_*}` 环境变量，**禁止字面量**（含桶名 `idea-party-uploads` 带横杠，不要写成 `ideaparty-uploads`）
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->
