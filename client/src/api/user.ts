@@ -1,5 +1,5 @@
 import { api } from './auth'
-import type { User } from '@/types'
+import { uploadToOss } from '@/utils/ossUploader'
 
 // 用户域 REST 客户端，对接后端 UserController（/user/*）。
 // 职责：当前用户资料读取、头像上传、个人偏好（主题）更新。
@@ -35,16 +35,11 @@ export const getProfile = () =>
  * 让 axios 自动生成 boundary 而非手工拼接，否则后端解析会失败。
  * 调用方：UserProfileView 头像裁剪组件。
  */
-// 头像上传走 multipart/form-data：浏览器侧必须显式声明 Content-Type，
-// 让 axios 自动生成 boundary 而非手工拼接，否则后端解析会失败。
-export const uploadAvatar = (file: File) => {
-  const formData = new FormData()
-  formData.append('file', file)
-  return api.post<{ avatarUrl: string }>('/user/avatar', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+// 头像走 STS 凭证浏览器直传阿里云 OSS,后端零带宽。
+// API 签名保留 { avatarUrl } 兼容 store 调用方。
+export const uploadAvatar = async (file: File) => {
+  const avatarUrl = await uploadToOss(file)
+  return { data: { avatarUrl } } as { data: { avatarUrl: string } }
 }
 
 /**

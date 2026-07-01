@@ -165,13 +165,24 @@ function onRoomMenuOutsideClick(e: MouseEvent) {
 }
 
 // 解析成员头像 URL
-// 后端返回的头像地址已经是可直接使用的相对路径或绝对 URL，
-// 这里保留作为扩展点：如果未来接入 CDN 或外部图床，按前缀规则改写即可。
-// 本地头像（/api/、/uploads/、/ 开头的相对路径）会自动加上 cache-buster 查询串，
-// 绕过 nginx 给 uploads/avatars/ 设的长缓存，避免角色头像更新后浏览器仍显示旧文件。
+// 后端返回的头像地址是相对路径或绝对 URL。
+// - 绝对 URL(http/https):原样返回(已经是 OSS / 外链直链)
+// - 相对路径:拼上 VITE_OSS_BUCKET_DOMAIN,直连 OSS 边缘节点
+// - 加 cache-buster 查询串,绕过 nginx 长缓存,避免角色头像更新后仍显示旧文件
+//
+// 不在 OSS 时代(本地 dev / 部署未生效 VITE_OSS_BUCKET_DOMAIN)时,fallback 走原相对路径,
+// 由 nginx 301 到 OSS,前端无需关心。
+const OSS_BUCKET_DOMAIN = (import.meta.env.VITE_OSS_BUCKET_DOMAIN as string | undefined) || ''
+
 function resolveAvatarUrl(url: string | null | undefined): string {
   if (!url) return ''
   if (url.startsWith('http://') || url.startsWith('https://')) return url
+  // 相对路径:优先拼 OSS,无配置时回退到原路径(nginx 301)
+  if (OSS_BUCKET_DOMAIN) {
+    const path = url.replace(/^\/+/, '')
+    return `${OSS_BUCKET_DOMAIN}/${path}`
+  }
+  // Fallback: 加 cache-buster 走 nginx
   if (url.startsWith('/api/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
   if (url.startsWith('/uploads/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
   if (url.startsWith('/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`

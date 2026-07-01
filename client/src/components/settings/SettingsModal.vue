@@ -10,6 +10,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
 import { changePassword } from '@/api/auth'
 import { evaluatePassword } from '@/composables/usePasswordStrength'
+import { resolveImageUrl } from '@/utils/avatarUrl'
 
 // TabKey: 强类型约束，避免与 store / 模板里的字符串拼接散落。
 type TabKey = 'account' | 'preferences' | 'ai' | 'advanced' | 'privacy' | 'terms'
@@ -383,7 +384,7 @@ function handleClose() {
                 <div class="avatar-section">
                   <div class="avatar-wrapper">
                     <img
-                      :src="avatarPreview || accountForm.avatarUrl || '/image.png'"
+                      :src="avatarPreview || resolveImageUrl(accountForm.avatarUrl) || '/image.png'"
                       alt="Avatar"
                       class="avatar-img"
                     />

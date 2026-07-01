@@ -1,4 +1,5 @@
 import { api } from './auth'
+import { uploadToOss } from '@/utils/ossUploader'
 import type { Character, CharacterRequest } from '@/types'
 
 /**
@@ -120,16 +121,12 @@ export const charactersApi = {
 
   /**
    * 上传角色头像，返回资源 URL。
-   * HTTP POST /upload/avatar（multipart/form-data）。
-   * 头像走独立 /upload 路由而非 /characters，返回 OSS/静态资源 URL 而不是 Character 实体；
-   * 必须显式声明 multipart 头：axios 默认会把 FormData 序列化成 application/json，导致文件丢失。
-   * 调用方：CreateCharacterModal / EditCharacterModal 的头像裁剪组件。
+   * 浏览器走 STS 临时凭证直传阿里云 OSS,后端零带宽。
+   * 走 STS 拿凭证 → oss.put → 返回完整 URL,API 签名不变({ url })。
+   * 调用方:CreateCharacterModal / EditCharacterModal 的头像裁剪组件。
    */
-  uploadAvatar: (file: File) => {
-    const formData = new FormData()
-    formData.append('avatar', file)
-    return api.post<{ url: string }>('/upload/avatar', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+  uploadAvatar: async (file: File) => {
+    const url = await uploadToOss(file)
+    return { data: { url } } as { data: { url: string } }
   }
 }

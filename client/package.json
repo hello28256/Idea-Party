@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "ali-oss": "6.23.0",
     "axios": "1.16.0",
     "esbuild": "^0.28.0",
     "lucide-vue-next": "1.0.0",

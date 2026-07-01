@@ -8,6 +8,7 @@ import MessageBubble from './MessageBubble.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 import type { ChatMessage } from '@/composables/useSocket'
 import type { Character } from '@/types'
+import { resolveImageUrl } from '@/utils/avatarUrl'
 
 const props = defineProps<{
   // 必填：已落库的历史消息列表（store 维护）
@@ -143,7 +144,7 @@ defineExpose({ scrollToBottom })
             class="empty-avatar-item"
           >
             <img
-              :src="char.avatarUrl || '/image.png'"
+              :src="resolveImageUrl(char.avatarUrl) || '/image.png'"
               :alt="char.name"
               class="empty-avatar"
             />

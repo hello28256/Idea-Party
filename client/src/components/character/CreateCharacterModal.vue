@@ -13,6 +13,7 @@ import type { CharacterReferences } from '@/api/characters'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import CascadeDeleteDialog from './CascadeDeleteDialog.vue'
 import { useToast } from '@/composables/useToast'
+import { resolveImageUrl } from '@/utils/avatarUrl'
 
 // Props：show 控制显隐；mode 决定新建还是编辑；context 决定标题文案、是否出现 Tab、回调事件名。
 // 在 room 上下文下从角色库选角色时复用同一组件，通过 addedToRoom 事件把已有角色交给父页面挂入聊天室。
@@ -600,7 +601,7 @@ async function handleAvatarFileChange(event: Event) {
                   class="library-character-card"
                   @click="handleSelectFromLibrary(char)"
                 >
-                  <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" class="library-char-avatar" />
+                  <img v-if="char.avatarUrl" :src="resolveImageUrl(char.avatarUrl)" :alt="char.name" class="library-char-avatar" />
                   <div v-else class="library-char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
                   <div class="library-char-info">
                     <strong>{{ char.name }}</strong>
