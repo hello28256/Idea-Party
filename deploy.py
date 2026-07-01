@@ -386,11 +386,21 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     依赖: 服务器装了 oss2(pip3 install --user oss2),环境变量从服务器
           .env.production 读(aliyun.oss.* 和 aliyun.sts.*)。
     """
+    # 先探测 pip,没有就 sudo apt install(Ubuntu 22.04 最小化没装 pip)
+    # sudo 可能要密码,装失败就让用户手动装并给清晰指引
     cmd = (
         f"cd {REMOTE_DIR} && "
-        # 用 python3 -m pip 而不是 pip3,避免 "pip3: command not found"
-        # PEP 668 兼容:Ubuntu 22.04+ 默认禁 pip 装到系统环境,加 --break-system-packages
-        # 装到 --user 不污染系统,只影响 ubuntu 用户自己
+        f"if ! python3 -c 'import pip' 2>/dev/null; then "
+        # 没 pip: 装一次。non-interactive 是为了避免 sudo 密码提示卡 deploy
+        # 如果 sudo 需要密码,这里会失败,看下面错误处理
+        f"  (sudo -n apt-get install -y python3-pip 2>&1 || "
+        f"   {{ echo '❌ 服务器没装 pip,且 sudo 免密失败。请 SSH 服务器手动跑:'; "
+        f"     echo '   sudo apt install -y python3-pip'; "
+        f"     echo '   然后再跑: python3 deploy.py --migrate-oss'; exit 1; }}) "
+        f"  | tail -5; "
+        f"fi && "
+        # 用 python3 -m pip,装到 --user 避免污染系统
+        # --break-system-packages 绕过 PEP 668
         f"python3 -m pip install --user --break-system-packages --quiet oss2 2>&1 | tail -3; "
         f"python3 server/scripts/migrate_uploads_to_oss.py"
         f"{' --dry-run' if dry_run else ''}"
