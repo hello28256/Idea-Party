@@ -22,6 +22,7 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
@@ -311,9 +312,12 @@ def action_sync_uploads() -> None:
         log("[uploads] dry-run: skipping verification")
         return
 
+    # check=False: server 容器还没起来时 docker exec 会返回非 0,这里不能让 deploy 炸。
+    # 下面的 if/elif 三段逻辑区分"No such container"(warn) / count < threshold(die) / OK
     probe = ssh_cmd(
         "docker exec idea-server sh -c 'ls /app/uploads/avatars/presets 2>/dev/null | wc -l'",
         capture=True,
+        check=False,
     )
     try:
         actual = int((probe.stdout or "0").strip())
@@ -333,7 +337,13 @@ def action_sync_uploads() -> None:
 
 
 def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> None:
-    """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。"""
+    """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。
+
+    注意:.env.production 不在 deploy 流程里同步。
+    服务器的 .env.production 是手维护的（deploy.py RSYNC_EXCLUDES 排除了）。
+    本地改了 .env.production 之后,scp 推过去:
+      scp .env.production tenxunyun:/opt/ideaparty/.env.production
+    """
     log("=== Step 0/4: ensure remote dir ===")
     ensure_remote_dir()
 
@@ -350,16 +360,171 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> Non
         log("sync-only 模式，跳过构建和重启")
         return
 
+    log("=== Step 1.75/4: verify OSS preset count (defensive) ===")
+    _check_oss_preset_count()
+
     log("=== Step 2/4: docker compose build ===")
-    # 默认用 Docker BuildKit 缓存层(快,~30s);漏判场景下用户手动 docker compose build --no-cache 重建。
-    # 不要在这里默认加 --no-cache:会拖慢日常部署(只改 .env / 文档时白白多花 1 分钟)。
-    ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} build")
+    # 强制 BuildKit + plain 进度 — 默认 BuildKit 也能跑,但 -q 模式把进度压成单行
+    # 让"卡 maven go-offline"这种事完全看不出在跑(见 issue: deploy 卡 go-offline)。
+    # 走 BuildKit 后台 cache + plain 进度条,build 卡哪一层/哪一行立刻可见。
+    build_cmd = (
+        f"export DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=plain && "
+        f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} build"
+    )
+    ssh_cmd(build_cmd)
 
     log("=== Step 3/4: docker compose up -d ===")
     ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} up -d")
 
+    log("=== Step 3.5/4: wait for all services healthy ===")
+    _wait_for_healthy()
+
     log("=== Status check ===")
     ssh_cmd(f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} ps")
+
+
+def _check_oss_preset_count() -> None:
+    """OSS 上 presets/ 数量低于阈值就 die,让用户跑 --migrate-oss。
+
+    之前的 bug:本地 server/uploads/avatars/presets/ 有 600+ 张图,但 OSS 上 uploads/
+    avatars/presets/ 是 0,deploy 完后客户端图片全 404(看 character library 出现字母
+    头像)。原因是 .env.production 漏配 ALIYUN_* 变量,migrate-oss 没法跑。
+
+    这个检查在 deploy 主流程里做兜底:即使 .env.production 配错了,deploy 时
+    也能提醒运维"OSS 上图不全,先跑 --migrate-oss"。
+
+    退出码:
+      0  = OSS 上图数 >= 阈值,继续 deploy
+      非 0 = 阻断 deploy,提示跑 --migrate-oss
+
+    跳过方式:DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py
+    """
+    if os.environ.get("DEPLOY_SKIP_OSS_CHECK") == "1":
+        log("[oss-check] skipped via DEPLOY_SKIP_OSS_CHECK=1")
+        return
+
+    # 阈值:本地至少有 ~600 张 presets,OSS 至少要有 500 才算 OK。
+    # 留 buffer 是为了"已迁移到 OSS 但本地新加几张图"的常见场景不报警。
+    threshold = int(os.environ.get("DEPLOY_OSS_MIN_PRESETS", "500"))
+    bucket = os.environ.get("ALIYUN_OSS_BUCKET", "idea-party-uploads")
+    # aliyun CLI 的 --region 只接受 RegionId (cn-shenzhen),不接受 oss-cn-shenzhen
+    region = os.environ.get("ALIYUN_OSS_REGION", "oss-cn-shenzhen")
+    if region.startswith("oss-"):
+        region = region[len("oss-"):]
+
+    # 先测 aliyun CLI 是否装了(没装就 warn+skip,不阻断 deploy)
+    cli_check = ssh_cmd("command -v aliyun >/dev/null 2>&1 && echo OK || echo MISSING", capture=True, check=False)
+    if "OK" not in (cli_check.stdout or ""):
+        log("⚠️  服务器没装 aliyun CLI,跳过 OSS 预设图检查。装: ssh tenxunyun '... install ...'")
+        return
+
+    cmd = (
+        f"export ALIYUN_PROFILE=default && "
+        f"COUNT=$(aliyun oss ls oss://{bucket}/uploads/avatars/presets/ "
+        f"  --region {region} 2>/dev/null | wc -l) && "
+        f"echo \"oss_preset_count=$COUNT threshold=$threshold\" && "
+        f"if [ \"$COUNT\" -lt \"$threshold\" ]; then "
+        f"  echo \"❌ OSS 上 presets 数量 $COUNT < $threshold,部署后会全 404。\" >&2; "
+        f"  echo \"   解决: python3 deploy.py --migrate-oss\" >&2; "
+        f"  echo \"   跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py\" >&2; "
+        f"  exit 1; "
+        f"fi"
+    )
+    proc = ssh_cmd(cmd, check=False)
+    if proc.returncode != 0:
+        die(
+            "OSS 上 presets 数量不足,deploy 已阻断(避免上线后客户端图片全 404)。\n"
+            "  解决: python3 deploy.py --migrate-oss\n"
+            "  跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py"
+        )
+
+
+def _scp_env_production() -> None:
+    """把本地 .env.production 推到服务器(覆盖式,不带备份)。
+
+    由 --sync-env 显式调用;deploy 主流程不再自动做这件事。
+
+    安全考虑:
+      - 本地有 .env.production 才推;本地没有就 warn 但不阻断
+      - scp 失败会真 die:避免用错误 env 启动容器(server 容器连不上 MySQL 就崩)
+    """
+    local_env = Path.cwd() / ".env.production"
+    if not local_env.exists():
+        log(f"⚠️  本地 {local_env} 不存在,跳过。服务器端的 .env.production 保持不变。")
+        return
+    ssh_path = os.path.expanduser(SSH_KEY)
+    log(f"scp .env.production → {SSH_TARGET}:{REMOTE_DIR}/.env.production")
+    proc = run([
+        "scp", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+        str(local_env), f"{SSH_TARGET}:{REMOTE_DIR}/.env.production",
+    ], check=False, capture=True)
+    if proc.returncode != 0:
+        log(f"❌ scp 失败 (exit {proc.returncode})")
+        if proc.stderr:
+            log(f"   stderr: {proc.stderr.strip()}")
+        log(f"   stdout: {(proc.stdout or '').strip()}")
+        die("env 同步失败,deploy 中断(避免用错误 env 启动容器)")
+
+
+def action_sync_env() -> None:
+    """显式把本地 .env.production 推到服务器(覆盖式,不带备份)。
+
+    deploy 主流程不会自动做这件事(防止本地错配覆盖服务器正常工作状态)。
+    你改完本地 .env.production 之后,显式跑这条:
+      python3 deploy.py --sync-env
+    然后重启 server 让 env 生效:
+      python3 deploy.py --restart server
+    """
+    _scp_env_production()
+    log("✅ 同步完成。容器还没重启,要重启请跑: python3 deploy.py --restart server")
+
+
+def _wait_for_healthy(timeout: int = 180) -> None:
+    """等所有容器 healthy,up -d 后立即返回 200,healthcheck 还要再等几十秒。
+
+    用 docker compose ps --format json 解析 status,3s 轮询一次,直到全部 healthy
+    或超时。如果超时,打印 unhealthy 的容器,提示用户。
+    """
+    log(f"等待容器 healthy (timeout={timeout}s) ...")
+    deadline = time.time() + timeout
+    expected = None
+    while time.time() < deadline:
+        # --format json 拿所有服务的 health 状态
+        proc = ssh_cmd(
+            f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} ps --format json",
+            capture=True, check=False,
+        )
+        if proc.returncode != 0 or not proc.stdout:
+            time.sleep(3)
+            continue
+        # 解析:每行一个 JSON。docker compose ps --format json 给的是 JSON Lines
+        rows = []
+        for line in proc.stdout.strip().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        if expected is None:
+            expected = [r["Name"] for r in rows]
+        # 健康判定:Health 字段是 "healthy" / "unhealthy" / "" / "starting"
+        by_name = {r["Name"]: (r.get("Health") or "").lower() for r in rows}
+        all_ok = all(
+            v in ("healthy", "")  # 没 healthcheck 的服务当作 healthy
+            for v in by_name.values()
+        )
+        if all_ok and len(by_name) == len(expected):
+            log(f"✅ 全部 {len(expected)} 个容器 healthy")
+            return
+        # 报告还在等的
+        waiting = [n for n, h in by_name.items() if h not in ("healthy", "")]
+        if waiting:
+            log(f"   等待 healthy: {', '.join(waiting)}")
+        time.sleep(3)
+    log(f"⚠️  超时 {timeout}s,部分容器仍非 healthy:")
+    ssh_cmd(
+        f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} ps",
+        check=False,
+    )
 
 
 def action_status() -> None:
@@ -517,6 +682,8 @@ def parse_args() -> argparse.Namespace:
                    help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节")
     p.add_argument("--migrate-oss", action="store_true",
                    help="把 server/uploads/avatars/ 推到阿里云 OSS 桶(一次性,见 server/scripts/migrate_uploads_to_oss.py)")
+    p.add_argument("--sync-env", action="store_true",
+                   help="显式把本地 .env.production 推到服务器(覆盖式,deploy 主流程不再自动做,改完 env 后跑这条)")
     p.add_argument("--dry-run", action="store_true", help="只打印要执行的命令，不真正执行")
     return p.parse_args()
 
@@ -550,6 +717,8 @@ def main() -> None:
             action_aliyun_test()
         elif args.migrate_oss:
             action_migrate_oss(dry_run=args.dry_run)
+        elif args.sync_env:
+            action_sync_env()
         else:
             action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads)
     except subprocess.CalledProcessError as e:
