@@ -22,15 +22,21 @@ server/target/
 server/*.jar
 server/HELP.md
 server/logs/
-server/uploads/avatars/*
+# 运行时卷目录:默认忽略整个 avatars/* 但保留已知的"权威源"子目录
+# (presets / hot-rooms / scenarios / brand),让 deploy.py 能 rsync 这些目录。
+# 用 !avatars/<sub>/ 和 !avatars/<sub>/* 两行:第一行让 git 看到目录本身,第二行恢复内部文件。
+server/uploads/avatars/**
 !server/uploads/avatars/presets/
-!server/uploads/avatars/presets/*
+!server/uploads/avatars/presets/**
+!server/uploads/avatars/presets/CREDITS.md
 !server/uploads/avatars/hot-rooms/
-!server/uploads/avatars/hot-rooms/*
+!server/uploads/avatars/hot-rooms/**
 !server/uploads/avatars/hot-rooms/CREDITS.md
 !server/uploads/avatars/scenarios/
-!server/uploads/avatars/scenarios/*
+!server/uploads/avatars/scenarios/**
 !server/uploads/avatars/scenarios/CREDITS.md
+!server/uploads/avatars/brand/
+!server/uploads/avatars/brand/**
 # 上面 3 行针对运行时卷目录,源码目录下的场景图另在底部"场景封面目录"段声明
 *.class
 *.war

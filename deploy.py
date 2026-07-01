@@ -87,7 +87,9 @@ DEPLOY_UPLOADS_IMAGE = os.environ.get("DEPLOY_UPLOADS_IMAGE", "alpine:3.19").str
 # 新增子目录时,同步在 .gitignore 加 !server/uploads/avatars/<sub>/ 让 rsync 能带上文件。
 # presets-webp 是由 scripts/generate-preset-webp.sh 预生成的 192x192 WebP 头像,
 # nginx 通过 Accept 头协商命中这里,不再反代 Spring Boot。
-DEPLOY_UPLOADS_SUBDIRS = ("presets", "presets-webp", "hot-rooms", "scenarios")
+# brand 是登录/注册页用的品牌图 (image.png, login-bg.png),
+# 部署后由 deploy.py 同步进 OSS 桶 uploads/brand/ 路径,前端 BRAND_LOGO 常量引用。
+DEPLOY_UPLOADS_SUBDIRS = ("presets", "presets-webp", "hot-rooms", "scenarios", "brand")
 # Minimum preset file count inside container for verification to pass.
 DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "100"))
 
