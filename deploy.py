@@ -28,6 +28,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 from typing import Sequence
@@ -126,6 +127,29 @@ RSYNC_EXCLUDES = [
 # =============================================================================
 # Subprocess helpers — 统一错误处理
 # =============================================================================
+def _load_aliyun_env_from_file(env_file: str = ".env.production") -> None:
+    """从本地 .env.production 加载 ALIYUN_* 变量到 os.environ。
+    仅在变量未设置时填充,避免覆盖用户在 shell 里 export 的值。
+    不支持的语法: 引号包裹 / 多行 / export 前缀(都用 grep -v 简单跳过)。
+    """
+    p = Path(env_file)
+    if not p.is_file():
+        return
+    for raw in p.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key.startswith("ALIYUN_") and key not in os.environ:
+            os.environ[key] = val
+
+
 def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess:
     """执行本地命令。check=True 时失败抛 CalledProcessError。"""
     printable = " ".join(shlex.quote(c) for c in cmd)
@@ -357,6 +381,14 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False) -> Non
         action_sync_uploads()
     else:
         log("[uploads] skipped via --skip-uploads")
+
+    log("=== Step 1.6/4: upload brand to OSS ===")
+    # 仅 2 张品牌图,几秒传完。失败 warn 但不阻断 deploy
+    # (后端代码不再读 OSS brand 路径,前端通过 BRAND_LOGO 常量引用)。
+    try:
+        action_upload_brand()
+    except SystemExit:
+        log("⚠️  brand 上传失败,跳过 (deploy 主流程继续)")
 
     if sync_only:
         log("sync-only 模式，跳过构建和重启")
@@ -602,6 +634,7 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
         "ALIYUN_STS_ACCESS_KEY_ID", "ALIYUN_STS_ACCESS_KEY_SECRET",
         "ALIYUN_STS_ROLE_ARN",
     )
+    _load_aliyun_env_from_file()
     missing = [n for n in forward_envs if not os.environ.get(n)]
     if missing:
         log(f"❌ 本地 shell 缺这些环境变量: {', '.join(missing)}")
@@ -609,6 +642,83 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
         log("  export $(grep ALIYUN_ .env.production | xargs)")
         die("Aborted")
     ssh_cmd(cmd, forward_env=forward_envs)
+
+
+def action_upload_brand(*, dry_run: bool = False) -> None:
+    """把 server/uploads/avatars/brand/ 下的小批量文件推到 OSS uploads/avatars/brand/。
+
+    比 --migrate-oss 轻很多(只传 2 张品牌图,而 migrate 会传 600+ 张 preset),
+    设计目标:每次 deploy 顺带把 brand 同步到 OSS,无需手动操作。
+
+    实现: 内联 oss2 put_object_from_file 而非调 migrate_uploads_to_oss.py。
+    原因: migrate 脚本会先调 ObjectIterator(bucket, prefix=...) 探查 OSS 现状,
+    但这个 RAM 用户没有 ListObject 权限,探查时直接抛 AccessDenied 导致脚本
+    退出,不会进入 put 流程 — 而我们这里 PutObject 是有权限的。
+    内联实现直接跳过 ListObject,只做 PutObject。
+
+    依赖: 服务器装了 oss2(.env.production 已配)。
+    """
+    log(f"== 上传 server/uploads/avatars/brand/ → 阿里云 OSS uploads/avatars/brand/ ==")
+    if dry_run:
+        log("[DRY-RUN] 只列计划,不会真正上传")
+    forward_envs = (
+        "ALIYUN_OSS_ENDPOINT", "ALIYUN_OSS_BUCKET", "ALIYUN_OSS_KEY_PREFIX",
+        "ALIYUN_OSS_BUCKET_DOMAIN",
+        "ALIYUN_STS_ACCESS_KEY_ID", "ALIYUN_STS_ACCESS_KEY_SECRET",
+        "ALIYUN_STS_ROLE_ARN",
+    )
+    _load_aliyun_env_from_file()
+    missing = [n for n in forward_envs if not os.environ.get(n)]
+    if missing:
+        log(f"❌ 本地 shell 缺这些环境变量: {', '.join(missing)}")
+        log("  .env.production 应该 export 这些。也可以临时:")
+        log("  export $(grep ALIYUN_ .env.production | xargs)")
+        die("Aborted")
+
+    # 内联 Python:遍历 brand 目录所有文件,直接 put_object_from_file 上传。
+    # 任何在 server/uploads/avatars/brand/ 下的新文件下次 deploy 都会自动同步。
+    # 用 heredoc 把 Python 脚本推到 stdin 避开 ssh bash -c 字符串转义噩梦。
+    inline_py = textwrap.dedent("""\
+        import os, oss2
+        from pathlib import Path
+        auth = oss2.Auth(os.environ['ALIYUN_STS_ACCESS_KEY_ID'], os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'])
+        bucket = oss2.Bucket(auth, os.environ['ALIYUN_OSS_ENDPOINT'], os.environ['ALIYUN_OSS_BUCKET'])
+        src = Path('server/uploads/avatars/brand')
+        prefix = os.environ['ALIYUN_OSS_KEY_PREFIX']
+        files = sorted([p for p in src.rglob('*') if p.is_file()])
+        print(f'[brand] {len(files)} files to upload')
+        ok = fail = 0
+        for p in files:
+            try:
+                key = f'{prefix}{p.relative_to(src).as_posix()}'
+                bucket.put_object_from_file(key, str(p))
+                print(f'  [OK] {p.relative_to(src)}')
+                ok += 1
+            except Exception as e:
+                print(f'  [FAIL] {p.relative_to(src)}: {type(e).__name__}: {e}')
+                fail += 1
+        print(f'[brand] done: ok={ok} fail={fail}')
+    """)
+    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 cat | python3 执行。
+    # 这样完全避开 bash -c / ssh escape 的复杂引用。
+    local_script = Path(tempfile.mkdtemp(prefix="deploy-brand-")) / "upload_brand.py"
+    local_script.write_text(inline_py, encoding="utf-8")
+    remote_script_dir = f"{REMOTE_DIR}/.deploy-staging"
+    ssh_cmd(f"mkdir -p {remote_script_dir}")
+    remote_script = f"{remote_script_dir}/upload_brand.py"
+    run([
+        "rsync", "-av",
+        "-e", f"ssh -i {os.path.expanduser(SSH_KEY)}",
+        str(local_script), f"{SSH_TARGET}:{remote_script}",
+    ])
+    cmd = f"cd {REMOTE_DIR} && python3 {remote_script}"
+    if dry_run:
+        log(f"[DRY-RUN] 会跑: {cmd}")
+        log(inline_py)
+        return
+    ssh_cmd(cmd, forward_env=forward_envs)
+    # 清理服务器临时文件
+    ssh_cmd(f"rm -f {remote_script}", check=False)
 
 
 def action_aliyun_test(*, head_bytes: int = 300) -> None:
