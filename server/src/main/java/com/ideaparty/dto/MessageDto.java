@@ -1,6 +1,8 @@
 package com.ideaparty.dto;
 
 import com.ideaparty.entity.Message;
+import com.ideaparty.util.ImageUrlResolver;
+
 import java.time.LocalDateTime;
 
 /**
@@ -37,14 +39,44 @@ public class MessageDto {
     public MessageDto() {}
 
     /**
-     * 把持久层 {@link Message} 实体扁平化为前端友好的 DTO。
-     * 关联字段（room/character/user）若为 null 则对应 DTO 字段保持 null，
+     * 把持久层 {@link Message} 实体扁平化为前端友好的 DTO,avatarUrl 过 resolver 拼成完整 OSS URL。
+     * 关联字段(room/character/user)若为 null 则对应 DTO 字段保持 null,
      * 调用方无需再做空值判断即可直接序列化。
      *
-     * @param message 数据库中的消息实体，关联对象可能为 null（如纯用户消息没有 character）
+     * @param message  数据库中的消息实体,关联对象可能为 null(如纯用户消息没有 character)
+     * @param resolver 把 avatarUrl(相对 key)转成完整 OSS URL
      * @return 可直接写入 HTTP 响应或 WebSocket 帧的 DTO
      */
+    public static MessageDto fromEntity(Message message, ImageUrlResolver resolver) {
+        MessageDto dto = new MessageDto();
+        dto.setId(message.getId());
+        dto.setRoomId(message.getRoom().getId().toString());
+        dto.setSenderType(message.getSenderType().name());
+
+        if (message.getCharacter() != null) {
+            dto.setCharacterId(message.getCharacter().getId().toString());
+            dto.setCharacterName(message.getCharacter().getName());
+            dto.setAvatarUrl(resolver.resolve(message.getCharacter().getAvatarUrl()));
+        }
+
+        if (message.getUser() != null) {
+            dto.setUserId(message.getUser().getId().toString());
+        }
+
+        dto.setContent(message.getContent());
+        dto.setCreatedAt(message.getCreatedAt());
+
+        return dto;
+    }
+
+    /**
+     * 兼容旧调用方(无 resolver),内部不转 URL。
+     * 业务代码请改用 {@link #fromEntity(Message, ImageUrlResolver)}。
+     */
+    @Deprecated
     public static MessageDto fromEntity(Message message) {
+        // 兼容老调用方:无 resolver 时 avatarUrl 留 DB 原始值,调用方自行处理。
+        // 新代码请用 fromEntity(Message, ImageUrlResolver)。
         MessageDto dto = new MessageDto();
         dto.setId(message.getId());
         dto.setRoomId(message.getRoom().getId().toString());

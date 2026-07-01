@@ -7,6 +7,7 @@ import com.ideaparty.dto.CharacterSummaryResponse;
 import com.ideaparty.dto.GeneratePromptRequest;
 import com.ideaparty.dto.GeneratePromptResponse;
 import com.ideaparty.service.CharacterService;
+import com.ideaparty.util.ImageUrlResolver;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +32,16 @@ public class CharacterController {
 
     // 业务编排委托给 Service；Controller 只做参数解析、认证注入、状态码映射，保持薄层便于单元测试
     private final CharacterService characterService;
+    // avatarUrl 转完整 OSS URL,响应序列化前统一过这道闸
+    private final ImageUrlResolver imageUrlResolver;
 
     /**
      * Spring 容器注入业务服务。
      * 走构造器注入而非字段注入，便于在测试中手动传入 mock 实现，并保证字段不可变。
      */
-    public CharacterController(CharacterService characterService) {
+    public CharacterController(CharacterService characterService, ImageUrlResolver imageUrlResolver) {
         this.characterService = characterService;
+        this.imageUrlResolver = imageUrlResolver;
     }
 
     /**
@@ -52,7 +56,7 @@ public class CharacterController {
     @GetMapping
     public ResponseEntity<List<CharacterSummaryResponse>> getAllCharacters(Authentication auth) {
         List<CharacterSummaryResponse> characters = characterService.findAll().stream()
-                .map(CharacterSummaryResponse::fromResponse)
+                .map(r -> CharacterSummaryResponse.fromResponse(r).resolveImageUrls(imageUrlResolver))
                 .toList();
         return ResponseEntity.ok(characters);
     }
@@ -67,7 +71,7 @@ public class CharacterController {
     @GetMapping("/presets")
     public ResponseEntity<List<CharacterSummaryResponse>> getPresetCharacters() {
         List<CharacterSummaryResponse> presets = characterService.findPresets().stream()
-                .map(CharacterSummaryResponse::fromResponse)
+                .map(r -> CharacterSummaryResponse.fromResponse(r).resolveImageUrls(imageUrlResolver))
                 .toList();
         // preset 是静态系统数据（V10 之后走内存缓存），响应可由浏览器/网关缓存 5 分钟。
         return ResponseEntity.ok()
@@ -93,7 +97,7 @@ public class CharacterController {
         com.ideaparty.entity.CharacterCategory catEnum =
                 com.ideaparty.entity.CharacterCategory.fromName(category);
         List<CharacterSummaryResponse> recommended = characterService.findRecommendedByCategory(catEnum).stream()
-                .map(CharacterSummaryResponse::fromResponse)
+                .map(r -> CharacterSummaryResponse.fromResponse(r).resolveImageUrls(imageUrlResolver))
                 .toList();
         // 同 /presets：preset 是静态数据，5 分钟浏览器缓存
         return ResponseEntity.ok()
@@ -126,6 +130,7 @@ public class CharacterController {
     @GetMapping("/{id}")
     public ResponseEntity<CharacterResponse> getCharacterById(@PathVariable UUID id) {
         return characterService.findById(id)
+                .map(r -> r.resolveImageUrls(imageUrlResolver))
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -137,7 +142,7 @@ public class CharacterController {
     @PostMapping
     public ResponseEntity<CharacterResponse> createCharacter(Authentication auth, @Valid @RequestBody CharacterRequest request) {
         UUID userId = UUID.fromString(auth.getName());
-        CharacterResponse created = characterService.create(userId, request);
+        CharacterResponse created = characterService.create(userId, request).resolveImageUrls(imageUrlResolver);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -149,6 +154,7 @@ public class CharacterController {
     public ResponseEntity<CharacterResponse> updateCharacter(Authentication auth, @PathVariable UUID id, @Valid @RequestBody CharacterRequest request) {
         UUID userId = UUID.fromString(auth.getName());
         return characterService.update(id, userId, request)
+                .map(r -> r.resolveImageUrls(imageUrlResolver))
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.status(HttpStatus.FORBIDDEN).build());
     }

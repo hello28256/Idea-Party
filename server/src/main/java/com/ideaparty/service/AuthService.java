@@ -7,6 +7,7 @@ import com.ideaparty.dto.RegisterRequest;
 import com.ideaparty.dto.UpdateProfileRequest;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.UserRepository;
+import com.ideaparty.util.ImageUrlResolver;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -47,8 +48,10 @@ public class AuthService {
     private final long jwtExpiration;
     // 线程本地 Random：用于生成重置 token 等一次性随机串；种子取自默认时钟，无需 SecureRandom 的强随机场景
     private final Random random = new Random();
+    // avatarUrl 转完整 OSS URL,响应序列化前统一过这道闸
+    private final ImageUrlResolver imageUrlResolver;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, @Value("${jwt.secret}") String jwtSecret, @Value("${jwt.expiration}") long jwtExpiration, @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, @Value("${jwt.secret}") String jwtSecret, @Value("${jwt.expiration}") long jwtExpiration, @Value("${jwt.secret.min-length:32}") int jwtSecretMinLength, ImageUrlResolver imageUrlResolver) {
         // 在构造期就把字符串 secret 解析为 SecretKey，避免每次签发/校验重复计算
         // 启动期显式校验密钥强度，避免弱密钥 / 默认占位符被部署到生产环境
         validateJwtSecret(jwtSecret, jwtSecretMinLength);
@@ -57,6 +60,7 @@ public class AuthService {
         this.secretKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
         // jwt.expiration 从配置注入（毫秒），便于按环境调整 token 生命周期
         this.jwtExpiration = jwtExpiration;
+        this.imageUrlResolver = imageUrlResolver;
     }
 
     /**
@@ -300,6 +304,7 @@ public class AuthService {
                         .themeMode(user.getThemeMode() != null ? user.getThemeMode() : "system")
                         .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
                         .build())
-                .build();
+                .build()
+                .resolveImageUrls(imageUrlResolver);
     }
 }

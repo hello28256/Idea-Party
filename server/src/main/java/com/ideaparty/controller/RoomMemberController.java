@@ -2,6 +2,7 @@ package com.ideaparty.controller;
 
 import com.ideaparty.dto.RoomMemberResponse;
 import com.ideaparty.service.RoomMemberService;
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,6 +24,8 @@ public class RoomMemberController {
 
     // 业务实现委托给 service 层：controller 只做参数解析、权限校验与响应装配，保持薄控制器风格。
     private final RoomMemberService roomMemberService;
+    // 把 avatarUrl(相对 key)统一转成完整 OSS URL,响应序列化前在 DTO 构造时一并完成。
+    private final ImageUrlResolver imageUrlResolver;
 
     /**
      * 查询指定聊天室的成员列表。
@@ -44,7 +47,7 @@ public class RoomMemberController {
         }
         // 用 DTO 构造而非直接返回实体，隔离持久化模型与 API 契约，防止内部字段意外泄露。
         List<RoomMemberResponse> members = roomMemberService.getRoomMembers(roomId).stream()
-                .map(RoomMemberResponse::new)
+                .map(m -> new RoomMemberResponse(m, imageUrlResolver))
                 .toList();
         return ResponseEntity.ok(members);
     }
@@ -64,7 +67,7 @@ public class RoomMemberController {
         try {
             // 由 service 校验邀请权限（房间所有者/已存在成员）与角色有效性，集中处理避免规则散落。
             var member = roomMemberService.inviteMember(roomId, inviterId, request.keyword());
-            return ResponseEntity.ok(new RoomMemberResponse(member));
+            return ResponseEntity.ok(new RoomMemberResponse(member, imageUrlResolver));
         } catch (IllegalArgumentException e) {
             // service 用 IllegalArgumentException 表达"业务校验失败"语义；统一映射为 400 + 中文 message。
             return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage()));

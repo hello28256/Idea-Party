@@ -3,9 +3,11 @@ package com.ideaparty.cache;
 import com.ideaparty.dto.CharacterResponse;
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.CharacterCategory;
+import com.ideaparty.util.ImageUrlResolver;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -39,6 +41,7 @@ import java.util.stream.Collectors;
  * 没有失效语义需要维护。冷启动 + 单例 map 已经是这个场景的最简实现。
  */
 @Component
+@RequiredArgsConstructor
 public class PresetCharacterCache {
 
     private static final Logger log = LoggerFactory.getLogger(PresetCharacterCache.class);
@@ -50,6 +53,8 @@ public class PresetCharacterCache {
     private volatile List<CharacterResponse> sortedByName = List.of();
 
     private final ObjectMapper mapper = new ObjectMapper();
+    // 把 preset 头像(相对 key 或外网)统一转成完整 OSS URL,装载时一次性 resolve。
+    private final ImageUrlResolver imageUrlResolver;
 
     @PostConstruct
     public void init() {
@@ -102,7 +107,7 @@ public class PresetCharacterCache {
                 }
                 c.setCategories(parsed);
             }
-            CharacterResponse resp = CharacterResponse.fromEntity(c);
+            CharacterResponse resp = CharacterResponse.fromEntity(c).resolveImageUrls(imageUrlResolver);
             newById.put(id, resp);
             temp.add(resp);
         }

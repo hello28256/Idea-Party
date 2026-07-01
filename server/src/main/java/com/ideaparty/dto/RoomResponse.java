@@ -1,6 +1,7 @@
 package com.ideaparty.dto;
 
 import com.ideaparty.entity.Room;
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -81,5 +82,18 @@ public class RoomResponse {
                 .maxDiscussionRounds(room.getMaxDiscussionRounds())
                 .mode(room.getMode())
                 .build();
+    }
+
+    /**
+     * 把嵌套的 CharacterResponse.avatarUrl 统一转成完整 OSS URL。
+     * 由调用方(RoomController / Service)在序列化前调一次。
+     */
+    public RoomResponse resolveImageUrls(ImageUrlResolver resolver) {
+        if (this.characters != null) {
+            this.characters = this.characters.stream()
+                    .map(c -> c.resolveImageUrls(resolver))
+                    .collect(Collectors.toList());
+        }
+        return this;
     }
 }

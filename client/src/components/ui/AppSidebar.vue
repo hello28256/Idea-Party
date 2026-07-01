@@ -7,6 +7,7 @@
 import { useRouter } from 'vue-router'
 import { Compass, UsersRound, Sparkles, Flame, FolderOpen, MessageSquare } from 'lucide-vue-next'
 import type { NavItem } from '@/config/sidebar'
+import { BRAND_LOGO } from '@/constants/brand'
 
 defineProps<{
   navItems: NavItem[]
@@ -40,7 +41,7 @@ function go(route: string) {
   <aside class="app-sidebar">
     <!-- 品牌 -->
     <div class="sidebar-brand">
-      <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
+      <img :src="BRAND_LOGO" alt="logo" class="sidebar-brand-logo" />
       <span class="logo-text">Idea Party</span>
     </div>
 

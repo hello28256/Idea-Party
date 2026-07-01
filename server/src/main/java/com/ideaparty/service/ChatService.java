@@ -11,6 +11,7 @@ import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
+import com.ideaparty.util.ImageUrlResolver;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +44,8 @@ public class ChatService {
     private final AIService aiService;
     // 把 Character 实体转成 system prompt；false 表示首版 prompt，不带「等待指令」之类后缀
     private final CharacterPromptBuilder characterPromptBuilder;
+    // avatarUrl 转完整 OSS URL，DTO 序列化前统一过这道闸
+    private final ImageUrlResolver imageUrlResolver;
 
     /**
      * 构造器注入：Service 依赖多个仓储 + AI 编排组件，避免字段注入带来的可测试性问题。
@@ -53,13 +56,15 @@ public class ChatService {
                       CharacterRepository characterRepository,
                       UserRepository userRepository,
                       AIService aiService,
-                      CharacterPromptBuilder characterPromptBuilder) {
+                      CharacterPromptBuilder characterPromptBuilder,
+                      ImageUrlResolver imageUrlResolver) {
         this.messageRepository = messageRepository;
         this.roomRepository = roomRepository;
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.aiService = aiService;
         this.characterPromptBuilder = characterPromptBuilder;
+        this.imageUrlResolver = imageUrlResolver;
     }
 
     /**
@@ -98,7 +103,7 @@ public class ChatService {
         }
 
         Message saved = messageRepository.save(message);
-        return MessageDto.fromEntity(saved);
+        return MessageDto.fromEntity(saved, imageUrlResolver);
     }
 
     /**
@@ -114,7 +119,7 @@ public class ChatService {
     public List<MessageDto> getMessagesByRoom(UUID roomId) {
         List<Message> messages = messageRepository.findByRoomIdOrderByCreatedAtAsc(roomId);
         return messages.stream()
-            .map(MessageDto::fromEntity)
+            .map(m -> MessageDto.fromEntity(m, imageUrlResolver))
             .toList();
     }
 

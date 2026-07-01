@@ -8,6 +8,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { register } from '@/api/auth'
 import { evaluatePassword } from '@/composables/usePasswordStrength'
+import { BRAND_LOGO, BRAND_LOGIN_BG } from '@/constants/brand'
 
 const router = useRouter()
 
@@ -95,7 +96,7 @@ function handleAppleLogin() {
       <div class="h-full px-10 flex items-center justify-between">
         <!-- 品牌 Logo -->
         <div class="flex items-center gap-3">
-          <img src="/image.png" alt="Idea Party" class="w-9 h-9" />
+          <img :src="BRAND_LOGO" alt="Idea Party" class="w-9 h-9" />
           <span class="text-xl font-bold text-gray-900">Idea Party</span>
         </div>
 
@@ -121,7 +122,7 @@ function handleAppleLogin() {
         <!-- 背景图容器 -->
         <div class="relative h-[520px] overflow-hidden rounded-[28px]">
           <img
-            src="/login-bg.png"
+            :src="BRAND_LOGIN_BG"
             alt="Register background"
             class="w-full h-full object-cover"
           />

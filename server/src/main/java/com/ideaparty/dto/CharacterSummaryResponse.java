@@ -2,6 +2,7 @@ package com.ideaparty.dto;
 
 import com.ideaparty.entity.Character;
 import com.ideaparty.entity.CharacterCategory;
+import com.ideaparty.util.ImageUrlResolver;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -74,6 +75,15 @@ public class CharacterSummaryResponse {
         response.setUpdatedAt(source.getUpdatedAt());
         response.setOwnerId(source.getOwnerId());
         return response;
+    }
+
+    /**
+     * 把图片字段统一转成浏览器可直连的完整 OSS URL。
+     * 由调用方(Controller / Service)在序列化前调一次。
+     */
+    public CharacterSummaryResponse resolveImageUrls(ImageUrlResolver resolver) {
+        this.avatarUrl = resolver.resolve(this.avatarUrl);
+        return this;
     }
 
     public UUID getId() { return id; }

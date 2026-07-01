@@ -12,6 +12,7 @@ import com.ideaparty.service.AuthService;
 import com.ideaparty.service.ModeratorAgent;
 import com.ideaparty.service.MessageService;
 import com.ideaparty.service.ModerationService;
+import com.ideaparty.util.ImageUrlResolver;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -83,6 +84,8 @@ public class ChatSocketHandler extends TextWebSocketHandler {
     private final ModeratorAgent moderatorAgent;
     // 由 @RequiredArgsConstructor 注入：JWT 校验，前端在 join room 时带 token 上来识别身份。
     private final AuthService authService;
+    // 把 avatarUrl(相对 key)统一转成完整 OSS URL,广播 chat message 前过这道闸
+    private final ImageUrlResolver imageUrlResolver;
 
     /**
      * WebSocket 握手成功后的钩子；Socket.IO 客户端随后会发 "40" connect 包，由 handleTextMessage 走协议分支响应。
@@ -476,7 +479,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                         responseData.put("senderType", "CHARACTER");
                         responseData.put("characterId", fragment.getCharacterId());
                         responseData.put("characterName", fragment.getCharacterName());
-                        responseData.put("avatarUrl", fragment.getAvatarUrl());
+                        responseData.put("avatarUrl", imageUrlResolver.resolve(fragment.getAvatarUrl()));
                         responseData.put("roomId", roomId);
                         responseData.put("id", savedMessage.getId());
                         responseData.put("streaming", false);
@@ -610,7 +613,7 @@ public class ChatSocketHandler extends TextWebSocketHandler {
                     responseData.put("senderType", "CHARACTER");
                     responseData.put("characterId", fragment.getCharacterId());
                     responseData.put("characterName", fragment.getCharacterName());
-                    responseData.put("avatarUrl", fragment.getAvatarUrl());
+                    responseData.put("avatarUrl", imageUrlResolver.resolve(fragment.getAvatarUrl()));
                     responseData.put("roomId", roomId);
                     responseData.put("id", savedMessage.getId());
                     String responseEvent = "42[\"chat message\","

@@ -1,5 +1,6 @@
 package com.ideaparty.dto;
 
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -35,6 +36,17 @@ public class AuthResponse {
      * 登录态建立时一次性回带的用户基础资料，避免前端登录后再额外请求 /me 接口。
      */
     private UserResponse user;
+
+    /**
+     * 把 user.avatarUrl(相对 key 或外网)统一转成完整 OSS URL。
+     * 由调用方在序列化前调一次。
+     */
+    public AuthResponse resolveImageUrls(ImageUrlResolver resolver) {
+        if (this.user != null) {
+            this.user.avatarUrl = resolver.resolve(this.user.avatarUrl);
+        }
+        return this;
+    }
 
     /**
      * 内嵌的用户资料 DTO，用于在登录/注册响应里一次性带回当前账户的基础信息，

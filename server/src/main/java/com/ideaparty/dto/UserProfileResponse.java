@@ -1,5 +1,6 @@
 package com.ideaparty.dto;
 
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -65,4 +66,13 @@ public class UserProfileResponse {
      * 使用包装类型 Boolean 而非基本类型，便于在未赋值时与 false 区分；前端根据该位控制后台入口显隐。
      */
     private Boolean isAdmin;
+
+    /**
+     * 把 avatarUrl(相对 key 或外网)统一转成完整 OSS URL。
+     * 由调用方(Controller / Service)在序列化前调一次。
+     */
+    public UserProfileResponse resolveImageUrls(ImageUrlResolver resolver) {
+        this.avatarUrl = resolver.resolve(this.avatarUrl);
+        return this;
+    }
 }

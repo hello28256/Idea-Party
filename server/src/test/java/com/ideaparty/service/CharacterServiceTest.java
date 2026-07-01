@@ -10,6 +10,7 @@ import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.MessageRepository;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
+import com.ideaparty.util.ImageUrlResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,10 +57,10 @@ class CharacterServiceTest {
     private FirecrawlService firecrawlService;
 
     @Mock
-    private FileStorageService fileStorageService;
+    private PresetCharacterCache presetCache;
 
     @Mock
-    private PresetCharacterCache presetCache;
+    private ImageUrlResolver imageUrlResolver;
 
     @InjectMocks
     private CharacterService characterService;

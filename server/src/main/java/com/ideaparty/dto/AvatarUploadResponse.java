@@ -1,5 +1,6 @@
 package com.ideaparty.dto;
 
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,4 +25,13 @@ public class AvatarUploadResponse {
      * 由后端在头像上传到对象存储后生成；前端拿到该字段后可直接用于头像展示或保存到角色档案。
      */
     private String avatarUrl;
+
+    /**
+     * 把 avatarUrl(相对 key 或外网)统一转成完整 OSS URL。
+     * 由调用方在序列化前调一次。
+     */
+    public AvatarUploadResponse resolveImageUrls(ImageUrlResolver resolver) {
+        this.avatarUrl = resolver.resolve(this.avatarUrl);
+        return this;
+    }
 }

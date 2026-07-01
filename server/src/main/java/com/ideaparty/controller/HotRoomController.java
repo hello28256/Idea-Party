@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ideaparty.dto.HotRoomResponse;
 import com.ideaparty.dto.HotRoomResponse.LatestMessage;
+import com.ideaparty.util.ImageUrlResolver;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import lombok.RequiredArgsConstructor;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -33,11 +35,15 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/hot-rooms")
+@RequiredArgsConstructor
 public class HotRoomController {
 
     private static final Logger log = LoggerFactory.getLogger(HotRoomController.class);
 
     private final ObjectMapper mapper = new ObjectMapper();
+    // 把 hotRooms.json 里的 cover 相对路径("uploads/avatars/hot-rooms/xxx.jpg")
+    // 拼成完整 OSS URL,前端 <img src> 直连 OSS 不走 nginx。
+    private final ImageUrlResolver imageUrlResolver;
 
     /** 全量热门房间（不可变快照）；指针替换保证 list() 不会看到半成品数据。 */
     private volatile List<HotRoomResponse> hotRooms = List.of();
@@ -57,7 +63,7 @@ public class HotRoomController {
                 parsed.add(new HotRoomResponse(
                         e.id,
                         e.title,
-                        e.cover,
+                        imageUrlResolver.resolve(e.cover),
                         e.participants == null ? List.of() : List.copyOf(e.participants),
                         latest,
                         e.onlineCount,

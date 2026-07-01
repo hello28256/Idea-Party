@@ -10,6 +10,7 @@ import { Sun, Moon } from 'lucide-vue-next'
 import { register } from '@/api/auth'
 import { isSupported as isCredentialSupported, storeCredential } from '@/composables/useCredentialStorage'
 import { evaluatePassword } from '@/composables/usePasswordStrength'
+import { BRAND_LOGO, BRAND_LOGIN_BG } from '@/constants/brand'
 
 const router = useRouter()
 const route = useRoute()
@@ -222,7 +223,7 @@ onMounted(() => {
       <div class="header-inner">
         <!-- 品牌 Logo -->
         <div class="brand-logo">
-          <img src="/image.png" alt="logo" class="brand-logo-img" />
+          <img :src="BRAND_LOGO" alt="logo" class="brand-logo-img" />
           <h1
             class="text-[30px] font-black tracking-[-0.03em]"
             :style="{ color: themeStore.isDark ? '#FFFFFF' : '#18181B' }"
@@ -265,7 +266,7 @@ onMounted(() => {
         <!-- 右侧大图 - 使用 inline style 确保 calc 生效 -->
         <div class="hero-image-container" :style="{ width: 'calc(100% - 300px)' }">
           <img
-            src="/login-bg.png"
+            :src="BRAND_LOGIN_BG"
             alt="login background"
             class="hero-image"
           />
@@ -439,7 +440,7 @@ onMounted(() => {
           <!-- 移动端图片 -->
           <div class="mobile-image-container">
             <img
-              src="/login-bg.png"
+              :src="BRAND_LOGIN_BG"
               alt="login background"
               class="mobile-image"
             />

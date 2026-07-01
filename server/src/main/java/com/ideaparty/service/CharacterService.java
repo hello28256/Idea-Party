@@ -40,15 +40,14 @@ public class CharacterService {
     private final MessageRepository messageRepository;
     private final RoomService roomService;
     private final FirecrawlService firecrawlService;
-    // 文件落盘：用于在创建/更新角色时把外网头像 URL 自动下载到 uploads/avatars/，
-    // 避免渲染头像时每次都打外网。详见 FileStorageService.storeFromUrl。
-    private final FileStorageService fileStorageService;
     // 直接读 langchain4j 的 base-url 而非单独建配置项：与 LangChain4j 自动装配的 OpenAI 客户端共用同一接入点，
     // 这样 REST 调用走的也是同一个 DeepSeek 兼容 endpoint，便于将来切换供应商时只改一个配置。
     private final String deepseekBaseUrl;
     // 预设角色静态缓存：启动时从 classpath:presets.json 加载到内存，
     // 让 GET /api/characters/recommended 走纯内存 0 DB 查询。preset 修改走 git diff + 重启。
     private final com.ideaparty.cache.PresetCharacterCache presetCache;
+    // avatarUrl 转完整 OSS URL,DTO 序列化前统一过这道闸
+    private final com.ideaparty.util.ImageUrlResolver imageUrlResolver;
 
     /**
      * 构造时一次性注入所有依赖（构造函数注入优于字段注入）：
@@ -56,16 +55,16 @@ public class CharacterService {
      * 多个 repository 看似冗余，实际对应"角色/用户/房间/消息"四张表的独立事务边界，
      * 让删除校验可以在一个事务里完整跑完（参考 deleteIfOwner）。
      */
-    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, RoomService roomService, FirecrawlService firecrawlService, FileStorageService fileStorageService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl, com.ideaparty.cache.PresetCharacterCache presetCache) {
+    public CharacterService(CharacterRepository characterRepository, UserRepository userRepository, RoomRepository roomRepository, MessageRepository messageRepository, RoomService roomService, FirecrawlService firecrawlService, @Value("${langchain4j.open-ai.base-url}") String deepseekBaseUrl, com.ideaparty.cache.PresetCharacterCache presetCache, com.ideaparty.util.ImageUrlResolver imageUrlResolver) {
         this.characterRepository = characterRepository;
         this.userRepository = userRepository;
         this.roomRepository = roomRepository;
         this.messageRepository = messageRepository;
         this.roomService = roomService;
         this.firecrawlService = firecrawlService;
-        this.fileStorageService = fileStorageService;
         this.deepseekBaseUrl = deepseekBaseUrl;
         this.presetCache = presetCache;
+        this.imageUrlResolver = imageUrlResolver;
     }
 
     /**
@@ -126,7 +125,7 @@ public class CharacterService {
             if (existing.isPresent()) {
                 log.info("[DEBUG] Character already exists for owner {} with name '{}', reusing id: {}",
                         userId, trimmedName, existing.get().getId());
-                return CharacterResponse.fromEntity(existing.get());
+                return CharacterResponse.fromEntity(existing.get()).resolveImageUrls(imageUrlResolver);
             }
         }
 
@@ -154,38 +153,31 @@ public class CharacterService {
             log.info("[DEBUG] Duplicate insert caught by unique constraint for '{}', re-fetching", trimmedName);
             return characterRepository
                     .findFirstByOwnerIdAndNameAndIsPresetFalse(userId, trimmedName)
-                    .map(CharacterResponse::fromEntity)
+                    .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                     .orElseThrow(() -> e);
         }
         log.info("[DEBUG] Character created with id: {}, prompt length: {}", saved.getId(), prompt.length());
-        return CharacterResponse.fromEntity(saved);
+        return CharacterResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**
-     * 检测 avatarUrl 是否指向外网（http/https），是则下载到本地 uploads/avatars/ 并改写成本地路径。
+     * OSS 直传时代:不再把外网头像下载到本地。
      *
-     * <p>用于 create / update 角色时自动把"维基百科 / 用户粘贴的 URL" 落本地，避免后续
-     * 渲染头像每次都打外网（且国内访问维基常超时）。本地路径形如 {@code /uploads/avatars/auto_<hash>.<ext>}。
+     * <p>老逻辑:检测 avatarUrl 是否指向外网（http/https），是则下载到本地 uploads/avatars/ 并改写成本地路径,
+     * 避免渲染头像每次都打外网（且国内访问维基常超时）。
      *
-     * <p>行为契约：
-     *   - 入参为 null / 空 / 已是本地 {@code /uploads/...} 或 {@code /api/...} → 原样返回；
-     *   - 下载失败 → 静默保留原 URL，不阻塞角色创建（与 prompt 生成失败降级策略一致）。
+     * <p>新逻辑:外网 URL 直接落库,DTO 层 resolver 透传给前端,前端 <img src> 直连外网。
+     * 国内访问慢由 CDN / <img loading="lazy"> 兜底。
+     *
+     * <p>行为契约:
+     *   - null / blank → 原样返回;
+     *   - 任意非空字符串 → 原样返回（DB 存原值）。
      *
      * @param avatarUrl 前端传入的 avatarUrl（可能是外网或本地）
-     * @return 落本地后的 URL（仍是同一字符串，或下载后的本地路径）
+     * @return 入参原样
      */
     private String downloadAvatarIfExternal(String avatarUrl) {
-        if (avatarUrl == null || avatarUrl.isBlank()) return avatarUrl;
-        // 已经是本地路径就不用处理(兼容历史 /api/ 路径上的脏数据)
-        if (avatarUrl.startsWith("/uploads/") || avatarUrl.startsWith("/api/")) return avatarUrl;
-        // 只处理 http/https 外网
-        if (!avatarUrl.startsWith("http://") && !avatarUrl.startsWith("https://")) return avatarUrl;
-        String stored = fileStorageService.storeFromUrl(avatarUrl);
-        if (stored == null) {
-            log.warn("[DEBUG] downloadAvatarIfExternal failed to download, keeping original URL: {}", avatarUrl);
-            return avatarUrl;
-        }
-        return "/uploads/avatars/" + stored;
+        return avatarUrl;
     }
 
     /**
@@ -779,7 +771,7 @@ public class CharacterService {
     public List<CharacterResponse> findByUserId(UUID userId) {
         return characterRepository.findByOwnerId(userId)
                 .stream()
-                .map(CharacterResponse::fromEntity)
+                .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                 .collect(Collectors.toList());
     }
 
@@ -804,7 +796,7 @@ public class CharacterService {
         // Spring Data JPA 的方法命名约定 findAllByOrderByCreatedAtDesc 自动生成 ORDER BY created_at DESC。
         return characterRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
-                .map(CharacterResponse::fromEntity)
+                .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                 .collect(Collectors.toList());
     }
 
@@ -815,7 +807,7 @@ public class CharacterService {
      */
     public Optional<CharacterResponse> findById(UUID id) {
         return characterRepository.findById(id)
-                .map(CharacterResponse::fromEntity);
+                .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver));
     }
 
     /**
@@ -837,7 +829,7 @@ public class CharacterService {
         character.setPrompt(request.getPrompt());
 
         Character saved = characterRepository.save(character);
-        return Optional.of(CharacterResponse.fromEntity(saved));
+        return Optional.of(CharacterResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver));
     }
 
     /**
@@ -963,7 +955,7 @@ public class CharacterService {
         return characterRepository.findByIsPresetTrueOrderByNameAsc()
                 .stream()
                 .limit(limit)
-                .map(CharacterResponse::fromEntity)
+                .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                 .collect(Collectors.toList());
     }
 

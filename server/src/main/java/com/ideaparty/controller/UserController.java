@@ -6,6 +6,7 @@ import com.ideaparty.dto.UserProfileResponse;
 import com.ideaparty.entity.User;
 import com.ideaparty.repository.UserRepository;
 import com.ideaparty.service.AuthService;
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,15 +36,17 @@ public class UserController {
     private final UserRepository userRepository;
     /** 用于从 JWT 中解析当前 userId，依赖全局统一的 token 校验逻辑。 */
     private final AuthService authService;
+    /** avatarUrl 转完整 OSS URL,响应序列化前统一过这道闸 */
+    private final ImageUrlResolver imageUrlResolver;
 
     /** 头像 MIME 白名单：仅允许 jpg/png/webp，统一前后端预期，防止上传可执行文件伪装成头像。 */
     private static final Set<String> ALLOWED_AVATAR_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
-    // 头像大小上限改为从配置注入，与 FileUploadController / application.yml 保持一致，
-    // 避免在两个上传入口维护两份硬编码常量。
+    // 头像大小上限改为从配置注入，与 application.yml 保持一致,
+    // 避免在多个入口维护两份硬编码常量。
     /** 头像体积上限（字节），默认 5MB；通过 @Value 从 application.yml 注入，便于运维按磁盘配额调整。 */
     @Value("${upload.avatar.max-size:5242880}")
     private long maxAvatarSize;
-    /** 头像落盘的相对目录（相对于 JVM 工作目录），与 WebMvcConfig 中静态映射 /uploads/** 配套。 */
+    /** 头像落盘的相对目录已废弃(OSS 直传),保留仅用于向后兼容老逻辑 */
     private static final String UPLOAD_DIR = "uploads/avatars/";
 
     /**
@@ -67,7 +70,8 @@ public class UserController {
                 .usernameUpdatedAt(user.getLastUsernameChangeAt())
                 .themeMode(user.getThemeMode() != null ? user.getThemeMode() : "system")
                 .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
-                .build();
+                .build()
+                .resolveImageUrls(imageUrlResolver);
 
         return ResponseEntity.ok(response);
     }
@@ -110,7 +114,7 @@ public class UserController {
         user.setAvatarUrl(url);
         userRepository.save(user);
         log.info("[DEBUG] [saveAvatarUrl] userId={}, avatarUrl={}", userId, url);
-        return ResponseEntity.ok(AvatarUploadResponse.builder().avatarUrl(url).build());
+        return ResponseEntity.ok(AvatarUploadResponse.builder().avatarUrl(url).build().resolveImageUrls(imageUrlResolver));
     }
 
     /** STS 直传后保存 URL 的请求体 */
@@ -147,7 +151,8 @@ public class UserController {
                 .usernameUpdatedAt(user.getLastUsernameChangeAt())
                 .themeMode(user.getThemeMode())
                 .isAdmin(Boolean.TRUE.equals(user.getIsAdmin()))
-                .build());
+                .build()
+                .resolveImageUrls(imageUrlResolver));
     }
 
     /**

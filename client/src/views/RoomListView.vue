@@ -20,6 +20,7 @@ import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
 import CreateRoomModal from '@/components/room/CreateRoomModal.vue'
+import { BRAND_LOGO } from '@/constants/brand'
 import CreateCharacterModal from '@/components/character/CreateCharacterModal.vue'
 import UserDropdown from '@/components/ui/UserDropdown.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -162,31 +163,6 @@ function onRoomMenuOutsideClick(e: MouseEvent) {
   const inBtn = moreBtnRefs.value[openMenuRoomId.value]?.contains(t)
   const inMenu = menuRefs.value[openMenuRoomId.value]?.contains(t)
   if (!inBtn && !inMenu) closeRoomMenu()
-}
-
-// 解析成员头像 URL
-// 后端返回的头像地址是相对路径或绝对 URL。
-// - 绝对 URL(http/https):原样返回(已经是 OSS / 外链直链)
-// - 相对路径:拼上 VITE_OSS_BUCKET_DOMAIN,直连 OSS 边缘节点
-// - 加 cache-buster 查询串,绕过 nginx 长缓存,避免角色头像更新后仍显示旧文件
-//
-// 不在 OSS 时代(本地 dev / 部署未生效 VITE_OSS_BUCKET_DOMAIN)时,fallback 走原相对路径,
-// 由 nginx 301 到 OSS,前端无需关心。
-const OSS_BUCKET_DOMAIN = (import.meta.env.VITE_OSS_BUCKET_DOMAIN as string | undefined) || ''
-
-function resolveAvatarUrl(url: string | null | undefined): string {
-  if (!url) return ''
-  if (url.startsWith('http://') || url.startsWith('https://')) return url
-  // 相对路径:优先拼 OSS,无配置时回退到原路径(nginx 301)
-  if (OSS_BUCKET_DOMAIN) {
-    const path = url.replace(/^\/+/, '')
-    return `${OSS_BUCKET_DOMAIN}/${path}`
-  }
-  // Fallback: 加 cache-buster 走 nginx
-  if (url.startsWith('/api/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
-  if (url.startsWith('/uploads/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
-  if (url.startsWith('/')) return `${url}${url.includes('?') ? '&' : '?'}v=${avatarCacheBuster}`
-  return url
 }
 
 // 场景卡片封面渐变色:用 id 哈希挑 1 个调色板,保证 22 个预设场景视觉差异明显
@@ -1138,10 +1114,6 @@ async function fetchHotRooms() {
 }
 // 推荐角色头像加载失败记录（按 char.id），避免个别维基 404 时整张卡片显示破图
 const avatarLoadFailed = reactive<Record<string, boolean>>({})
-// 头像 cache-buster：每次页面加载生成一个新值，给本地头像 URL 加 ?v=... 查询串，
-// 绕过 nginx 给 /uploads/* 设的 7 天缓存（用户报告浏览器显示旧头像/缓存）。
-const avatarCacheBuster = String(Math.floor(Math.random() * 1e9))
-
 // 「推荐角色」展示状态机：
 // - BATCH_SIZE: 每批展示多少个。120 ÷ 18 ≈ 7 批，6 列 × 3 行的网格刚好放下。
 // - showAllFeatured: false（分批态，默认）= 按当前批次展示 18 人 + 「换一批」按钮可点；
@@ -1634,7 +1606,7 @@ async function handleInviteMember() {
 
       <!-- 品牌 Logo -->
       <div class="sidebar-brand">
-        <img src="/image.png" alt="logo" class="sidebar-brand-logo" />
+        <img :src="BRAND_LOGO" alt="logo" class="sidebar-brand-logo" />
         <span class="logo-text">Idea Party</span>
       </div>
 
@@ -1811,7 +1783,7 @@ async function handleInviteMember() {
               >
                 <img
                   v-if="s.cover"
-                  :src="resolveAvatarUrl(s.cover)"
+                  :src="s.cover"
                   :alt="s.title"
                   class="cover-img"
                 />
@@ -2452,13 +2424,13 @@ async function handleInviteMember() {
                     <div class="member-avatar-wrapper">
                       <img
                         v-if="member.avatarUrl"
-                        :src="resolveAvatarUrl(member.avatarUrl)"
+                        :src="member.avatarUrl"
                         :alt="member.displayName"
                         class="member-avatar"
                       />
                       <img
                         v-else
-                        src="/image.png"
+                        :src="BRAND_LOGO"
                         :alt="member.displayName"
                         class="member-avatar"
                       />
@@ -2567,7 +2539,7 @@ async function handleInviteMember() {
                 </div>
                 <img
                   v-if="!avatarLoadFailed[char.id]"
-                  :src="resolveAvatarUrl(char.avatar)"
+                  :src="char.avatar"
                   :alt="char.name"
                   class="character-avatar character-avatar-img"
                   loading="lazy"
@@ -2636,7 +2608,7 @@ async function handleInviteMember() {
             >
               <!-- 封面图：本地路径加 cache-buster，避免 WebConfig 1 小时缓存住旧图 -->
               <div class="room-cover">
-                <img :src="resolveAvatarUrl(room.cover)" :alt="room.title" class="cover-img" />
+                <img :src="room.cover" :alt="room.title" class="cover-img" />
                 <div class="cover-overlay"></div>
               </div>
 
@@ -2651,7 +2623,7 @@ async function handleInviteMember() {
                     <img
                       v-for="(name, i) in room.participants.slice(0, 3)"
                       :key="i"
-                      :src="resolveAvatarUrl(presetAvatarMap.get(name) || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(name)}&backgroundColor=c0aede`)"
+                      :src="presetAvatarMap.get(name) || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(name)}&backgroundColor=c0aede`"
                       :alt="name"
                       class="participant-avatar"
                       :style="{ zIndex: 3 - i }"

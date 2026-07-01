@@ -252,36 +252,36 @@ public class DataLoader implements CommandLineRunner {
 
 
     /**
-     * 老库回填：把现存 preset 角色里仍指向外网（http/https）的 avatarUrl 改为本地路径
-     * ({@code /uploads/avatars/presets/<english-name>.<ext>})。
+     * 老库回填:把现存 preset 角色里仍指向外网（http/https）的 avatarUrl 改为相对 key
+     * ({@code uploads/avatars/presets/<english-name>.<ext>})。
      *
-     * <p>用途：buildPreset 把头像 URL 写死成维基百科地址，老库升级时 seedCharactersIfMissing
-     * 按名字去重已跳过这些角色，导致 avatarUrl 不会跟着源码自动更新。本方法在每次启动跑一次，
-     * 把所有"已存在 preset 但 avatarUrl 仍指向外网"的记录就地改成本地路径，幂等可重复执行。
+     * <p>用途:buildPreset 把头像 URL 写死成维基百科地址,老库升级时 seedCharactersIfMissing
+     * 按名字去重已跳过这些角色,导致 avatarUrl 不会跟着源码自动更新。本方法在每次启动跑一次,
+     * 把所有"已存在 preset 但 avatarUrl 仍指向外网"的记录就地改成相对 key,DTO 层 resolver 会拼成完整 OSS URL,幂等可重复执行。
      */
     private void backfillPresetAvatarUrls(List<Character> freshPresets) {
-        java.util.Map<String, String> nameToLocal = freshPresets.stream()
-                .filter(c -> c.getAvatarUrl() != null && c.getAvatarUrl().startsWith("/uploads/"))
+        java.util.Map<String, String> nameToKey = freshPresets.stream()
+                .filter(c -> c.getAvatarUrl() != null && !c.getAvatarUrl().isBlank())
                 .collect(java.util.stream.Collectors.toMap(
                         Character::getName, Character::getAvatarUrl, (a, b) -> a));
-        if (nameToLocal.isEmpty()) {
+        if (nameToKey.isEmpty()) {
             return;
         }
         List<Character> existing = characterRepository.findByIsPresetTrue();
         int updated = 0;
         for (Character c : existing) {
-            String local = nameToLocal.get(c.getName());
+            String key = nameToKey.get(c.getName());
             String current = c.getAvatarUrl();
-            if (local != null && current != null
+            if (key != null && current != null
                     && (current.startsWith("http://") || current.startsWith("https://"))) {
-                log.info("[PresetSeed] backfill avatar for '{}': {} -> {}", c.getName(), current, local);
-                c.setAvatarUrl(local);
+                log.info("[PresetSeed] backfill avatar for '{}': {} -> {}", c.getName(), current, key);
+                c.setAvatarUrl(key);
                 updated++;
             }
         }
         if (updated > 0) {
             characterRepository.saveAll(existing);
-            log.info("[PresetSeed] backfilled {} preset avatar URLs to local paths", updated);
+            log.info("[PresetSeed] backfilled {} preset avatar URLs to relative keys", updated);
         }
     }
 
@@ -352,9 +352,7 @@ public class DataLoader implements CommandLineRunner {
     // 避免 Hibernate "unsaved-value" 误判导致 saveAll 走 UPDATE 分支。
     // 推荐区顺序由 findByIsPresetTrueOrderByNameAsc 决定（按 name Unicode 序），
     // 所以 List 内的写入顺序仅作为人类阅读时的"分组参考"，不依赖于此方法。
-    // avatarUrl 用历史人物的真实肖像（英文维基百科 220px 缩略图，已下载到
-    // server/uploads/avatars/presets/，通过 /uploads/avatars/presets/** 静态映射对外提供），
-    // 离线可用、辨识度高于 DiceBear 抽象头像。
+    // avatarUrl 用相对 key uploads/avatars/presets/<english-name>.<ext>,由 DTO 层 resolver 拼成完整 OSS URL。
     //
     // prompt 字段：传 null 时启动期调用 CharacterService.generatePromptByName 用 LLM 生成
     // （走 character-prompt-generator.txt 模板，150~250 字中文角色卡），保证新 preset 第一次

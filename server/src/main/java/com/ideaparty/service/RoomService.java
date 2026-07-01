@@ -10,6 +10,7 @@ import com.ideaparty.repository.CharacterRepository;
 import com.ideaparty.repository.RoomMemberRepository;
 import com.ideaparty.repository.RoomRepository;
 import com.ideaparty.repository.UserRepository;
+import com.ideaparty.util.ImageUrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
@@ -47,6 +48,8 @@ public class RoomService {
     private final CharacterRepository characterRepository;
     // 提供"用户是否是某房间成员"的判定方法（isMember），是权限校验的关键依赖。
     private final RoomMemberRepository roomMemberRepository;
+    // 嵌套 characters[].avatarUrl 转完整 OSS URL,响应序列化前统一过这道闸
+    private final ImageUrlResolver imageUrlResolver;
 
     // 负责聊天室的创建/查询/成员与角色编排；权限校验（成员/房主）在这里前置，
     // 让 Controller 只需要转发请求并处理 DTO 转换。
@@ -76,7 +79,7 @@ public class RoomService {
             if (existing.isPresent()) {
                 log.info("[DEBUG] Dedup hit, reusing existing room {} for owner {} with {} characters",
                         existing.get().getId(), owner.getId(), existing.get().getCharacters().size());
-                return RoomResponse.fromEntity(existing.get());
+                return RoomResponse.fromEntity(existing.get()).resolveImageUrls(imageUrlResolver);
             }
         }
 
@@ -113,7 +116,7 @@ public class RoomService {
 
         log.info("[DEBUG] Room created with id: {} with {} characters", saved.getId(), saved.getCharacters().size());
 
-        return RoomResponse.fromEntity(saved);
+        return RoomResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**
@@ -164,7 +167,7 @@ public class RoomService {
         log.info("[DEBUG] Finding rooms for user: {}", userId);
 
         return roomRepository.findRoomsByMemberUserId(userId).stream()
-                .map(RoomResponse::fromEntity)
+                .map(r -> RoomResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                 .collect(Collectors.toList());
     }
 
@@ -236,7 +239,7 @@ public class RoomService {
 
         log.info("[DEBUG] Character {} added to room {}", characterId, roomId);
 
-        return RoomResponse.fromEntity(saved);
+        return RoomResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**
@@ -250,7 +253,7 @@ public class RoomService {
     @Transactional(readOnly = true)
     public RoomResponse findById(UUID roomId) {
         return roomRepository.findWithCharactersById(roomId)
-                .map(RoomResponse::fromEntity)
+                .map(r -> RoomResponse.fromEntity(r).resolveImageUrls(imageUrlResolver))
                 .orElseThrow(() -> new IllegalArgumentException("Room not found: " + roomId));
     }
 
@@ -315,7 +318,7 @@ public class RoomService {
         Room saved = roomRepository.save(room);
         log.info("[DEBUG] Room {} chat mode updated to {}", roomId, chatMode);
 
-        return RoomResponse.fromEntity(saved);
+        return RoomResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**
@@ -342,7 +345,7 @@ public class RoomService {
         room.setName(name.trim());
         Room saved = roomRepository.save(room);
         log.info("[DEBUG] Room {} name updated", roomId);
-        return RoomResponse.fromEntity(saved);
+        return RoomResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**
@@ -370,7 +373,7 @@ public class RoomService {
         room.setTopic(normalized);
         Room saved = roomRepository.save(room);
         log.info("[DEBUG] Room {} topic updated", roomId);
-        return RoomResponse.fromEntity(saved);
+        return RoomResponse.fromEntity(saved).resolveImageUrls(imageUrlResolver);
     }
 
     /**

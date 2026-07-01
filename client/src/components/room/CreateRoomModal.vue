@@ -10,7 +10,6 @@ import { ref, watch, computed } from 'vue'
 import { useRoomStore } from '@/stores/room'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
-import { resolveImageUrl } from '@/utils/avatarUrl'
 
 // show：父组件 v-model 控制弹窗显隐
 interface Props {
@@ -192,7 +191,7 @@ function handleClose() {
                     @click="toggleGroupCharacter(character.id)"
                   >
                     <div class="character-avatar">
-                      <img v-if="character.avatarUrl" :src="resolveImageUrl(character.avatarUrl)" :alt="character.name" />
+                      <img v-if="character.avatarUrl" :src="character.avatarUrl" :alt="character.name" />
                       <span v-else>{{ character.name.charAt(0) }}</span>
                     </div>
                     <div class="character-info">

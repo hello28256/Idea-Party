@@ -100,6 +100,10 @@ services:
       TZ: Asia/Shanghai
       JAVA_OPTS: ${SERVER_JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8}
     volumes:
+      # OSS 时代 server 已不读这个卷,但 deploy.py Step 1.5 仍要求容器内
+      # /app/uploads/avatars/presets 至少有 100 张预设头像(从宿主机同步进来),
+      # 否则 deploy 最后一步 verification FAILED。卷挂回去以满足校验。
+      # 业务代码已不再落本地磁盘,这条 mount 仅给 deploy 校验用。
       - server-uploads:/app/uploads
       - server-logs:/app/logs
     healthcheck:

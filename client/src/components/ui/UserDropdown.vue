@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import ConfirmLogoutModal from './ConfirmLogoutModal.vue'
+import { BRAND_LOGO } from '@/constants/brand'
 
 // UserDropdown 是侧边栏底部的用户卡片+弹出菜单组合。
 // 用户卡 click 触发弹窗；弹窗承担「设置入口 / 管理后台入口 / 退出登录」三类用户级操作。
@@ -139,7 +140,7 @@ onUnmounted(() => {
         />
         <img
           v-else
-          src="/image.png"
+          :src="BRAND_LOGO"
           :alt="authStore.user?.displayName || '用户'"
           @error="avatarError = true"
         />
