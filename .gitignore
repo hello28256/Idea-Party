@@ -101,6 +101,9 @@ server/uploads/avatars/presets/_backup/
 *.bak
 *.bak.*
 
+# OSS 增量上传 manifest(由 deploy.py 现场生成,不入仓)
+server/uploads/avatars/.oss-manifest.json
+
 # —— 场景封面目录:允许 22 张正式 scn-*.jpg + CREDITS.md + KEYWORDS.md 进仓
 # 但工作脚本/中间产物/_tmp/、old/ 不进
 !server/src/main/resources/uploads/avatars/scenarios/

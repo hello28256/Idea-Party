@@ -105,6 +105,11 @@ DEPLOY_UPLOADS_IMAGE = os.environ.get("DEPLOY_UPLOADS_IMAGE", "alpine:3.19").str
 DEPLOY_UPLOADS_SUBDIRS = ("presets", "presets-webp", "hot-rooms", "scenarios", "brand")
 # Minimum preset file count inside container for verification to pass.
 DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "100"))
+# OSS 增量上传 manifest: 记录每个 key 上次上传时的 {mtime, size, md5}。
+# deploy.py action_upload_uploads 用本地 manifest 做 diff,跳过 mtime+size
+# 都未变化的文件 — 不用 OSS HeadObject 权限即可做到增量,符合 RAM 最小权限原则。
+# 文件不入 git,deploy 时随 rsync 上服务器,服务器上读写都用同一份。
+OSS_MANIFEST_PATH = os.environ.get("DEPLOY_OSS_MANIFEST", "server/uploads/avatars/.oss-manifest.json").strip()
 
 if not DEPLOY_HOST:
     die("DEPLOY_HOST 未设置。请在 .env.deploy 中配置（IP 地址或 SSH config alias）。")
@@ -667,69 +672,84 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     log(f"== 迁移 server/uploads/avatars/ → 阿里云 OSS ==")
     if dry_run:
         log("[DRY-RUN] 只列计划,不会真正上传")
-    # 把本地 shell 里的 ALIYUN_* 转发到远端,这样 Secret 不进命令历史也不进 chat
-    forward_envs = (
-        "ALIYUN_OSS_ENDPOINT", "ALIYUN_OSS_BUCKET", "ALIYUN_OSS_KEY_PREFIX",
-        "ALIYUN_OSS_BUCKET_DOMAIN",
-        "ALIYUN_STS_ACCESS_KEY_ID", "ALIYUN_STS_ACCESS_KEY_SECRET",
-        "ALIYUN_STS_ROLE_ARN",
+    # 安全: server 端自己 source .env.production,Secret 不进 SSH 命令行。
+    # 把 set -a/source/set +a 拼到 cmd 前面,远程执行时所有 ALIYUN_* 自动 export。
+    cmd = (
+        f"cd {REMOTE_DIR} && set -a && source .env.production && set +a && "
+        + cmd  # cmd 仍包含 migrate_uploads_to_oss.py 主体
     )
-    _load_aliyun_env_from_file()
-    missing = [n for n in forward_envs if not os.environ.get(n)]
-    if missing:
-        log(f"❌ 本地 shell 缺这些环境变量: {', '.join(missing)}")
-        log("  .env.production 应该 export 这些。也可以临时:")
-        log("  export $(grep ALIYUN_ .env.production | xargs)")
-        die("Aborted")
-    ssh_cmd(cmd, forward_env=forward_envs)
+    ssh_cmd(cmd)
 
 
 def action_upload_uploads(*, dry_run: bool = False) -> None:
     """把 server/uploads/avatars/ 下所有 DEPLOY_UPLOADS_SUBDIRS 子目录推到 OSS。
 
-    每个子目录的 key 路径: uploads/avatars/<sub>/<filename>,与 OSS 桶结构对齐。
-    全量上传(不查 OSS 现状): RAM 用户没 ListObject 权限,无法做"差量同步",
-    所以 deploy 每次都全量 PutObject 覆盖。preset/hot-rooms 几百张图约 1-2 分钟,
-    失败 warn 但不阻断 deploy(后端代码不再读 OSS 头像,前端直连 OSS)。
+    每个子目录的 key 路径: uploads/avatars/<sub>/,与 OSS 桶结构对齐。
+    **Manifest 增量同步**: 本地维护 OSS_MANIFEST_PATH 记录每个 key 的
+    {mtime, size, md5},deploy 时只 PUT mtime 或 size 变化的文件,
+    mtime+size+md5 三项一致才 skip。RAM 用户只有 PutObject 权限(没
+    HeadObject / ListObject),用本地 manifest 代替 OSS 端 diff,符合
+    最小权限原则。
 
-    不调 migrate_uploads_to_oss.py 是因为它会先 ListObject 探查,而这个 RAM 用户
-    没有 ListObject 权限(AccessDenied)。内联实现直接 PutObject,跳过 ListObject。
+    首跑全量 PUT(无 manifest 视作空 dict),后续 deploy 只 PUT 变更。
+    PUT 时附带 Cache-Control: public, max-age=31536000, immutable +
+    Content-Type。头像/场景/品牌图是永久静态资源,immutable 缓存浏览器
+    直接走磁盘缓存,不会再 304 探活。失败 warn 但不阻断 deploy。
+
+    manifest 文件随 rsync 同步到服务器,服务器端读写都用同一份。
+    文件不入 git(.gitignore 排除)。
 
     依赖: 服务器装了 oss2(.env.production 已配)。
     """
     subdirs = list(DEPLOY_UPLOADS_SUBDIRS)
-    log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS ==")
+    log(f"== 上传 server/uploads/avatars/ 下 {len(subdirs)} 个子目录 → 阿里云 OSS (manifest 增量) ==")
     if dry_run:
         log("[DRY-RUN] 只列计划,不会真正上传")
-    forward_envs = (
-        "ALIYUN_OSS_ENDPOINT", "ALIYUN_OSS_BUCKET", "ALIYUN_OSS_KEY_PREFIX",
-        "ALIYUN_OSS_BUCKET_DOMAIN",
-        "ALIYUN_STS_ACCESS_KEY_ID", "ALIYUN_STS_ACCESS_KEY_SECRET",
-        "ALIYUN_STS_ROLE_ARN",
-    )
-    _load_aliyun_env_from_file()
-    missing = [n for n in forward_envs if not os.environ.get(n)]
-    if missing:
-        log(f"❌ 本地 shell 缺这些环境变量: {', '.join(missing)}")
-        log("  .env.production 应该 export 这些。也可以临时:")
-        log("  export $(grep ALIYUN_ .env.production | xargs)")
-        die("Aborted")
-
-    # 关键: OSS key 路径固定 uploads/avatars/<sub>/<filename>,
-    # ALIYUN_OSS_KEY_PREFIX (="uploads/") 不能直接用,因为会拼成 uploads/<rel>,
-    # 漏掉 avatars/ 这一段。
-    # 用普通字符串而不是 f-string,避免在生成时就把 {sub}/{rel} 当成 f-string 变量求值
-    # (外层 f-string 看不到 inner Python 变量,会导致 NameError)。
+    # 安全: 不通过 SSH 转发任何 Secret,改为让 server 端 Python 自己
+    # source /opt/ideaparty/.env.production。Secret 留在服务器文件系统上,
+    # 不进 SSH 命令行 / 本机 log / shell history。
     # subdirs 列表用 repr() 安全注入到生成的 Python 脚本里。
     subdirs_repr = repr(subdirs)
+    # manifest 路径用 OSS_MANIFEST_PATH 常量,deploy 时 rsync 同步到服务器,
+    # 路径在两端完全一致。
     inline_py = textwrap.dedent("""\
-        import os, oss2, time
+        import hashlib, json, mimetypes, os, oss2, time
         from pathlib import Path
+
+        MANIFEST_PATH = __MANIFEST__
+        subdirs = __SUBDIRS__
+
+        def md5_of(p):
+            h = hashlib.md5()
+            with open(p, 'rb') as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                    h.update(chunk)
+            return h.hexdigest()
+
+        def load_manifest():
+            try:
+                with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                return {}
+
+        def save_manifest(m):
+            tmp = MANIFEST_PATH + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(m, f, ensure_ascii=False, sort_keys=True, indent=2)
+            os.replace(tmp, MANIFEST_PATH)
+
         auth = oss2.Auth(os.environ['ALIYUN_STS_ACCESS_KEY_ID'], os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'])
         bucket = oss2.Bucket(auth, os.environ['ALIYUN_OSS_ENDPOINT'], os.environ['ALIYUN_OSS_BUCKET'])
-        subdirs = __SUBDIRS__
+
+        manifest = load_manifest()
+        new_manifest = dict(manifest)  # 复制原 manifest,本跑增量后写回
+        # 清理本地已删的 key(避免 manifest 无限膨胀 — OSS 上的旧对象由
+        # 后续 _check_oss_preset_count / 手工 ossutil rm 兜底,这里只清本地账本)
+        active_keys = set()
+
         t0 = time.time()
-        total_ok = total_fail = 0
+        total_ok = total_fail = total_skip = 0
         for sub in subdirs:
             src = Path('server/uploads/avatars') / sub
             if not src.is_dir():
@@ -737,25 +757,52 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
                 continue
             files = [p for p in src.rglob('*') if p.is_file()]
             print('[upload] [%s] %d files' % (sub, len(files)))
-            ok = fail = 0
+            ok = fail = skip = 0
             for p in files:
+                rel = p.relative_to(src).as_posix()
+                key = 'uploads/avatars/%s/%s' % (sub, rel)
+                active_keys.add(key)
+                st = p.stat()
+                mtime = int(st.st_mtime)
+                size = st.st_size
+                prev = manifest.get(key)
+                # mtime+size+md5 三项都一致才 skip;md5 缺失(首次或上次 PUT 失败)会
+                # 视为变更,触发 PUT,PUT 成功后写新 md5 进 manifest。
+                if prev and prev.get('mtime') == mtime and prev.get('size') == size and prev.get('md5'):
+                    skip += 1
+                    continue
                 try:
-                    rel = p.relative_to(src).as_posix()
-                    key = 'uploads/avatars/%s/%s' % (sub, rel)
-                    bucket.put_object_from_file(key, str(p))
+                    headers = {'Cache-Control': 'public, max-age=31536000, immutable'}
+                    ct = mimetypes.guess_type(p.name)[0]
+                    if ct:
+                        headers['Content-Type'] = ct
+                    bucket.put_object_from_file(key, str(p), headers=headers)
                     ok += 1
+                    # md5 计算放 PUT 成功之后:PUT 失败就不写,下次自然重试
+                    new_manifest[key] = {'mtime': mtime, 'size': size, 'md5': md5_of(p)}
                     if ok % 50 == 0:
-                        print('[upload] [%s] %d/%d' % (sub, ok, len(files)))
+                        print('[upload] [%s] %d/%d put' % (sub, ok, len(files)))
                 except Exception as e:
                     print('  [FAIL] %s: %s: %s' % (p.relative_to(src), type(e).__name__, e))
                     fail += 1
-            print('[upload] [%s] done: ok=%d fail=%d' % (sub, ok, fail))
+            print('[upload] [%s] done: put=%d skip=%d fail=%d' % (sub, ok, skip, fail))
             total_ok += ok
             total_fail += fail
+            total_skip += skip
+
+        # 把本地已删的 key 从 manifest 清掉
+        removed = [k for k in new_manifest if k not in active_keys]
+        for k in removed:
+            del new_manifest[k]
+
+        save_manifest(new_manifest)
+        if removed:
+            print('[upload] manifest pruned: %d deleted keys' % len(removed))
+
         elapsed = time.time() - t0
-        print('[upload] all done: ok=%d fail=%d in %.1fs' % (total_ok, total_fail, elapsed))
-    """).replace("__SUBDIRS__", subdirs_repr)
-    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 python3 执行。
+        print('[upload] all done: put=%d skip=%d fail=%d in %.1fs (manifest size=%d)'
+              % (total_ok, total_skip, total_fail, elapsed, len(new_manifest)))
+    """).replace("__SUBDIRS__", subdirs_repr).replace("__MANIFEST__", repr(OSS_MANIFEST_PATH))    # 写到本地临时文件,rsync 到服务器临时路径,服务器上 python3 执行。
     # 这样完全避开 bash -c / ssh escape 的复杂引用。
     local_script = Path(tempfile.mkdtemp(prefix="deploy-upload-")) / "upload_uploads.py"
     local_script.write_text(inline_py, encoding="utf-8")
@@ -767,12 +814,13 @@ def action_upload_uploads(*, dry_run: bool = False) -> None:
         "-e", f"ssh -i {os.path.expanduser(SSH_KEY)}",
         str(local_script), f"{SSH_TARGET}:{remote_script}",
     ])
-    cmd = f"cd {REMOTE_DIR} && python3 {remote_script}"
+    cmd = f"cd {REMOTE_DIR} && set -a && source .env.production && set +a && python3 {remote_script}"
     if dry_run:
         log(f"[DRY-RUN] 会跑: {cmd}")
         log(inline_py)
         return
-    ssh_cmd(cmd, forward_env=forward_envs)
+    # 不传 forward_env,所有 ALIYUN_* 都在 server 端 .env.production 里
+    ssh_cmd(cmd)
     # 清理服务器临时文件
     ssh_cmd(f"rm -f {remote_script}", check=False)
 
