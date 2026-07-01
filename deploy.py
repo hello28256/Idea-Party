@@ -388,9 +388,9 @@ def action_migrate_oss(*, dry_run: bool = False) -> None:
     """
     cmd = (
         f"cd {REMOTE_DIR} && "
-        # pip3 install 静默失败容错(--user 不需要 sudo,装不上也不致命,
-        # 后续会报 ModuleNotFoundError 让用户看清错)
-        f"pip3 install --user --quiet oss2 2>/dev/null; "
+        # PEP 668 兼容:Ubuntu 22.04+ 默认禁 pip 装到系统环境,加 --break-system-packages
+        # 装到 --user 不污染系统,只影响 ubuntu 用户自己
+        f"pip3 install --user --break-system-packages --quiet oss2 2>&1 | tail -3; "
         f"python3 server/scripts/migrate_uploads_to_oss.py"
         f"{' --dry-run' if dry_run else ''}"
     )
