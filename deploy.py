@@ -113,6 +113,10 @@ SSH_KEY = os.environ.get("DEPLOY_SSH_KEY", "~/.ssh/id_ed25519").strip()
 REMOTE_DIR = os.environ.get("DEPLOY_REMOTE_DIR", "/opt/ideaparty").strip()
 REMOTE_ENV_FILE = os.environ.get("DEPLOY_REMOTE_ENV_FILE", ".env.production").strip()
 
+# SSH 客户端 timeout (秒)。覆盖 Step 1.6 upload_uploads 这种可能跑十几分钟的
+# 长命令。GitHub Actions runner 默认 10 分钟,本地默认无 timeout。
+SSH_TIMEOUT = float(os.environ.get("DEPLOY_SSH_TIMEOUT", "1800"))
+
 # ---- Uploads volume sync (Step 1.5) ----
 # Volume name that docker-compose maps to /app/uploads on the server container.
 DEPLOY_UPLOADS_VOLUME = os.environ.get("DEPLOY_UPLOADS_VOLUME", "idea-server-uploads").strip()
@@ -194,7 +198,7 @@ def _load_aliyun_env_from_file(env_file: str = ".env.production") -> None:
             os.environ[key] = val
 
 
-def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: str | None = None) -> subprocess.CompletedProcess:
+def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: str | None = None, timeout: float | None = None) -> subprocess.CompletedProcess:
     """执行本地命令。check=True 时失败抛 CalledProcessError。
 
     安全: 打 DEBUG 日志前对 Secret 变量值脱敏,避免 STS / DB 密码
@@ -209,6 +213,7 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = False, cwd: s
         capture_output=capture,
         text=True,
         cwd=cwd,
+        timeout=timeout,
     )
 
 
@@ -259,7 +264,7 @@ def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forwa
     else:
         final_cmd = remote_cmd
     cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, final_cmd]
-    return run(cmd, capture=capture, check=check)
+    return run(cmd, capture=capture, check=check, timeout=SSH_TIMEOUT)
 
 
 # Dry-run 模式下跳过 verification —— 没有真同步，凭空检查会假阳性。
@@ -560,16 +565,16 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_
     if not skip_uploads:
         log("=== Step 1.5/4: sync uploads into idea-server-uploads volume ===")
         action_sync_uploads()
-    else:
-        log("[uploads] skipped via --skip-uploads")
 
-    log("=== Step 1.6/4: upload uploads to OSS ===")
-    # 默认走 manifest 增量 (--force-upload 强制全量 PUT 覆盖)。
-    # 失败 warn 但不阻断 deploy。
-    try:
-        action_upload_uploads(force=force_upload)
-    except SystemExit:
-        log("⚠️  uploads 上传失败,跳过 (deploy 主流程继续)")
+        log("=== Step 1.6/4: upload uploads to OSS ===")
+        # 默认走 manifest 增量 (--force-upload 强制全量 PUT 覆盖)。
+        # 失败 warn 但不阻断 deploy。
+        try:
+            action_upload_uploads(force=force_upload)
+        except SystemExit:
+            log("⚠️  uploads 上传失败,跳过 (deploy 主流程继续)")
+    else:
+        log("[uploads] skipped via --skip-uploads (1.5 + 1.6 都不跑)")
 
     if sync_only:
         log("sync-only 模式，跳过构建和重启")
