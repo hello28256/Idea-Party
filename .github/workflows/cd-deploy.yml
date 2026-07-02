@@ -42,7 +42,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          command: |
+          script: |
             set -e
             cd /opt/ideaparty
             test -f .env.production || {
@@ -75,7 +75,7 @@ jobs:
           #   deploy.py 默认会同步 uploads/avatars/* 到卷 + 增量上 OSS。
           #   这俩是大文件/OSS 调用,CD 不必每次都跑;
           #   uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
-          command: |
+          script: |
             set -e
             cd /opt/ideaparty
             REF="${{ steps.ref.outputs.value }}"
@@ -100,7 +100,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          command: |
+          script: |
             set -e
             cd /opt/ideaparty
             # deploy.py:582 _wait_for_healthy 已经等过;这里再过一次双重确认
