@@ -7,7 +7,7 @@
 | File | 触发 | 作用 |
 |---|---|---|
 | `workflows/ci.yml` | push / PR / manual | 跑前端 `typecheck + vitest + build`,后端 `mvn test + package`,Dockerfile `buildx validate` |
-| `workflows/cd-deploy.yml` | push `main` / manual | SSH 到 VPS 跑 `python3 deploy.py --skip-uploads`,自动部署生产环境 |
+| `workflows/cd-deploy.yml` | push `main` / manual | SSH 到 VPS 跑 `python3 deploy.py --use-tar`,自动部署生产环境(包含 manifest 增量上传 uploads 到 OSS) |
 | `workflows/release.yml` | 推送 `v*.*.*` tag / manual | 构建并推送 `server` / `client` 镜像到 GHCR,自动生成 GitHub Release notes |
 | `workflows/codeql.yml` | push `main` / PR / 周一 | GitHub 内置 CodeQL 安全扫描(JS + Java) |
 | `dependabot.yml` | 每周一 | 自动 PR 升级 `client/`(npm)和 `server/`(maven)依赖 |
@@ -31,5 +31,5 @@
 - **`client/Dockerfile:16` 用 `npm install --legacy-peer-deps`**:CI `ci.yml` 同步用 `npm ci --legacy-peer-deps`,避免 `lucide-vue-next` 触发 ERESOLVE。
 - **`server/Dockerfile:23` 跳测试**:Docker 构建期 `-Dmaven.test.skip=true` 是性能优化。**CI 必须跑测试**,见 `ci.yml` 的 server job。
 - **`deploy.py:148-149` 排除 `.env.production`**:CD **不** 注入 `.env.production`,服务器上的 `.env.production` 仍是部署前手工放的(`deploy.py --sync-env` 是一次性入口)。CI 改代码触发 CD 时不会重写 env,audit 友好。
-- **`deploy.py:123` uploads/avatars 子目录**:CI/CD 默认 `--skip-uploads`,因为是大文件且通常不变;uploads 同步走人工 `./scripts/oss-sync-avatars.sh` 或 `./deploy.py`(不带 `--skip-uploads`)。
+- **`deploy.py:123` uploads/avatars 子目录**:CD 跑全量 deploy.py(走 `upload_uploads.py` manifest 增量,日常 0~几十次 PUT,几秒过)。前端硬编码走 OSS 桶 URL,新加图片必须推到 OSS 才不会被 404。只改代码时用 `./deploy.py --skip-uploads` 跳过 upload 步骤(但用户访问新加图仍会 404)。
 - **`docker-compose.yml` 现在用 `build:`**:CD 走 `deploy.py` 的本地 build(已经能用),没有改 `compose.yml` 去拉 GHCR 镜像;后续单独 PR 做镜像替换。
