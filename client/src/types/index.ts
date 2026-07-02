@@ -112,6 +112,9 @@ export interface Character {
   ownerId?: string
   isPreset?: boolean
   preset?: boolean
+  // preset 角色从 Summary 列表就返回 prompt (避免后端空 prompt 联网+AI 生成 8s)
+  // 用户角色这条是 undefined,前端 clone 时不会传
+  prompt?: string
   // 推荐位分类（多分类集合）：发现页"分类标签条"按此过滤；
   // 一个角色可同时属于多个分类（如毛泽东 = 历史 + 政治家 + 军事家），筛选按"包含"语义匹配。
   categories?: CharacterCategory[]

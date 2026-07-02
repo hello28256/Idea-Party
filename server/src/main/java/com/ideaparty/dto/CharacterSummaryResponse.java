@@ -39,6 +39,10 @@ public class CharacterSummaryResponse {
     private Set<CharacterCategory> categories = new HashSet<>();
     private Instant createdAt;
     private Instant updatedAt;
+    // 仅 preset 角色填写,前端 clone 时直接传这个 prompt 给 create 接口,
+    // 避免后端空 prompt 触发联网+DeepSeek 生成 (浪费 8s + token)。
+    // 用户角色不返回,避免 prompt 泄露 (其他用户 clone 别人的角色时也能拿到 prompt)。
+    private String prompt;
 
     public CharacterSummaryResponse() {}
 
@@ -55,6 +59,10 @@ public class CharacterSummaryResponse {
         if (character.getOwner() != null) {
             response.setOwnerId(character.getOwner().getId());
         }
+        // preset 角色带 prompt,前端 clone 时用得上,避免后端空 prompt 联网+AI 生成(8s+)
+        if (character.isPreset()) {
+            response.setPrompt(character.getPrompt());
+        }
         return response;
     }
 
@@ -62,6 +70,8 @@ public class CharacterSummaryResponse {
      * 从已包含完整字段的 CharacterResponse 转 Summary(丢弃 prompt)。
      * 用于 Controller 列表端点:Service 已返回 CharacterResponse 流(走内存缓存),
      * 没必要为了 Summary 再查一次 entity。
+     *
+     * <p>preset 角色例外:复制 prompt 给前端 clone 用,见 fromEntity 注释。
      */
     public static CharacterSummaryResponse fromResponse(CharacterResponse source) {
         CharacterSummaryResponse response = new CharacterSummaryResponse();
@@ -74,6 +84,9 @@ public class CharacterSummaryResponse {
         response.setCreatedAt(source.getCreatedAt());
         response.setUpdatedAt(source.getUpdatedAt());
         response.setOwnerId(source.getOwnerId());
+        if (source.isPreset()) {
+            response.setPrompt(source.getPrompt());
+        }
         return response;
     }
 
@@ -114,4 +127,7 @@ public class CharacterSummaryResponse {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getPrompt() { return prompt; }
+    public void setPrompt(String prompt) { this.prompt = prompt; }
 }
