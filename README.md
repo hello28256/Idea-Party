@@ -430,7 +430,7 @@ docker compose logs -f
 
 ```bash
 # 第一次:MISS,第二次:HIT
-curl -I https://idea-party.example.com/uploads/avatars/scenarios/scn-interview-coach.jpg
+curl -I https://ideaparty.example.com/uploads/avatars/scenarios/scn-interview-coach.jpg
 # 看 X-Cache-Status 响应头
 ```
 

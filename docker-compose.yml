@@ -58,7 +58,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    image: idea-party/server:latest
+    image: ideaparty/server:latest
     container_name: idea-server
     restart: unless-stopped
     ports:
@@ -129,7 +129,7 @@ services:
         # Set VITE_WS_URL only if you have a separate WS host. Empty = use same origin via nginx.
         VITE_SERVER_PROXY_PORT: "8080"
         VITE_WS_URL: ""
-    image: idea-party/client:latest
+    image: ideaparty/client:latest
     container_name: idea-client
     restart: unless-stopped
     depends_on:
