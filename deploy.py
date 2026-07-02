@@ -30,7 +30,6 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
   python3 deploy.py --logs server    # tail 指定服务日志
   python3 deploy.py --restart server # 重启指定服务
   python3 deploy.py --shell server   # 进入容器 shell
-  python3 deploy.py --migrate-oss    # 全量迁移 uploads 到 OSS (一次性,跑完可弃用)
 
 依赖:Python 3.10+,本机已装 rsync / ssh,服务器已配 SSH 密钥登录
 敏感信息:服务器端 /opt/ideaparty/.env.production 持有 STS Secret,deploy
@@ -485,18 +484,18 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_
 
 
 def _check_oss_preset_count() -> None:
-    """OSS 上 presets/ 数量低于阈值就 die,让用户跑 --migrate-oss。
+    """OSS 上 presets/ 数量低于阈值就 die,提示用 --force-upload 重新传。
 
     之前的 bug:本地 server/uploads/avatars/presets/ 有 600+ 张图,但 OSS 上 uploads/
     avatars/presets/ 是 0,deploy 完后客户端图片全 404(看 character library 出现字母
-    头像)。原因是 .env.production 漏配 ALIYUN_* 变量,migrate-oss 没法跑。
+    头像)。原因是 .env.production 漏配 ALIYUN_* 变量,Step 1.6 上传没跑。
 
     这个检查在 deploy 主流程里做兜底:即使 .env.production 配错了,deploy 时
-    也能提醒运维"OSS 上图不全,先跑 --migrate-oss"。
+    也能提醒运维"OSS 上图不全,用 --force-upload 重新传"。
 
     退出码:
       0  = OSS 上图数 >= 阈值,继续 deploy
-      非 0 = 阻断 deploy,提示跑 --migrate-oss
+      非 0 = 阻断 deploy,提示用 --force-upload
 
     跳过方式:DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py
     """
@@ -526,7 +525,7 @@ def _check_oss_preset_count() -> None:
         f"echo \"oss_preset_count=$COUNT threshold=$threshold\" && "
         f"if [ \"$COUNT\" -lt \"$threshold\" ]; then "
         f"  echo \"❌ OSS 上 presets 数量 $COUNT < $threshold,部署后会全 404。\" >&2; "
-        f"  echo \"   解决: python3 deploy.py --migrate-oss\" >&2; "
+        f"  echo \"   解决: python3 deploy.py --force-upload\" >&2; "
         f"  echo \"   跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py\" >&2; "
         f"  exit 1; "
         f"fi"
@@ -535,7 +534,7 @@ def _check_oss_preset_count() -> None:
     if proc.returncode != 0:
         die(
             "OSS 上 presets 数量不足,deploy 已阻断(避免上线后客户端图片全 404)。\n"
-            "  解决: python3 deploy.py --migrate-oss\n"
+            "  解决: python3 deploy.py --force-upload\n"
             "  跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py"
         )
 
@@ -658,49 +657,6 @@ def action_shell(service: str) -> None:
     ssh_path = os.path.expanduser(SSH_KEY)
     cmd = ["ssh", "-t", "-i", ssh_path, SSH_TARGET, f"cd {REMOTE_DIR} && docker compose --env-file {REMOTE_ENV_FILE} exec {service} sh"]
     run(cmd)
-
-
-def action_migrate_oss(*, dry_run: bool = False) -> None:
-    """把 server/uploads/avatars/ 推到阿里云 OSS 桶 idea-party-uploads。
-
-    一次性迁移,跑完即可禁用迁移用的 RAM 用户的 AK。
-
-    用法:
-      python3 deploy.py --migrate-oss            # 真传
-      python3 deploy.py --migrate-oss --dry-run  # 只列计划
-
-    依赖: 服务器装了 oss2(pip3 install --user oss2),环境变量从服务器
-          .env.production 读(aliyun.oss.* 和 aliyun.sts.*)。
-    """
-    # 先探测 pip,没有就 sudo apt install(Ubuntu 22.04 最小化没装 pip)
-    # sudo 可能要密码,装失败就让用户手动装并给清晰指引
-    cmd = (
-        f"cd {REMOTE_DIR} && "
-        f"if ! python3 -c 'import pip' 2>/dev/null; then "
-        # 没 pip: 装一次。non-interactive 是为了避免 sudo 密码提示卡 deploy
-        # 如果 sudo 需要密码,这里会失败,看下面错误处理
-        f"  (sudo -n apt-get install -y python3-pip 2>&1 || "
-        f"   {{ echo '❌ 服务器没装 pip,且 sudo 免密失败。请 SSH 服务器手动跑:'; "
-        f"     echo '   sudo apt install -y python3-pip'; "
-        f"     echo '   然后再跑: python3 deploy.py --migrate-oss'; exit 1; }}) "
-        f"  | tail -5; "
-        f"fi && "
-        # 用 python3 -m pip,装到 --user 避免污染系统
-        # --break-system-packages 绕过 PEP 668
-        f"python3 -m pip install --user --break-system-packages --quiet oss2 2>&1 | tail -3; "
-        f"python3 server/scripts/migrate_uploads_to_oss.py --src server/uploads/avatars"
-        f"{' --dry-run' if dry_run else ''}"
-    )
-    log(f"== 迁移 server/uploads/avatars/ → 阿里云 OSS ==")
-    if dry_run:
-        log("[DRY-RUN] 只列计划,不会真正上传")
-    # 安全: server 端自己 source .env.production,Secret 不进 SSH 命令行。
-    # 把 set -a/source/set +a 拼到 cmd 前面,远程执行时所有 ALIYUN_* 自动 export。
-    cmd = (
-        f"cd {REMOTE_DIR} && set -a && source .env.production && set +a && "
-        + cmd  # cmd 仍包含 migrate_uploads_to_oss.py 主体
-    )
-    ssh_cmd(cmd)
 
 
 def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None:
@@ -948,8 +904,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--shell", metavar="SERVICE", help="进入容器 shell")
     p.add_argument("--aliyun-test", action="store_true",
                    help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节")
-    p.add_argument("--migrate-oss", action="store_true",
-                   help="把 server/uploads/avatars/ 推到阿里云 OSS 桶(一次性,见 server/scripts/migrate_uploads_to_oss.py)")
     p.add_argument("--sync-env", action="store_true",
                    help="显式把本地 .env.production 推到服务器(覆盖式,deploy 主流程不再自动做,改完 env 后跑这条)")
     p.add_argument("--dry-run", action="store_true", help="只打印要执行的命令，不真正执行")
@@ -983,8 +937,6 @@ def main() -> None:
             action_shell(args.shell)
         elif args.aliyun_test:
             action_aliyun_test()
-        elif args.migrate_oss:
-            action_migrate_oss(dry_run=args.dry_run)
         elif args.sync_env:
             action_sync_env()
         else:
