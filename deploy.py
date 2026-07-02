@@ -839,11 +839,17 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
     # 走完后写回新 manifest (覆盖旧记录,md5 重算)。
     skip_check = "False" if force else "True"
     inline_py = textwrap.dedent("""\
-        import hashlib, json, mimetypes, os, oss2, time
+        import hashlib, json, mimetypes, os, time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         from pathlib import Path
+
+        import alibabacloud_oss_v2 as oss
 
         MANIFEST_PATH = __MANIFEST__
         subdirs = __SUBDIRS__
+        PARALLEL_FILES = 4       # 并发上传的文件数(避免 OSS 端限流)
+        PART_SIZE = 5 * 1024 * 1024  # 5 MiB per part
+        PUT_TIMEOUT = 30         # 单文件 PUT timeout (秒)
 
         def md5_of(p):
             h = hashlib.md5()
@@ -865,13 +871,53 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
                 json.dump(m, f, ensure_ascii=False, sort_keys=True, indent=2)
             os.replace(tmp, MANIFEST_PATH)
 
-        auth = oss2.Auth(os.environ['ALIYUN_STS_ACCESS_KEY_ID'], os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'])
-        bucket = oss2.Bucket(auth, os.environ['ALIYUN_OSS_ENDPOINT'], os.environ['ALIYUN_OSS_BUCKET'])
+        # aliyun-oss-python-sdk-v2 配置:
+        #   - credentials: STS AssumeRole 短期凭证(从 .env.production source 进来)
+        #   - region + endpoint: region 给 SDK 做签名 (v4),endpoint 给 HTTP 实际请求
+        #     不显式设 endpoint 会让 SDK 走 region 拼 default endpoint,可能不准确
+        #   - connect_timeout / readwrite_timeout: 避免单文件卡死
+        #   - retry_max_attempts: 失败自动重试
+        creds = oss.credentials.StaticCredentialsProvider(
+            access_key_id=os.environ['ALIYUN_STS_ACCESS_KEY_ID'],
+            access_key_secret=os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'],
+        )
+        cfg = oss.config.load_default()
+        cfg.credentials_provider = creds
+        cfg.region = os.environ['ALIYUN_OSS_REGION'].replace('oss-', '')
+        # endpoint 走 endpoint host (不要带 https://, SDK 自己加)
+        cfg.endpoint = os.environ['ALIYUN_OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
+        cfg.connect_timeout = PUT_TIMEOUT
+        cfg.readwrite_timeout = PUT_TIMEOUT
+        cfg.retry_max_attempts = 2
+        # 头像增量小,关闭 CRC64 校验省 CPU
+        cfg.disable_upload_crc64_check = True
+        client = oss.Client(cfg)
+        uploader = oss.Uploader(client)
+
+        def put_one(p, key):
+            '''上传一个文件,multipart + 4 线程并发分片'''
+            # v2 SDK 的 PutObjectRequest 直接支持 cache_control / content_type 参数,
+            # 不需要 RequestHeader。avatar 永久静态资源设 immutable cache。
+            ct = mimetypes.guess_type(p.name)[0]
+            req = oss.PutObjectRequest(
+                bucket=os.environ['ALIYUN_OSS_BUCKET'],
+                key=key,
+                cache_control='public, max-age=31536000, immutable',
+            )
+            if ct:
+                req.content_type = ct
+            # v2 SDK: upload_file 自动 multipart (>part_size 触发),
+            # parallel_num 4 内部并发,part_size 5 MiB,
+            return uploader.upload_file(
+                req,
+                filepath=str(p),
+                part_size=PART_SIZE,
+                parallel_num=4,
+                enable_checkpoint=False,  # 临时目录每次都清,不需要断点续传
+            )
 
         manifest = load_manifest()
-        new_manifest = dict(manifest)  # 复制原 manifest,本跑增量后写回
-        # 清理本地已删的 key(避免 manifest 无限膨胀 — OSS 上的旧对象由
-        # 后续 _check_oss_preset_count / 手工 ossutil rm 兜底,这里只清本地账本)
+        new_manifest = dict(manifest)
         active_keys = set()
 
         t0 = time.time()
@@ -883,7 +929,10 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
                 continue
             files = [p for p in src.rglob('*') if p.is_file()]
             print('[upload] [%s] %d files' % (sub, len(files)))
-            ok = fail = skip = 0
+
+            # 先分类: 要 PUT 的 vs 要 skip 的
+            to_put = []  # [(path, key, mtime, size), ...]
+            skip = 0
             for p in files:
                 rel = p.relative_to(src).as_posix()
                 key = 'uploads/avatars/%s/%s' % (sub, rel)
@@ -892,26 +941,28 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
                 mtime = int(st.st_mtime)
                 size = st.st_size
                 prev = manifest.get(key)
-                # mtime+size+md5 三项都一致才 skip;md5 缺失(首次或上次 PUT 失败)会
-                # 视为变更,触发 PUT,PUT 成功后写新 md5 进 manifest。
-                # --force-upload 时 manifest 完全跳过,所有文件强制 PUT。
                 if __SKIP_CHECK__ and prev and prev.get('mtime') == mtime and prev.get('size') == size and prev.get('md5'):
                     skip += 1
                     continue
-                try:
-                    headers = {'Cache-Control': 'public, max-age=31536000, immutable'}
-                    ct = mimetypes.guess_type(p.name)[0]
-                    if ct:
-                        headers['Content-Type'] = ct
-                    bucket.put_object_from_file(key, str(p), headers=headers)
-                    ok += 1
-                    # md5 计算放 PUT 成功之后:PUT 失败就不写,下次自然重试
-                    new_manifest[key] = {'mtime': mtime, 'size': size, 'md5': md5_of(p)}
-                    if ok % 50 == 0:
-                        print('[upload] [%s] %d/%d put' % (sub, ok, len(files)))
-                except Exception as e:
-                    print('  [FAIL] %s: %s: %s' % (p.relative_to(src), type(e).__name__, e))
-                    fail += 1
+                to_put.append((p, key, mtime, size))
+
+            # 并发上传要 PUT 的文件
+            ok = fail = 0
+            with ThreadPoolExecutor(max_workers=PARALLEL_FILES) as ex:
+                futures = {ex.submit(put_one, p, key): (p, key, mtime, size)
+                           for (p, key, mtime, size) in to_put}
+                for fut in as_completed(futures):
+                    p, key, mtime, size = futures[fut]
+                    try:
+                        fut.result()
+                        ok += 1
+                        new_manifest[key] = {'mtime': mtime, 'size': size, 'md5': md5_of(p)}
+                        if ok % 20 == 0:
+                            print('[upload] [%s] %d/%d put' % (sub, ok, len(to_put)))
+                    except Exception as e:
+                        print('  [FAIL] %s: %s: %s' % (p.relative_to(src), type(e).__name__, e))
+                        fail += 1
+
             print('[upload] [%s] done: put=%d skip=%d fail=%d' % (sub, ok, skip, fail))
             total_ok += ok
             total_fail += fail
