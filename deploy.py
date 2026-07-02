@@ -5,18 +5,37 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
 功能：
   - 用 rsync 把本地项目同步到 CVM（只传差异）
   - 远程执行 docker compose build + up -d
+  - 同步 uploads 数据到 idea-server-uploads volume (server 容器本地)
+  - 增量上传 uploads 到阿里云 OSS (默认走 manifest, --force-upload 强制全量)
   - 支持查看状态 / 拉日志 / 重启单个服务
 
-用法：
-  python3 deploy.py                 # 完整部署（同步 + uploads + 构建 + 重启）
-  python3 deploy.py --sync-only     # 只同步，不触发部署
-  python3 deploy.py --skip-uploads  # 跳过 uploads volume 同步（仅调试）
-  python3 deploy.py --status        # 查看容器状态
-  python3 deploy.py --logs          # tail 所有服务日志
-  python3 deploy.py --logs server   # tail 指定服务日志
-  python3 deploy.py --restart server # 重启指定服务
+部署步骤：
+  Step 0  ensure_remote_dir     确保 /opt/ideaparty 存在
+  Step 1  rsync                  本地 → 服务器 (--delete + RSYNC_EXCLUDES)
+  Step 1.5 sync uploads          server/uploads/avatars/* → idea-server-uploads 卷
+  Step 1.6 upload uploads         server/uploads/avatars/* → 阿里云 OSS (增量)
+  Step 1.75 verify OSS count    检查 OSS 上 presets 数量,过少阻断 deploy
+  Step 2  build                  docker compose build
+  Step 3  up -d                   docker compose up -d
+  Step 3.5 wait healthy          等所有容器 healthy
+  Status   ps                     打印容器状态
 
-依赖：Python 3.10+，本机已装 rsync / ssh，服务器已配 SSH 密钥登录
+用法：
+  python3 deploy.py                  # 完整部署
+  python3 deploy.py --sync-only      # 只同步,不构建/重启
+  python3 deploy.py --skip-uploads   # 跳过 Step 1.5 + 1.6 uploads 同步(仅调试)
+  python3 deploy.py --force-upload   # Step 1.6 强制全量 PUT,忽略 manifest
+  python3 deploy.py --status         # 查看容器状态
+  python3 deploy.py --logs           # tail 所有服务日志
+  python3 deploy.py --logs server    # tail 指定服务日志
+  python3 deploy.py --restart server # 重启指定服务
+  python3 deploy.py --shell server   # 进入容器 shell
+  python3 deploy.py --migrate-oss    # 全量迁移 uploads 到 OSS (一次性,跑完可弃用)
+
+依赖:Python 3.10+,本机已装 rsync / ssh,服务器已配 SSH 密钥登录
+敏感信息:服务器端 /opt/ideaparty/.env.production 持有 STS Secret,deploy
+不通过 SSH 转发 (server 端 source .env.production),Secret 不进命令行
+/ log / chat 历史。
 """
 
 from __future__ import annotations
