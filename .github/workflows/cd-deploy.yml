@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: production
-      url: ${{ secrets.PUBLIC_BASE_URL }}
+      url: ${{ PUBLIC_BASE_URL }}
     steps:
       - name: Validate required secrets present
         env:
