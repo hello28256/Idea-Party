@@ -263,7 +263,16 @@ def ssh_cmd(remote_cmd: str, *, capture: bool = False, check: bool = True, forwa
         final_cmd = f"bash -c {shlex.quote(env_prefix + '; ' + remote_cmd)}"
     else:
         final_cmd = remote_cmd
-    cmd = ["ssh", "-i", ssh_path, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", SSH_TARGET, final_cmd]
+    cmd = ["ssh",
+        "-i", ssh_path,
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        # 长命令(如 upload_uploads.py 跑 5-10 分钟)需要 keepalive,
+        # 否则 OpenSSH client 6 分钟 idle 主动断(发 Broken pipe 给 subprocess.run)。
+        "-o", "ServerAliveInterval=60",
+        "-o", "ServerAliveCountMax=30",
+        SSH_TARGET, final_cmd,
+    ]
     return run(cmd, capture=capture, check=check, timeout=SSH_TIMEOUT)
 
 
