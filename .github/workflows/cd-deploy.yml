@@ -36,7 +36,7 @@ jobs:
           fi
 
       - name: "Pre-flight: confirm server has .env.production"
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -65,7 +65,7 @@ jobs:
           echo "value=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Deploy via deploy.py
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -94,7 +94,7 @@ jobs:
 
       - name: Smoke check
         if: success()
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
