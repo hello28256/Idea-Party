@@ -69,10 +69,32 @@ upload:
     max-size: ${UPLOAD_AVATAR_MAX_SIZE:5242880}
 
 # =============================================================================
-# 阿里云 OSS + STS 配置
+# 腾讯云 COS + CAM 配置 (主存储)
+# 全部从环境变量读,代码里不允许出现 Secret 字面量。
+# 生产部署: 在 .env.production 设置 TENCENT_COS_*。
+# 桶名: idea-party-uploads-1361890600 (首尔 ap-seoul,跟 ECS 同地域,零跨境)
+# PR1: 仅加 tencent.cos.* 块, aliyun.oss.* 块保留(代码仍读 aliyun)。
+# 切换到 COS 走完整迁移在 PR2 (后端 STS 服务 + 上传 SDK 重写)。
+# =============================================================================
+tencent:
+  cos:
+    bucket: ${TENCENT_COS_BUCKET:idea-party-uploads-1361890600}
+    region: ${TENCENT_COS_REGION:ap-seoul}
+    endpoint: ${TENCENT_COS_ENDPOINT:https://idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com}
+    bucket-domain: ${TENCENT_COS_BUCKET_DOMAIN:https://idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com}
+    key-prefix: ${TENCENT_COS_KEY_PREFIX:uploads/}
+  cam:
+    secret-id: ${TENCENT_COS_SECRET_ID:}
+    secret-key: ${TENCENT_COS_SECRET_KEY:}
+  file:
+    max-size: ${UPLOAD_FILE_MAX_SIZE:5242880}
+
+# =============================================================================
+# 阿里云 OSS + STS 配置 (过渡期保留)
 # 全部从环境变量读,代码里不允许出现 Secret 字面量。
 # 生产部署: 在 .env.production 设置 ALIYUN_OSS_* 和 ALIYUN_STS_*。
 # 桶名带横杠: idea-party-uploads(华南1/深圳,公共读)
+# PR2 会重写后端 STS 服务为腾讯云 CAM,届时删除本块。
 # =============================================================================
 aliyun:
   oss:
