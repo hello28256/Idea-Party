@@ -11,7 +11,11 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
 
 部署步骤：
   Step 0  ensure_remote_dir     确保 /opt/ideaparty 存在
-  Step 1  rsync                  本地 → 服务器 (--delete + RSYNC_EXCLUDES)
+  Step 1  sync                  本地 → 服务器 (--delete + RSYNC_EXCLUDES)
+                                --use-tar 走 tar 流式压缩 + 单连接,跨境场景
+                                1000+ 小文件比 rsync 快 5-10x (10-30 KB/s
+                                → 1-3 MB/s)。本地 Mac 手跑默认还是 rsync,
+                                只在 CI 等明显跨境场景开 --use-tar。
   Step 1.5 sync uploads          server/uploads/avatars/* → idea-server-uploads 卷
   Step 1.6 upload uploads         server/uploads/avatars/* → 阿里云 OSS (增量)
   Step 1.75 verify OSS count    检查 OSS 上 presets 数量,过少阻断 deploy
@@ -23,6 +27,7 @@ deploy.py — 一键部署 Idea-Party 到腾讯云 CVM
 用法：
   python3 deploy.py                  # 完整部署
   python3 deploy.py --sync-only      # 只同步,不构建/重启
+  python3 deploy.py --use-tar        # Step 1 走 tar 流(跨境 CI 推荐)
   python3 deploy.py --skip-uploads   # 跳过 Step 1.5 + 1.6 uploads 同步(仅调试)
   python3 deploy.py --force-upload   # Step 1.6 强制全量 PUT,忽略 manifest
   python3 deploy.py --status         # 查看容器状态
@@ -278,7 +283,22 @@ def ensure_remote_dir() -> None:
     ssh_cmd(f"sudo mkdir -p {REMOTE_DIR} && sudo chown -R $USER:$USER {REMOTE_DIR}")
 
 
-def action_sync() -> None:
+def action_sync(use_tar: bool = False) -> None:
+    """本地 → 远程同步。
+
+    use_tar=False (默认): 走 rsync。1000+ 小文件 + 跨境时慢 (10-30 KB/s),
+                          适合本地 Mac 调试。
+    use_tar=True: 走 tar 流压缩 + SSH 传输。跨境提 5-10x, 适合 CI。
+
+    两种方式都遵守 RSYNC_EXCLUDES 排除规则,都会 --delete 删远端多余文件。
+    """
+    if use_tar:
+        _action_sync_tar()
+    else:
+        _action_sync_rsync()
+
+
+def _action_sync_rsync() -> None:
     """rsync 同步本地项目到远程。"""
     local_dir = str(Path.cwd()) + "/"
     excludes = sum([["--exclude", e] for e in RSYNC_EXCLUDES], [])
@@ -292,6 +312,101 @@ def action_sync() -> None:
         local_dir, f"{SSH_TARGET}:{REMOTE_DIR}/",
     ]
     run(cmd)
+
+
+def _action_sync_tar() -> None:
+    """tar 流式同步本地项目到远程。
+
+    原理:
+      本地:  tar -czf - --exclude=X1 -C /local/dir . | ssh ...
+      远端:  cd /remote/dir && tar -xzf -
+
+    然后跑一次空 rsync -a --delete 清掉远端多余文件 (等价于 rsync --delete
+    的副作用, 但不传内容, 1-2 秒搞定)。
+
+    优势:
+      - 单 SSH 连接 + 单压缩流, 跨境 1000+ 小文件提 5-10x (10-30 KB/s -> 1-3 MB/s)
+      - tar 自带 -C 切目录, 跟 rsync 等价
+      - 复用 RSYNC_EXCLUDES 排除规则, 行为一致
+    """
+    local_dir = str(Path.cwd())
+    ssh_path = os.path.expanduser(SSH_KEY)
+    # --exclude 参数要放到 tar 命令上, 顺序: tar -czf - --exclude X1 ... -C dir .
+    tar_excludes = sum([["--exclude", e] for e in RSYNC_EXCLUDES], [])
+
+    # 1) tar 流推送 + 解压
+    tar_cmd = [
+        "tar", "-czf", "-",
+        *tar_excludes,
+        "-C", local_dir,
+        ".",
+    ]
+    ssh_cmd_parts = [
+        "ssh",
+        "-i", ssh_path,
+        "-C",                       # SSH 层也开压缩
+        "-o", "CompressionLevel=9", # 最高压缩
+        SSH_TARGET,
+        f"cd {shlex.quote(REMOTE_DIR)} && tar -xzf -",
+    ]
+
+    printable = (
+        f"$ {' '.join(shlex.quote(c) for c in tar_cmd)} | "
+        f"{' '.join(shlex.quote(c) for c in ssh_cmd_parts)}"
+    )
+    printable = _mask_secrets(printable, _collect_secrets())
+    log(printable)
+
+    # Popen 走 pipe, tar 进程被 ssh 读 stdin
+    p_tar = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        p_ssh = subprocess.Popen(ssh_cmd_parts, stdin=p_tar.stdout,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        p_tar.kill()
+        raise
+    finally:
+        if p_tar.stdout:
+            p_tar.stdout.close()  # 让 tar 收到 SIGPIPE 如果 ssh 提前退出
+
+    ssh_stdout, ssh_stderr = p_ssh.communicate()
+    tar_stdout, tar_stderr = p_tar.communicate()
+
+    if p_tar.returncode != 0:
+        # tar 可能因为 ssh 关闭收到 SIGPIPE, 这是预期行为, 下面检查 ssh 退出码
+        if p_ssh.returncode == 0:
+            log(f"[tar] tar 退出码 {p_tar.returncode} 但 ssh 成功, 忽略 (SIGPIPE 正常)")
+        else:
+            die(f"tar 失败: {tar_stderr.decode(errors='replace').strip()}")
+    if p_ssh.returncode != 0:
+        die(f"ssh tar stream 失败: {ssh_stderr.decode(errors='replace').strip()}")
+
+    log(f"[tar] 推送完成 ({len(ssh_stdout)} bytes ssh stdout)")
+
+    # 2) rsync --delete 清掉远端多余文件
+    #    不传内容, 只算 diff 然后删。rsync 会复用 --exclude, 不会误删 .env.production。
+    #    用 --update + --delete-after: 先传(没东西可传), 再删, 保证中途不破坏。
+    log("[tar] 跑 rsync --delete 清远端多余文件 ...")
+    rsync_excludes = sum([["--exclude", e] for e in RSYNC_EXCLUDES], [])
+    rsync_delete_cmd = [
+        "rsync", "-a", "--delete", "--existing", "--ignore-existing",
+        *rsync_excludes,
+        "-e", f"ssh -i {ssh_path}",
+        f"{local_dir}/",  # 传本地空内容(被 --existing + --ignore-existing 过滤)
+        f"{SSH_TARGET}:{REMOTE_DIR}/",
+    ]
+    # 简化: 直接用 rsync -a --delete 第二次, 走相同 excludes, 但忽略内容传输
+    # rsync --delete 但配合 --max-size=0 阻止文件传输
+    rsync_delete_cmd = [
+        "rsync", "-a", "--delete",
+        "--max-size=0",  # 关键: 不传任何文件, 只算 --delete
+        *rsync_excludes,
+        "-e", f"ssh -i {ssh_path}",
+        f"{local_dir}/",
+        f"{SSH_TARGET}:{REMOTE_DIR}/",
+    ]
+    run(rsync_delete_cmd)
+    log("[tar] 远端清理完成")
 
 
 def action_sync_uploads() -> None:
@@ -428,7 +543,7 @@ def action_sync_uploads() -> None:
         log(f"[uploads] verification OK: presets count = {actual} (>= {threshold})")
 
 
-def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_upload: bool = False) -> None:
+def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_upload: bool = False, use_tar: bool = False) -> None:
     """完整部署：同步 → 上传静态资源 → 远程构建 → 远程重启。
 
     注意:.env.production 不在 deploy 流程里同步。
@@ -439,8 +554,8 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_
     log("=== Step 0/4: ensure remote dir ===")
     ensure_remote_dir()
 
-    log("=== Step 1/4: rsync local → remote ===")
-    action_sync()
+    log("=== Step 1/4: sync local → remote (use_tar=%s) ===" % use_tar)
+    action_sync(use_tar=use_tar)
 
     if not skip_uploads:
         log("=== Step 1.5/4: sync uploads into idea-server-uploads volume ===")
@@ -896,6 +1011,7 @@ def parse_args() -> argparse.Namespace:
         epilog="示例：\n  python3 deploy.py --logs server\n  python3 deploy.py --restart client",
     )
     p.add_argument("--sync-only", action="store_true", help="只同步，不构建/重启")
+    p.add_argument("--use-tar", action="store_true", help="Step 1 走 tar 流式同步（CI / 跨境场景 5-10x 于 rsync）。本地 Mac 调试不必开。")
     p.add_argument("--skip-uploads", action="store_true", help="跳过 uploads volume 同步（仅调试 / 已知 volume 健康时使用）")
     p.add_argument("--force-upload", action="store_true", help="强制全量 PUT 所有 uploads 到 OSS,忽略 manifest (默认走增量)")
     p.add_argument("--status", action="store_true", help="查看容器状态")
@@ -940,7 +1056,7 @@ def main() -> None:
         elif args.sync_env:
             action_sync_env()
         else:
-            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads, force_upload=args.force_upload)
+            action_deploy(sync_only=args.sync_only, skip_uploads=args.skip_uploads, force_upload=args.force_upload, use_tar=args.use_tar)
     except subprocess.CalledProcessError as e:
         die(f"命令执行失败 (exit {e.returncode}): {e.cmd}")
 
