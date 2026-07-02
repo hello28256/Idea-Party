@@ -35,7 +35,42 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # workflow_dispatch 的 ref 输入优先, 留空用 main HEAD
+          ref: ${{ inputs.ref || 'main' }}
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
+      - name: Materialize deploy SSH key
+        # deploy.py 通过 DEPLOY_SSH_KEY 读取"本机 SSH 私钥路径",
+        # 所以要把 secret 落到 runner 的临时文件再传路径进去。
+        # runner 用完即删, 不进 artifact。
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 防止 deploy.py 弹 known_hosts 交互
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: "Pre-flight: confirm server has .env.production"
+        # 注意: 这一步是 SSH 到 VPS, 因为 .env.production 在 VPS 上;
+        # deploy.py 自己用 rsync 推代码, 但 .env.production 在 .gitignore 里
+        # 不会被 rsync 推, 必须 VPS 上手工放好。
+        # Pre-flight 验真 + 提示手工恢复指引(不修, 只检查)。
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -44,142 +79,59 @@ jobs:
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script: |
             set -e
-            # v2: 不假设 /opt/ideaparty 是 active 目录。Pre-flight 优先看 active,
-            # 找不到再找最新的 stale.* 目录(上次自愈 mv 走的),这是给运维手感用的
-            # —— 真正的恢复由 Deploy step 完成。Pre-flight 只做"env 文件里有什么"
-            # 的轻量校验,目录在不在由 Deploy step 兜底。
-            cd /opt/ideaparty 2>/dev/null || cd /opt/ideaparty.stale.*/ 2>/dev/null || {
-              echo "::error::服务器上 /opt/ideaparty 不存在,也没找到 stale 备份"
-              echo "::error::首次部署请手工: mkdir -p /opt/ideaparty && cd /opt && git clone https://github.com/hello28256/Idea-Party.git ideaparty"
-              echo "::error::然后再 scp .env.production + docker-compose.yml 进去"
+            cd /opt/ideaparty 2>/dev/null || {
+              echo "::error::VPS 上 /opt/ideaparty 不存在,无法 Pre-flight"
+              echo "::error::请先在 VPS 上手工建空目录(deploy.py 会负责把代码 rsync 进去):"
+              echo "::error::   sudo mkdir -p /opt/ideaparty && sudo chown \$USER:\$USER /opt/ideaparty"
               exit 1
             }
             pwd
             test -f .env.production || {
-              echo "::error::当前目录缺少 .env.production"
-              echo "::error::请手工 scp .env.production 到 /opt/ideaparty/.env.production"
+              echo "::error::VPS 上 .env.production 缺失, deploy.py rsync 不会带这个文件"
+              echo "::error::请手工 scp .env.production 到 /opt/ideaparty/.env.production:"
+              echo "::error::   scp -i ~/.ssh/<key> .env.production ubuntu@<vps>:/tmp/ && \\"
+              echo "::error::   ssh ubuntu@<vps> 'sudo cp /tmp/.env.production /opt/ideaparty/.env.production && sudo chown \$USER:\$USER /opt/ideaparty/.env.production && chmod 600 /opt/ideaparty/.env.production'"
               exit 1
             }
-            # 轻量校验:必须有 DeepSeek key + OSS 必备项(项目必需)
-            # 架构: 前端拿 STS 临时凭证浏览器直传 OSS,所以 server 端需要的是 STS 那组
-            # (RAM 用户 AK, 用于 AssumeRole 签发凭证),不是长期 OSS AccessKey
-            grep -q "^DEEPSEEK_API_KEY=.\+" .env.production || { echo "::error::缺少 DEEPSEEK_API_KEY"; exit 1; }
-            grep -q "^ALIYUN_OSS_BUCKET=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_BUCKET"; exit 1; }
-            grep -q "^ALIYUN_OSS_ENDPOINT=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_ENDPOINT"; exit 1; }
-            grep -q "^ALIYUN_STS_ACCESS_KEY_ID=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ACCESS_KEY_ID"; exit 1; }
-            grep -q "^ALIYUN_STS_ACCESS_KEY_SECRET=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ACCESS_KEY_SECRET"; exit 1; }
-            grep -q "^ALIYUN_STS_ROLE_ARN=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ROLE_ARN"; exit 1; }
+            # 轻量校验: 关键 env 必须存在
+            for key in DEEPSEEK_API_KEY ALIYUN_OSS_BUCKET ALIYUN_OSS_ENDPOINT \
+                       ALIYUN_STS_ACCESS_KEY_ID ALIYUN_STS_ACCESS_KEY_SECRET \
+                       ALIYUN_STS_ROLE_ARN; do
+              grep -q "^${key}=.\\+" .env.production || {
+                echo "::error::缺少 ${key}"; exit 1;
+              }
+            done
             echo "✅ env file OK"
 
-      - name: Decide ref to deploy
-        id: ref
-        run: |
-          REF="${{ inputs.ref }}"
-          if [ -z "$REF" ]; then
-            REF=main
-          fi
-          echo "value=$REF" >> "$GITHUB_OUTPUT"
-
       - name: Deploy via deploy.py
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
-          # --skip-uploads:
-          #   deploy.py 默认会同步 uploads/avatars/* 到卷 + 增量上 OSS。
-          #   这俩是大文件/OSS 调用,CD 不必每次都跑;
-          #   uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
-          script: |
-            set -e
-            BACKUP_DIR=/tmp/ideaparty-backup-$$
-            mkdir -p "$BACKUP_DIR"
-            TS=$(date +%Y%m%d-%H%M%S)
-
-            # -------- Step A: 如果 /opt/ideaparty 整个不存在,先 mkdir 占位 --------
-            if [ ! -d /opt/ideaparty ]; then
-              echo "::warning::/opt/ideaparty 不存在,准备自愈(mkdir 占位 + 后续 git clone)"
-              sudo mkdir -p /opt/ideaparty || {
-                echo "::error::无法创建 /opt/ideaparty(deploy 用户需 sudo)"
-                exit 1
-              }
-              sudo chown "$(id -u)":"$(id -g)" /opt/ideaparty
-              # 注意:此时 /opt/ideaparty 是空目录,deploy.py 会找不到 deploy.py 而失败,
-              # 由 Step B 自愈后才有代码
-            fi
-            cd /opt/ideaparty
-
-            # -------- Step B: 自愈 .git / 代码 --------
-            # v2 设计原则:
-            #   - 不 rm-rf,用 mv 走 stale 路径(原子操作,失败概率极低)
-            #   - 备份到 /tmp/ideaparty-backup/$$  (deploy 用户可写)
-            #   - 备份、clone、恢复三步完全独立,各自 || true 打 warning
-            #   - 任一步失败不阻断 deploy.py 主体,但 deploy.py 启动前有 test -f 守门
-            if [ ! -d .git ]; then
-              echo "::warning::首次部署:/opt/ideaparty 缺 .git,补一个浅 clone"
-              # 备份现有运维文件(独立 try,失败只打 warning 不退出)
-              if [ -f .env.production ]; then
-                cp .env.production "$BACKUP_DIR/env.production" \
-                  || echo "::warning::备份 .env.production 失败"
-              fi
-              if [ -f docker-compose.yml ]; then
-                cp docker-compose.yml "$BACKUP_DIR/docker-compose.yml" \
-                  || echo "::warning::备份 docker-compose.yml 失败"
-              fi
-              # 把现有非 .git 内容(可能含运维文件)mv 到 stale 路径而非 rm-rf
-              if [ -n "$(ls -A . 2>/dev/null)" ]; then
-                STALE=/opt/ideaparty.stale.$TS
-                mv /opt/ideaparty "$STALE" 2>/dev/null \
-                  || echo "::warning::mv 到 $STALE 失败,继续"
-                sudo mkdir -p /opt/ideaparty 2>/dev/null || mkdir -p /opt/ideaparty
-                sudo chown "$(id -u)":"$(id -g)" /opt/ideaparty 2>/dev/null || true
-              fi
-              # clone(独立 try,失败打 warning 但不阻断)
-              git clone --depth 50 https://github.com/hello28256/Idea-Party.git /opt/ideaparty \
-                || echo "::warning::git clone 失败,deploy.py 启动前会 fail-fast"
-              # 恢复备份(独立 try)
-              [ -f "$BACKUP_DIR/env.production" ] && \
-                cp "$BACKUP_DIR/env.production" /opt/ideaparty/.env.production \
-                || echo "::notice::无 env.production 备份可恢复"
-              [ -f "$BACKUP_DIR/docker-compose.yml" ] && \
-                cp "$BACKUP_DIR/docker-compose.yml" /opt/ideaparty/docker-compose.yml \
-                || echo "::notice::无 docker-compose.yml 备份可恢复"
-            else
-              # 已 .git: fast-forward 即可,不破坏工作树(deploy.py 会 rsync 覆盖)
-              git fetch origin main 2>/dev/null || echo "::warning::git fetch 失败,继续"
-              git reset --hard origin/main 2>/dev/null || echo "::warning::git reset 失败,继续"
-            fi
-
-            # -------- Step C: 非 main ref 切换(独立 try) --------
-            REF="${{ steps.ref.outputs.value }}"
-            if [ "$REF" != "main" ] && [ -d /opt/ideaparty/.git ]; then
-              (cd /opt/ideaparty && git fetch origin "$REF" 2>/dev/null && \
-                git checkout --force "$REF" 2>/dev/null) \
-                || echo "::warning::checkout $REF 失败,继续"
-            fi
-
-            # -------- Step D: 守门:deploy.py 必须存在才能跑 --------
-            cd /opt/ideaparty
-            if [ ! -f deploy.py ]; then
-              echo "::error::自愈后 /opt/ideaparty 仍缺 deploy.py"
-              echo "::error::可能 git clone 网络失败。请手工:"
-              echo "::error::   sudo rm -rf /opt/ideaparty && sudo mkdir -p /opt/ideaparty && \\"
-              echo "::error::   sudo chown \$USER:\$USER /opt/ideaparty && \\"
-              echo "::error::   cd /opt && git clone https://github.com/hello28256/Idea-Party.git ideaparty && \\"
-              echo "::error::   cd ideaparty && scp <本机>:.env.production . && scp <本机>:docker-compose.yml ."
-              exit 1
-            fi
-
-            # -------- Step E: 跑 deploy --------
-            [ -d .git ] && git log -1 --oneline 2>/dev/null || echo "::notice::无 .git,跳过 git log"
-            python3 deploy.py --skip-uploads
-
-            # 清理临时备份
-            rm -rf "$BACKUP_DIR" 2>/dev/null || true
+        # 关键设计变更(v3):
+        # deploy.py 的 action_sync() 是用本地 Path.cwd() 当 source,
+        # 然后 rsync 到 VPS。它设计上是从"本机"跑的工具,
+        # 不是从 VPS 跑的。所以 CD 必须在 GitHub Actions runner 上跑,
+        # 不在 VPS 上跑。
+        #
+        # VPS 在这步完全是被动接收: 只走 deploy.py 的 ssh_cmd()
+        # 调 docker compose / docker pull / docker exec 等。
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ~/.ssh/deploy_key
+          DEPLOY_REMOTE_DIR: /opt/ideaparty
+          DEPLOY_REMOTE_ENV_FILE: .env.production
+          DEPLOY_UPLOADS_VOLUME: idea-server-uploads
+          DEPLOY_UPLOADS_IMAGE: alpine:3.19
+          DEPLOY_UPLOADS_MIN_PRESETS: "100"
+        run: |
+          set -euo pipefail
+          # --skip-uploads: 不跑 Step 1.5 / 1.6, 那俩是大文件 / OSS 调用,
+          # CD 不必每次跑, uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
+          python3 deploy.py --skip-uploads
 
       - name: Smoke check
         if: success()
+        # 复用 deploy.py --status 远程拉容器状态, 跟 Pre-flight 一样只是 ssh,
+        # VPS 上没有 git / clone, 没有任何 CD workflow 自身的代码, 只有
+        # deploy.py 推过来的项目源码 + .env.production。
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -189,5 +141,11 @@ jobs:
           script: |
             set -e
             cd /opt/ideaparty
-            # deploy.py:582 _wait_for_healthy 已经等过;这里再过一次双重确认
+            # deploy.py 内部 _wait_for_healthy 已经等过, 这里再过一次双重确认
             python3 deploy.py --status 2>&1 | tail -n 20
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          echo "::notice::deploy key 已清理"
