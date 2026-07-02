@@ -925,72 +925,65 @@ async function startChat(character: any) {
     let characterIdForRoom = character.id
 
     if (isPreset) {
-      // 在我的角色库里查重名/同源角色（避免重复 clone）
+      // 关键: clone 改成后台异步,不再阻塞跳转到聊天。
+      // 之前 await characterStore.createCharacter 会等 8s (LLM 生成 prompt),
+      // 用户每次点推荐角色都体验 8s 空白。优化: 立即用 preset.id 建房间
+      // (RoomService.create 不校验所有权,preset id 也能进房间),clone 在
+      // 后台 fire-and-forget,失败也无影响 (用户已经在聊天里,clone 只是把
+      // preset 复制到我的角色库用于以后编辑/收藏,辅助功能)。
+      // dedup 逻辑: 立即查 store 找已 clone 的同名副本(本地无 LLM 调用,瞬间),
+      // 有就用副本 id,没有就用 preset id。后台 clone 完成后下次进来就走副本。
       const dup = characterStore.characters.find(c =>
         c.ownerId === myUserId && c.name === character.name
       )
       if (dup) {
         characterIdForRoom = dup.id
-        console.log('[DEBUG] Reusing already-cloned character:', dup.id)
-        // 修复老库 clone 出来头像为空的问题：
-        // 如果之前 clone 时没传 avatarUrl（因为 featuredCharacters 没保留原字段），
-        // 这里就地补一次——用当前 preset 的 avatarUrl 调 update 写回 dup。
-        // 防止：每次进「角色库」页都看到一堆首字母占位符。
+        // 老库 clone 出来头像可能为空,后台补一次(不阻塞主流程)
         if (!dup.avatarUrl && character.avatarUrl) {
-          console.log('[DEBUG] Patching missing avatarUrl for cloned character:', dup.name)
-          await characterStore.updateCharacter(dup.id, {
+          void characterStore.updateCharacter(dup.id, {
             name: dup.name,
             description: dup.description || '',
             avatarUrl: character.avatarUrl,
             prompt: dup.prompt || character.prompt || ''
-          })
+          }).catch(e => console.warn('[DEBUG] async patch avatar failed', e))
         }
       } else {
-        // 并发去重锁：若同名已经在 clone 中（典型场景：用户快速点击同一个推荐卡片），
-        // 直接拦截。否则会发出 N 个并发 create 请求穿透后端查重：
-        // 后端 create() 内的"先查重 → 联网 → AI → INSERT"有 10s+ 的窗口，
-        // 第一个请求还没 INSERT 时，后续 N-1 个请求都查不到，都会走 INSERT → 重复入库。
-        // 这层锁保证同一时刻同一个角色名只有 1 个请求在飞。
-        if (cloningCharacterNames.value.has(character.name)) {
-          console.log('[DEBUG] Already cloning character, skipping duplicate click:', character.name)
-          return
-        }
-        cloningCharacterNames.value.add(character.name)
-        try {
-          const cloned = await characterStore.createCharacter({
-            name: character.name,
-            description: character.description || '',
-            avatarUrl: character.avatarUrl || '',
-            prompt: character.prompt || ''
-          })
-          if (!cloned) {
-            // 加入角色库失败（典型原因：后端 AI prompt 生成慢/超时）。
-            // 不弹 alert 打断用户——静默 fallback，用原始 preset id 继续建房间。
-            // 用户先进入对话，"加入我的角色库"是辅助功能，失败不应阻塞主流程。
-            // 后端 RoomService.create 不校验角色所有权（见 Service 代码注释），所以 preset id 也能建房间。
-            console.warn('[DEBUG] clone failed for', character.name, '- falling back to preset id for room creation')
-          } else {
-            // 后端 CharacterService.create 会按 owner+name 去重：
-            // 若服务端已经存在同名角色，会返回那条已存在记录的 id（不是新建的 id）。
-            // 此时要把刚返回的"多余副本"从 store 移除，并使用真实已有那条的 id，
-            // 避免下次再点击又落到新建分支、且 existingRoom 查询因 id 不匹配而漏掉既有房间。
-            const serverId = cloned.id
-            const localExisting = characterStore.characters.find(c =>
-              c.ownerId === myUserId && c.name === character.name && c.id !== serverId
-            )
-            if (localExisting) {
-              console.log('[DEBUG] Server dedup returned existing character, merging local store')
-              characterIdForRoom = localExisting.id
-              const staleIdx = characterStore.characters.findIndex(c => c.id === serverId)
-              if (staleIdx !== -1) characterStore.characters.splice(staleIdx, 1)
-            } else {
-              characterIdForRoom = serverId
-              console.log('[DEBUG] Cloned preset character to my library:', serverId)
-            }
+        // 用 preset id 跳转到聊天,先让用户进对话
+        characterIdForRoom = character.id
+
+        // 后台异步 clone 到我的角色库,不 await 不 throw
+        void (async () => {
+          if (cloningCharacterNames.value.has(character.name)) {
+            return  // 已经在 clone 另一个同名,跳过
           }
-        } finally {
-          cloningCharacterNames.value.delete(character.name)
-        }
+          cloningCharacterNames.value.add(character.name)
+          try {
+            const cloned = await characterStore.createCharacter({
+              name: character.name,
+              description: character.description || '',
+              avatarUrl: character.avatarUrl || '',
+              prompt: character.prompt || ''
+            })
+            if (cloned) {
+              // 后端按 owner+name 去重,可能返回已存在记录的 id。
+              // 合并 store:若返回的不是新副本,删 store 里多余的(没有就不删)
+              const serverId = cloned.id
+              const localExisting = characterStore.characters.find(c =>
+                c.ownerId === myUserId && c.name === character.name && c.id !== serverId
+              )
+              if (localExisting) {
+                const staleIdx = characterStore.characters.findIndex(c => c.id === serverId)
+                if (staleIdx !== -1) characterStore.characters.splice(staleIdx, 1)
+              } else {
+                characterStore.characters.push(cloned)
+              }
+            }
+          } catch (e) {
+            console.warn('[DEBUG] background clone failed for', character.name, e)
+          } finally {
+            cloningCharacterNames.value.delete(character.name)
+          }
+        })()
       }
     } else if (!isMine) {
       // 属于别的用户：不能 clone 到我的库（避免越权），只能尝试复用既有房间
