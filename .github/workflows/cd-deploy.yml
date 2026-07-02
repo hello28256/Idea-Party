@@ -44,10 +44,20 @@ jobs:
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script: |
             set -e
-            cd /opt/ideaparty
+            # v2: 不假设 /opt/ideaparty 是 active 目录。Pre-flight 优先看 active,
+            # 找不到再找最新的 stale.* 目录(上次自愈 mv 走的),这是给运维手感用的
+            # —— 真正的恢复由 Deploy step 完成。Pre-flight 只做"env 文件里有什么"
+            # 的轻量校验,目录在不在由 Deploy step 兜底。
+            cd /opt/ideaparty 2>/dev/null || cd /opt/ideaparty.stale.*/ 2>/dev/null || {
+              echo "::error::服务器上 /opt/ideaparty 不存在,也没找到 stale 备份"
+              echo "::error::首次部署请手工: mkdir -p /opt/ideaparty && cd /opt && git clone https://github.com/hello28256/Idea-Party.git ideaparty"
+              echo "::error::然后再 scp .env.production + docker-compose.yml 进去"
+              exit 1
+            }
+            pwd
             test -f .env.production || {
-              echo "::error::服务器上缺少 /opt/ideaparty/.env.production"
-              echo "::error::首次部署请手工 scp 一次(deploy.py --sync-env 也可)"
+              echo "::error::当前目录缺少 .env.production"
+              echo "::error::请手工 scp .env.production 到 /opt/ideaparty/.env.production"
               exit 1
             }
             # 轻量校验:必须有 DeepSeek key + OSS 必备项(项目必需)
@@ -83,33 +93,90 @@ jobs:
           #   uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
           script: |
             set -e
-            # /opt/ideaparty 第一次铺的时候可能是 scp 上去的,不是 git clone。
-            # workflow 自身不假设它是 git repo(见 deploy.py 的设计,它用 rsync 同步),
-            # 但保留 .git 能让运维 'cd /opt/ideaparty && git log -1' 排查时方便。
-            # 因此:无 .git 就 clone 一次,有就 fast-forward 更新,两者都失败不阻断 deploy
-            # (deploy.py 会自己把代码 rsync 过来)。
+            BACKUP_DIR=/tmp/ideaparty-backup-$$
+            mkdir -p "$BACKUP_DIR"
+            TS=$(date +%Y%m%d-%H%M%S)
+
+            # -------- Step A: 如果 /opt/ideaparty 整个不存在,先 mkdir 占位 --------
+            if [ ! -d /opt/ideaparty ]; then
+              echo "::warning::/opt/ideaparty 不存在,准备自愈(mkdir 占位 + 后续 git clone)"
+              sudo mkdir -p /opt/ideaparty || {
+                echo "::error::无法创建 /opt/ideaparty(deploy 用户需 sudo)"
+                exit 1
+              }
+              sudo chown "$(id -u)":"$(id -g)" /opt/ideaparty
+              # 注意:此时 /opt/ideaparty 是空目录,deploy.py 会找不到 deploy.py 而失败,
+              # 由 Step B 自愈后才有代码
+            fi
             cd /opt/ideaparty
+
+            # -------- Step B: 自愈 .git / 代码 --------
+            # v2 设计原则:
+            #   - 不 rm-rf,用 mv 走 stale 路径(原子操作,失败概率极低)
+            #   - 备份到 /tmp/ideaparty-backup/$$  (deploy 用户可写)
+            #   - 备份、clone、恢复三步完全独立,各自 || true 打 warning
+            #   - 任一步失败不阻断 deploy.py 主体,但 deploy.py 启动前有 test -f 守门
             if [ ! -d .git ]; then
-              echo "::warning::首次部署:/opt/ideaparty 缺 .git,补一个浅 clone(不影响 deploy.py 同步)"
-              ( cd /opt/ideaparty/.. && \
-                [ -f /opt/ideaparty/.env.production ] && cp /opt/ideaparty/.env.production /root/env.production.bak; \
-                [ -f /opt/ideaparty/docker-compose.yml ] && cp /opt/ideaparty/docker-compose.yml /root/docker-compose.yml.bak; \
-                rm -rf /opt/ideaparty && \
-                git clone --depth 50 https://github.com/hello28256/Idea-Party.git /opt/ideaparty && \
-                [ -f /root/env.production.bak ] && cp /root/env.production.bak /opt/ideaparty/.env.production; \
-                [ -f /root/docker-compose.yml.bak ] && cp /root/docker-compose.yml.bak /opt/ideaparty/docker-compose.yml \
-              ) || echo "::warning::git clone 自愈失败,继续 deploy(由 deploy.py rsync 提供代码)"
+              echo "::warning::首次部署:/opt/ideaparty 缺 .git,补一个浅 clone"
+              # 备份现有运维文件(独立 try,失败只打 warning 不退出)
+              if [ -f .env.production ]; then
+                cp .env.production "$BACKUP_DIR/env.production" \
+                  || echo "::warning::备份 .env.production 失败"
+              fi
+              if [ -f docker-compose.yml ]; then
+                cp docker-compose.yml "$BACKUP_DIR/docker-compose.yml" \
+                  || echo "::warning::备份 docker-compose.yml 失败"
+              fi
+              # 把现有非 .git 内容(可能含运维文件)mv 到 stale 路径而非 rm-rf
+              if [ -n "$(ls -A . 2>/dev/null)" ]; then
+                STALE=/opt/ideaparty.stale.$TS
+                mv /opt/ideaparty "$STALE" 2>/dev/null \
+                  || echo "::warning::mv 到 $STALE 失败,继续"
+                sudo mkdir -p /opt/ideaparty 2>/dev/null || mkdir -p /opt/ideaparty
+                sudo chown "$(id -u)":"$(id -g)" /opt/ideaparty 2>/dev/null || true
+              fi
+              # clone(独立 try,失败打 warning 但不阻断)
+              git clone --depth 50 https://github.com/hello28256/Idea-Party.git /opt/ideaparty \
+                || echo "::warning::git clone 失败,deploy.py 启动前会 fail-fast"
+              # 恢复备份(独立 try)
+              [ -f "$BACKUP_DIR/env.production" ] && \
+                cp "$BACKUP_DIR/env.production" /opt/ideaparty/.env.production \
+                || echo "::notice::无 env.production 备份可恢复"
+              [ -f "$BACKUP_DIR/docker-compose.yml" ] && \
+                cp "$BACKUP_DIR/docker-compose.yml" /opt/ideaparty/docker-compose.yml \
+                || echo "::notice::无 docker-compose.yml 备份可恢复"
             else
+              # 已 .git: fast-forward 即可,不破坏工作树(deploy.py 会 rsync 覆盖)
               git fetch origin main 2>/dev/null || echo "::warning::git fetch 失败,继续"
               git reset --hard origin/main 2>/dev/null || echo "::warning::git reset 失败,继续"
             fi
+
+            # -------- Step C: 非 main ref 切换(独立 try) --------
             REF="${{ steps.ref.outputs.value }}"
-            if [ "$REF" != "main" ] && [ -d .git ]; then
-              git fetch origin "$REF" 2>/dev/null || true
-              git checkout --force "$REF" 2>/dev/null || echo "::warning::git checkout $REF 失败,继续"
+            if [ "$REF" != "main" ] && [ -d /opt/ideaparty/.git ]; then
+              (cd /opt/ideaparty && git fetch origin "$REF" 2>/dev/null && \
+                git checkout --force "$REF" 2>/dev/null) \
+                || echo "::warning::checkout $REF 失败,继续"
             fi
+
+            # -------- Step D: 守门:deploy.py 必须存在才能跑 --------
+            cd /opt/ideaparty
+            if [ ! -f deploy.py ]; then
+              echo "::error::自愈后 /opt/ideaparty 仍缺 deploy.py"
+              echo "::error::可能 git clone 网络失败。请手工:"
+              echo "::error::   sudo rm -rf /opt/ideaparty && sudo mkdir -p /opt/ideaparty && \\"
+              echo "::error::   sudo chown \$USER:\$USER /opt/ideaparty && \\"
+              echo "::error::   cd /opt && git clone https://github.com/hello28256/Idea-Party.git ideaparty && \\"
+              echo "::error::   cd ideaparty && scp <本机>:.env.production . && scp <本机>:docker-compose.yml ."
+              exit 1
+            fi
+
+            # -------- Step E: 跑 deploy --------
             [ -d .git ] && git log -1 --oneline 2>/dev/null || echo "::notice::无 .git,跳过 git log"
             python3 deploy.py --skip-uploads
+
+            # 清理临时备份
+            rm -rf "$BACKUP_DIR" 2>/dev/null || true
 
       - name: Smoke check
         if: success()
