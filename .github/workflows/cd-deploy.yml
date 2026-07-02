@@ -50,9 +50,15 @@ jobs:
               echo "::error::首次部署请手工 scp 一次(deploy.py --sync-env 也可)"
               exit 1
             }
-            # 轻量校验:必须有 DeepSeek key + OSS key(项目必需)
+            # 轻量校验:必须有 DeepSeek key + OSS 必备项(项目必需)
+            # 架构: 前端拿 STS 临时凭证浏览器直传 OSS,所以 server 端需要的是 STS 那组
+            # (RAM 用户 AK, 用于 AssumeRole 签发凭证),不是长期 OSS AccessKey
             grep -q "^DEEPSEEK_API_KEY=.\+" .env.production || { echo "::error::缺少 DEEPSEEK_API_KEY"; exit 1; }
-            grep -q "^ALIYUN_OSS_ACCESS_KEY_ID=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_ACCESS_KEY_ID"; exit 1; }
+            grep -q "^ALIYUN_OSS_BUCKET=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_BUCKET"; exit 1; }
+            grep -q "^ALIYUN_OSS_ENDPOINT=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_ENDPOINT"; exit 1; }
+            grep -q "^ALIYUN_STS_ACCESS_KEY_ID=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ACCESS_KEY_ID"; exit 1; }
+            grep -q "^ALIYUN_STS_ACCESS_KEY_SECRET=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ACCESS_KEY_SECRET"; exit 1; }
+            grep -q "^ALIYUN_STS_ROLE_ARN=.\+" .env.production || { echo "::error::缺少 ALIYUN_STS_ROLE_ARN"; exit 1; }
             echo "✅ env file OK"
 
       - name: Decide ref to deploy
