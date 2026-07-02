@@ -1,0 +1,108 @@
+name: CD · Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy (branch/tag/SHA). 留空用 main HEAD。'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  # CD 不能被并行取消 —— 取消一半会留下半部署的容器
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ secrets.PUBLIC_BASE_URL }}
+    steps:
+      - name: Validate required secrets present
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "::error::Missing DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY secrets"
+            exit 1
+          fi
+
+      - name: "Pre-flight: confirm server has .env.production"
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          command: |
+            set -e
+            cd /opt/ideaparty
+            test -f .env.production || {
+              echo "::error::服务器上缺少 /opt/ideaparty/.env.production"
+              echo "::error::首次部署请手工 scp 一次(deploy.py --sync-env 也可)"
+              exit 1
+            }
+            # 轻量校验:必须有 DeepSeek key + OSS key(项目必需)
+            grep -q "^DEEPSEEK_API_KEY=.\+" .env.production || { echo "::error::缺少 DEEPSEEK_API_KEY"; exit 1; }
+            grep -q "^ALIYUN_OSS_ACCESS_KEY_ID=.\+" .env.production || { echo "::error::缺少 ALIYUN_OSS_ACCESS_KEY_ID"; exit 1; }
+            echo "✅ env file OK"
+
+      - name: Decide ref to deploy
+        id: ref
+        run: |
+          REF="${{ inputs.ref }}"
+          if [ -z "$REF" ]; then
+            REF=main
+          fi
+          echo "value=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via deploy.py
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # --skip-uploads:
+          #   deploy.py 默认会同步 uploads/avatars/* 到卷 + 增量上 OSS。
+          #   这俩是大文件/OSS 调用,CD 不必每次都跑;
+          #   uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
+          command: |
+            set -e
+            cd /opt/ideaparty
+            REF="${{ steps.ref.outputs.value }}"
+            if [ "$REF" != "main" ]; then
+              git fetch origin "$REF"
+              git checkout --force "$REF"
+            else
+              git checkout main
+              git pull --ff-only origin main || {
+                echo "::error::git pull 不是 fast-forward。服务器上有人手工 commit?"
+                exit 1
+              }
+            fi
+            git log -1 --oneline
+            python3 deploy.py --skip-uploads
+
+      - name: Smoke check
+        if: success()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          command: |
+            set -e
+            cd /opt/ideaparty
+            # deploy.py:582 _wait_for_healthy 已经等过;这里再过一次双重确认
+            python3 deploy.py --status 2>&1 | tail -n 20
