@@ -836,7 +836,7 @@ def action_aliyun_test(*, head_bytes: int = 300) -> None:
     """在服务器上跑一次 STS AssumeRole,输出前 N 字节。
 
     用于烟测 RAM 角色配置是否正确(用户绑了 AliyunSTSAssumeRoleAccess、
-    角色绑了 ideaparty-oss-put-only、信任策略指向当前云账号)。
+    角色绑了 idea-party-oss-put-only、信任策略指向当前云账号)。
     截断输出避免意外把 STS 临时 AccessKeySecret 复制到 chat。
 
     退出码:
@@ -856,7 +856,7 @@ def action_aliyun_test(*, head_bytes: int = 300) -> None:
     remote_cmd = (
         f"aliyun sts AssumeRole "
         f"--RoleArn {shlex.quote(role_arn)} "
-        f"--RoleSessionName {shlex.quote('ideaparty-smoke-test')} "
+        f"--RoleSessionName {shlex.quote('idea-party-smoke-test')} "
         f"2>&1 | head -c {head_bytes}"
     )
     log(f"== 烟测 STS AssumeRole ==\nrole: {role_arn}\n截断输出 (前 {head_bytes} 字节):")
