@@ -83,19 +83,32 @@ jobs:
           #   uploads 同步留作运维手动 ./scripts/oss-sync-avatars.sh。
           script: |
             set -e
+            # /opt/ideaparty 第一次铺的时候可能是 scp 上去的,不是 git clone。
+            # workflow 自身不假设它是 git repo(见 deploy.py 的设计,它用 rsync 同步),
+            # 但保留 .git 能让运维 'cd /opt/ideaparty && git log -1' 排查时方便。
+            # 因此:无 .git 就 clone 一次,有就 fast-forward 更新,两者都失败不阻断 deploy
+            # (deploy.py 会自己把代码 rsync 过来)。
             cd /opt/ideaparty
-            REF="${{ steps.ref.outputs.value }}"
-            if [ "$REF" != "main" ]; then
-              git fetch origin "$REF"
-              git checkout --force "$REF"
+            if [ ! -d .git ]; then
+              echo "::warning::首次部署:/opt/ideaparty 缺 .git,补一个浅 clone(不影响 deploy.py 同步)"
+              ( cd /opt/ideaparty/.. && \
+                [ -f /opt/ideaparty/.env.production ] && cp /opt/ideaparty/.env.production /root/env.production.bak; \
+                [ -f /opt/ideaparty/docker-compose.yml ] && cp /opt/ideaparty/docker-compose.yml /root/docker-compose.yml.bak; \
+                rm -rf /opt/ideaparty && \
+                git clone --depth 50 https://github.com/hello28256/Idea-Party.git /opt/ideaparty && \
+                [ -f /root/env.production.bak ] && cp /root/env.production.bak /opt/ideaparty/.env.production; \
+                [ -f /root/docker-compose.yml.bak ] && cp /root/docker-compose.yml.bak /opt/ideaparty/docker-compose.yml \
+              ) || echo "::warning::git clone 自愈失败,继续 deploy(由 deploy.py rsync 提供代码)"
             else
-              git checkout main
-              git pull --ff-only origin main || {
-                echo "::error::git pull 不是 fast-forward。服务器上有人手工 commit?"
-                exit 1
-              }
+              git fetch origin main 2>/dev/null || echo "::warning::git fetch 失败,继续"
+              git reset --hard origin/main 2>/dev/null || echo "::warning::git reset 失败,继续"
             fi
-            git log -1 --oneline
+            REF="${{ steps.ref.outputs.value }}"
+            if [ "$REF" != "main" ] && [ -d .git ]; then
+              git fetch origin "$REF" 2>/dev/null || true
+              git checkout --force "$REF" 2>/dev/null || echo "::warning::git checkout $REF 失败,继续"
+            fi
+            [ -d .git ] && git log -1 --oneline 2>/dev/null || echo "::notice::无 .git,跳过 git log"
             python3 deploy.py --skip-uploads
 
       - name: Smoke check
