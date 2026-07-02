@@ -702,6 +702,28 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
     manifest 文件随 rsync 同步到服务器,服务器端读写都用同一份。
     文件不入 git(.gitignore 排除)。
 
+    ─────────────────────────── 日常使用指南 ───────────────────────────
+
+    默认走增量(--force-upload 才会全量)。文件级 mtime 变化就 PUT 单个,
+    日常 deploy 多数情况 0~几十次 PUT,几秒完成。
+
+    常见操作的增量行为:
+
+    | 操作                                       | 增量行为              |
+    | ------------------------------------------ | --------------------- |
+    | 用新图片覆盖旧文件 (cp / mv / 编辑器另存) |  PUT 1 个 (mtime 变)  |
+    | 加一张新图片                                |  PUT 1 个 (新 key)    |
+    | 删除一张图片 (本地)                         |  manifest 减 1         |
+    |                                            |  (OSS 旧对象保留)      |
+    | 文件没动 / 单纯 git pull 拉源码            |  skip (mtime 不变)    |
+    | 1239 文件全部没变                            |  0 PUT, 1239 skip     |
+
+    什么时候用 --force-upload:
+      1. 你手动在 OSS 控制台删了某个文件 — manifest 还以为它存在,不会重传
+      2. mtime 不可靠的场景 (cp --preserve=timestamps / git checkout 保留原 mtime),
+         可能漏传 — --force-upload 兜底
+      3. 怀疑 manifest 数据不准(本地 manifest 损坏或被外部改过)
+
     依赖: 服务器装了 oss2(.env.production 已配)。
     """
     subdirs = list(DEPLOY_UPLOADS_SUBDIRS)
