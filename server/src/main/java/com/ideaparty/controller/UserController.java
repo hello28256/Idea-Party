@@ -95,8 +95,10 @@ public class UserController {
 
     /**
      * 保存 STS 直传后的头像 URL 到 DB(只换 url,不传文件)。
-     * 流程: 前端 1) 调 /api/uploads/sts-token 拿凭证 2) oss.put 上传 3) 调本接口把返回的完整 URL 存到 users.avatar_url
-     * 校验:URL 必须是 https:// 开头且指向 idea-party-uploads.oss-cn-shenzhen.aliyuncs.com(防 SSRF)
+     * 流程: 前端 1) 调 /api/uploads/sts-token 拿凭证 2) cos.putObject 上传 3) 调本接口把返回的完整 URL 存到 users.avatar_url
+     * 校验:URL 必须是 https:// 开头且指向 idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com(防 SSRF)
+     *
+     * PR3: 阿里云 OSS → 腾讯云 COS,允许的桶域名更新。
      */
     @PutMapping("/avatar")
     public ResponseEntity<AvatarUploadResponse> saveAvatarUrl(@RequestHeader("Authorization") String authHeader, @RequestBody AvatarUrlRequest request) {
@@ -105,9 +107,9 @@ public class UserController {
         if (url == null || url.isBlank()) {
             throw new IllegalArgumentException("avatarUrl 不能为空");
         }
-        // 简单 SSRF 防护:只允许 OSS 桶域名
-        if (!url.startsWith("https://idea-party-uploads.oss-cn-shenzhen.aliyuncs.com/")) {
-            throw new IllegalArgumentException("avatarUrl 必须指向 OSS 桶 idea-party-uploads.oss-cn-shenzhen.aliyuncs.com");
+        // 简单 SSRF 防护:只允许 COS 桶域名
+        if (!url.startsWith("https://idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com/")) {
+            throw new IllegalArgumentException("avatarUrl 必须指向 COS 桶 idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com");
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"));

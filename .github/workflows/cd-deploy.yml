@@ -95,9 +95,10 @@ jobs:
               exit 1
             }
             # 轻量校验: 关键 env 必须存在
-            for key in DEEPSEEK_API_KEY ALIYUN_OSS_BUCKET ALIYUN_OSS_ENDPOINT \
-                       ALIYUN_STS_ACCESS_KEY_ID ALIYUN_STS_ACCESS_KEY_SECRET \
-                       ALIYUN_STS_ROLE_ARN; do
+            # PR3 切换: 阿里云 ALIYUN_OSS_* / ALIYUN_STS_* → 腾讯云 TENCENT_COS_*
+            for key in DEEPSEEK_API_KEY TENCENT_COS_BUCKET TENCENT_COS_REGION \
+                       TENCENT_COS_SECRET_ID TENCENT_COS_SECRET_KEY \
+                       TENCENT_COS_ROLE_ARN; do
               grep -q "^${key}=.\\+" .env.production || {
                 echo "::error::缺少 ${key}"; exit 1;
               }

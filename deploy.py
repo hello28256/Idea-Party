@@ -175,8 +175,8 @@ RSYNC_EXCLUDES = [
 # =============================================================================
 # Subprocess helpers — 统一错误处理
 # =============================================================================
-def _load_aliyun_env_from_file(env_file: str = ".env.production") -> None:
-    """从本地 .env.production 加载 ALIYUN_* 变量到 os.environ。
+def _load_cos_env_from_file(env_file: str = ".env.production") -> None:
+    """从本地 .env.production 加载 TENCENT_COS_* 变量到 os.environ。
     仅在变量未设置时填充,避免覆盖用户在 shell 里 export 的值。
     不支持的语法: 引号包裹 / 多行 / export 前缀(都用 grep -v 简单跳过)。
     """
@@ -194,7 +194,7 @@ def _load_aliyun_env_from_file(env_file: str = ".env.production") -> None:
         key, _, val = line.partition("=")
         key = key.strip()
         val = val.strip().strip('"').strip("'")
-        if key.startswith("ALIYUN_") and key not in os.environ:
+        if key.startswith("TENCENT_COS_") and key not in os.environ:
             os.environ[key] = val
 
 
@@ -1043,6 +1043,51 @@ def action_aliyun_test(*, head_bytes: int = 300) -> None:
         log(f"❓ 未识别结果,returncode={result.returncode}。把上面输出贴给 Claude")
 
 
+def action_cos_test() -> None:
+    """在服务器上跑一次 COS 烟测,验证 TENCENT_COS_* 凭证 + 桶可访问。
+
+    流程: SSH 上服务器, set -a source .env.production, 用 cos-python-sdk-v5
+    列桶里 5 个对象,验证子账号永久 AK 能访问桶。如果跑通说明:
+      - TENCENT_COS_SECRET_ID/SECRET_KEY 配对了
+      - 桶 idea-party-uploads-1361890600 存在且子账号有 ListObject 权限
+      - 网络通 (海外 ECS → 腾讯云 COS 桶同地域,无跨境)
+
+    退出码 0 = OK,非 0 = 失败。
+    """
+    bucket = os.environ.get("TENCENT_COS_BUCKET", "")
+    secret_id = os.environ.get("TENCENT_COS_SECRET_ID", "")
+    region = os.environ.get("TENCENT_COS_REGION", "")
+    if not (bucket and secret_id and region):
+        die(
+            "TENCENT_COS_BUCKET / TENCENT_COS_SECRET_ID / TENCENT_COS_REGION 未设置。\n"
+            "在 .env.production 里 export 一下。"
+        )
+
+    # 服务器上跑 python3 -c 列桶里前 5 个对象
+    remote_cmd = (
+        f"python3 -c \""
+        f"from qcloud_cos import CosConfig, CosS3Client; "
+        f"import os; "
+        f"c = CosS3Client(CosConfig(Region=os.environ['TENCENT_COS_REGION'], "
+        f"SecretId=os.environ['TENCENT_COS_SECRET_ID'], "
+        f"SecretKey=os.environ['TENCENT_COS_SECRET_KEY'], "
+        f"Scheme='https', Timeout=10)); "
+        f"objs = list(c.list_objects(Bucket=os.environ['TENCENT_COS_BUCKET'], MaxKeys=5).get('Contents', [])); "
+        f"print(f'OK bucket={{os.environ[\\\"TENCENT_COS_BUCKET\\\"]}} objects={{len(objs)}}'); "
+        f"for o in objs[:5]: print(' ', o['Key'], o['Size'])\" 2>&1"
+    )
+    log(f"== 烟测 COS 桶访问 ==\nbucket: {bucket}\nregion: {region}\n")
+    try:
+        result = ssh_cmd(remote_cmd, capture=True, check=False)
+    except Exception as e:
+        die(f"SSH 执行失败: {e}")
+    print(result.stdout or "(空输出)")
+    if result.returncode == 0 and "OK bucket=" in (result.stdout or ""):
+        log("✅ COS 桶访问 OK,子账号 AK + 桶配置 + 网络都通")
+    else:
+        log(f"❌ 烟测失败,returncode={result.returncode},stderr={result.stderr}")
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -1061,7 +1106,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--restart", metavar="SERVICE", help="重启指定服务")
     p.add_argument("--shell", metavar="SERVICE", help="进入容器 shell")
     p.add_argument("--aliyun-test", action="store_true",
-                   help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节")
+                   help="烟测阿里云 STS AssumeRole,服务器上跑一次,输出前 300 字节 (PR3 已弃用,留作历史回退)")
+    p.add_argument("--cos-test", action="store_true",
+                   help="烟测腾讯云 COS 桶访问,服务器上列前 5 个对象验证子账号 AK")
     p.add_argument("--sync-env", action="store_true",
                    help="显式把本地 .env.production 推到服务器(覆盖式,deploy 主流程不再自动做,改完 env 后跑这条)")
     p.add_argument("--dry-run", action="store_true", help="只打印要执行的命令，不真正执行")
@@ -1095,6 +1142,8 @@ def main() -> None:
             action_shell(args.shell)
         elif args.aliyun_test:
             action_aliyun_test()
+        elif args.cos_test:
+            action_cos_test()
         elif args.sync_env:
             action_sync_env()
         else:

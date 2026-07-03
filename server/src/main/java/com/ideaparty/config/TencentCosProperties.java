@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
  *       - SECRET_ID/SECRET_KEY: CAM 子账号的永久 AK, 用于调 AssumeRole
  *       - ROLE_ARN: CAM 角色, 绑 QcloudCOSFullAccess 策略, 限定能访问的桶
  *
- * PR2 新增; PR3 之后, 阿里云 AliyunOssProperties 可以删。
+ * PR2 新增; PR3 已删 AliyunOssProperties.java, 唯一 OSS 配置源。
  */
 @Data
 @Configuration
