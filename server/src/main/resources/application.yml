@@ -86,6 +86,9 @@ tencent:
   cam:
     secret-id: ${TENCENT_COS_SECRET_ID:}
     secret-key: ${TENCENT_COS_SECRET_KEY:}
+    role-arn: ${TENCENT_COS_ROLE_ARN:}
+    role-session-name: ${TENCENT_COS_ROLE_SESSION_NAME:ideaparty-cos-upload}
+    duration-seconds: ${TENCENT_COS_DURATION_SECONDS:3600}
   file:
     max-size: ${UPLOAD_FILE_MAX_SIZE:5242880}
 

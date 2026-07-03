@@ -12,8 +12,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "ali-oss": "6.23.0",
     "axios": "1.16.0",
+    "cos-js-sdk-v5": "^1.8.0",
     "esbuild": "^0.28.0",
     "lucide-vue-next": "1.0.0",
     "pinia": "3.0.4",

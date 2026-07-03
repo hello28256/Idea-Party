@@ -1,6 +1,6 @@
 package com.ideaparty.controller;
 
-import com.ideaparty.config.AliyunOssProperties;
+import com.ideaparty.config.TencentCosProperties;
 import com.ideaparty.service.StsTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,14 +14,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 给前端浏览器签发 STS 临时凭证,用于直传阿里云 OSS。
+ * 给前端浏览器签发 STS 临时凭证,用于直传腾讯云 COS。
  *
  * GET /api/uploads/sts-token
  *   要求:登录用户
- *   返回:JSON { accessKeyId, accessKeySecret, securityToken, expiration, bucket, region, ossDomain, keyPrefix }
+ *   返回:JSON { accessKeyId, accessKeySecret, securityToken, expiration, bucket, region, cosDomain, keyPrefix }
  *
- * 设计:每个登录用户拿到的凭证是同一个(共用 RAM 角色的权限),不做按用户限流。
- * 如果以后要限流,在 STS role session name 里嵌入 userId,RAM 策略里加 sts:RoleSessionName 条件。
+ * PR2 切换: 阿里云 OSS → 腾讯云 COS,字段名从 ossDomain 改为 cosDomain (前端同步)。
+ * 设计:每个登录用户拿到的凭证是同一个(共用 CAM 角色),不做按用户限流。
  */
 @Slf4j
 @RestController
@@ -30,24 +30,24 @@ import java.util.Map;
 public class StsTokenController {
 
     private final StsTokenService stsTokenService;
-    private final AliyunOssProperties props;
+    private final TencentCosProperties props;
 
     @GetMapping("/sts-token")
     @PreAuthorize("isAuthenticated()")
     public Map<String, Object> getStsToken() {
         StsTokenService.CachedCredentials creds = stsTokenService.getCredentials();
-        AliyunOssProperties.Oss oss = props.getOss();
+        TencentCosProperties.Cos cos = props.getCos();
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("accessKeyId", creds.getAccessKeyId());
         out.put("accessKeySecret", creds.getAccessKeySecret());
         out.put("securityToken", creds.getSecurityToken());
         // ISO-8601,前端 Date.parse 能直接吃
-        out.put("expiration", Instant.ofEpochMilli(creds.getExpireAtMillis()).toString());
-        out.put("bucket", oss.getBucket());
-        out.put("region", oss.getRegion());
-        out.put("ossDomain", oss.getBucketDomain());
-        out.put("keyPrefix", oss.getKeyPrefix());
+        out.put("expiration", Instant.ofEpochSecond(creds.getExpireAtMillis() / 1000).toString());
+        out.put("bucket", cos.getBucket());
+        out.put("region", cos.getRegion());
+        out.put("cosDomain", cos.getBucketDomain());
+        out.put("keyPrefix", cos.getKeyPrefix());
         return out;
     }
 }

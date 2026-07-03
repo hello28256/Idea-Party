@@ -1,12 +1,13 @@
 package com.ideaparty.service;
 
-import com.aliyuncs.DefaultAcsClient;
-import com.aliyuncs.IAcsClient;
-import com.aliyuncs.auth.sts.AssumeRoleRequest;
-import com.aliyuncs.auth.sts.AssumeRoleResponse;
-import com.aliyuncs.exceptions.ClientException;
-import com.aliyuncs.profile.DefaultProfile;
-import com.ideaparty.config.AliyunOssProperties;
+import com.ideaparty.config.TencentCosProperties;
+import com.tencentcloudapi.cam.v20190116.CamClient;
+import com.tencentcloudapi.cam.v20190116.models.AssumeRoleRequest;
+import com.tencentcloudapi.cam.v20190116.models.AssumeRoleResponse;
+import com.tencentcloudapi.common.Credential;
+import com.tencentcloudapi.common.exception.TencentCloudSDKException;
+import com.tencentcloudapi.common.profile.ClientProfile;
+import com.tencentcloudapi.common.profile.HttpProfile;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,12 +20,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 签发阿里云 STS 临时凭证,给前端浏览器直传 OSS 用。
+ * 签发腾讯云 CAM STS 临时凭证,给前端浏览器直传 COS 用。
  *
  * 凭证缓存:AssumeRole 每次调用都要花钱(虽然很便宜),且有 QPS 限制。
  * 简单做法是拿到凭证后缓存,Expiration - 5min 内主动续。
  *
- * 安全:AccessKeySecret 不进日志(DEBUG 级别只打 ID 前 4 位 + 过期时间)。
+ * 安全:SecretKey 不进日志(DEBUG 级别只打 ID 前 4 位 + 过期时间)。
  * 缓存里的 Secret 不写磁盘、Spring 也不序列化它,只在内存里活到过期。
  */
 @Slf4j
@@ -32,7 +33,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @RequiredArgsConstructor
 public class StsTokenService {
 
-    private final AliyunOssProperties props;
+    private final TencentCosProperties props;
 
     /** 提前 5 分钟续期,避免前端拿到快过期的凭证 */
     private static final long RENEW_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
@@ -69,45 +70,49 @@ public class StsTokenService {
     }
 
     private CachedCredentials assumeRole() {
-        AliyunOssProperties.Sts cfg = props.getSts();
-        if (cfg.getAccessKeyId() == null || cfg.getAccessKeySecret() == null
+        TencentCosProperties.Cam cfg = props.getCam();
+        if (cfg.getSecretId() == null || cfg.getSecretKey() == null
                 || cfg.getRoleArn() == null) {
             throw new IllegalStateException(
-                    "ALIYUN_STS_* 未配置。检查 .env.production 里的 ALIYUN_STS_ACCESS_KEY_ID / "
-                            + "ALIYUN_STS_ACCESS_KEY_SECRET / ALIYUN_STS_ROLE_ARN 是否设置");
+                    "TENCENT_COS_* 未配置。检查 .env.production 里的 TENCENT_COS_SECRET_ID / "
+                            + "TENCENT_COS_SECRET_KEY / TENCENT_COS_ROLE_ARN 是否设置");
         }
-        // STS endpoint 是固定的,与 bucket 无关;但 region 要和 bucket 同地域
-        // (因为 STS 走 VPC 域,这里用 cn-shenzhen)
-        String region = "cn-shenzhen";
-        DefaultProfile profile = DefaultProfile.getProfile(region, cfg.getAccessKeyId(), cfg.getAccessKeySecret());
-        IAcsClient client = new DefaultAcsClient(profile);
-
-        AssumeRoleRequest request = new AssumeRoleRequest();
-        request.setSysRegionId(region);
-        request.setRoleArn(cfg.getRoleArn());
-        request.setRoleSessionName(cfg.getRoleSessionName());
-        // DurationSeconds 范围 [900, 3600],越短越安全
-        request.setDurationSeconds((long) Math.min(3600, Math.max(900, cfg.getDurationSeconds())));
-
         try {
-            AssumeRoleResponse response = client.getAcsResponse(request);
+            // CAM API endpoint 是固定的,与 COS 桶无关;但 endpoint 域名要
+            // 用 cam.tencentcloudapi.com, region 用 ap-seoul (跟 COS 同地域)
+            Credential cred = new Credential(cfg.getSecretId(), cfg.getSecretKey());
+            HttpProfile httpProfile = new HttpProfile();
+            httpProfile.setEndpoint("cam.tencentcloudapi.com");
+            ClientProfile clientProfile = new ClientProfile();
+            clientProfile.setHttpProfile(httpProfile);
+            CamClient client = new CamClient(cred, props.getCos().getRegion(), clientProfile);
+
+            AssumeRoleRequest request = new AssumeRoleRequest();
+            request.setRoleArn(cfg.getRoleArn());
+            request.setRoleSessionName(cfg.getRoleSessionName());
+            // DurationSeconds 范围 [900, 7200],腾讯云用秒
+            request.setDurationSeconds((long) Math.min(7200, Math.max(900, cfg.getDurationSeconds())));
+
+            AssumeRoleResponse response = client.AssumeRole(request);
             AssumeRoleResponse.Credentials c = response.getCredentials();
+
+            // 腾讯云 STS 返回的 Expiration 形如 "2026-07-03T15:00:00Z"
             long expireAt = parseExpiryMillis(c.getExpiration());
             CachedCredentials out = new CachedCredentials();
-            out.setAccessKeyId(c.getAccessKeyId());
-            out.setAccessKeySecret(c.getAccessKeySecret());
-            out.setSecurityToken(c.getSecurityToken());
+            out.setAccessKeyId(c.getTmpSecretId());
+            out.setAccessKeySecret(c.getTmpSecretKey());
+            out.setSecurityToken(c.getToken());
             out.setExpireAtMillis(expireAt);
             return out;
-        } catch (ClientException e) {
+        } catch (TencentCloudSDKException e) {
             // 错误信息可能含 AK 残留,只打错误码
-            log.error("[DEBUG] STS AssumeRole 失败: code={}, requestId={}",
-                    e.getErrCode(), e.getRequestId());
-            throw new RuntimeException("STS 签发失败: " + e.getErrCode(), e);
+            log.error("[DEBUG] CAM AssumeRole 失败: code={}, requestId={}",
+                    e.getErrorCode(), e.getRequestId());
+            throw new RuntimeException("STS 签发失败: " + e.getErrorCode(), e);
         }
     }
 
-    /** STS 返回的 Expiration 形如 "2026-07-01T15:00:00Z" */
+    /** STS 返回的 Expiration 形如 "2026-07-03T15:00:00Z" */
     private static long parseExpiryMillis(String iso) {
         return Instant.parse(iso).toEpochMilli();
     }
@@ -126,8 +131,11 @@ public class StsTokenService {
     /** 缓存中的凭证,前端拿这个去 PutObject */
     @Data
     public static class CachedCredentials {
+        /** 临时 SecretId(腾讯云 STS 字段名是 TmpSecretId) */
         private String accessKeyId;
+        /** 临时 SecretKey(腾讯云 STS 字段名是 TmpSecretKey) */
         private String accessKeySecret;
+        /** 临时 SecurityToken(腾讯云 STS 字段名是 Token) */
         private String securityToken;
         private long expireAtMillis;
     }

@@ -136,7 +136,7 @@ DEPLOY_UPLOADS_MIN_PRESETS = int(os.environ.get("DEPLOY_UPLOADS_MIN_PRESETS", "1
 # deploy.py action_upload_uploads 用本地 manifest 做 diff,跳过 mtime+size
 # 都未变化的文件 — 不用 OSS HeadObject 权限即可做到增量,符合 RAM 最小权限原则。
 # 文件不入 git,deploy 时随 rsync 上服务器,服务器上读写都用同一份。
-OSS_MANIFEST_PATH = os.environ.get("DEPLOY_OSS_MANIFEST", "server/uploads/avatars/.oss-manifest.json").strip()
+OSS_MANIFEST_PATH = os.environ.get("DEPLOY_OSS_MANIFEST", "server/uploads/avatars/.cos-manifest.json").strip()
 
 if not DEPLOY_HOST:
     die("DEPLOY_HOST 未设置。请在 .env.deploy 中配置（IP 地址或 SSH config alias）。")
@@ -613,17 +613,18 @@ def action_deploy(*, sync_only: bool = False, skip_uploads: bool = False, force_
 
 
 def _check_oss_preset_count() -> None:
-    """OSS 上 presets/ 数量低于阈值就 die,提示用 --force-upload 重新传。
+    """COS 上 presets/ 数量低于阈值就 die,提示用 --force-upload 重新传。
 
     之前的 bug:本地 server/uploads/avatars/presets/ 有 600+ 张图,但 OSS 上 uploads/
     avatars/presets/ 是 0,deploy 完后客户端图片全 404(看 character library 出现字母
     头像)。原因是 .env.production 漏配 ALIYUN_* 变量,Step 1.6 上传没跑。
 
-    这个检查在 deploy 主流程里做兜底:即使 .env.production 配错了,deploy 时
-    也能提醒运维"OSS 上图不全,用 --force-upload 重新传"。
+    PR2 切到腾讯云 COS: 不再依赖 aliyun CLI 数对象,改为检查本地 manifest
+    (upload_uploads.py 写回 .cos-manifest.json) 中 presets/ 的 key 数。
+    优点: 不需要 COS list_objects 权限 (RAM 角色没这个权限),跨云一致。
 
     退出码:
-      0  = OSS 上图数 >= 阈值,继续 deploy
+      0  = manifest 中 presets 数量 >= 阈值,继续 deploy
       非 0 = 阻断 deploy,提示用 --force-upload
 
     跳过方式:DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py
@@ -632,28 +633,19 @@ def _check_oss_preset_count() -> None:
         log("[oss-check] skipped via DEPLOY_SKIP_OSS_CHECK=1")
         return
 
-    # 阈值:本地至少有 ~600 张 presets,OSS 至少要有 500 才算 OK。
-    # 留 buffer 是为了"已迁移到 OSS 但本地新加几张图"的常见场景不报警。
+    # 阈值:本地至少有 ~600 张 presets,manifest 至少要有 500 才算 OK。
     threshold = int(os.environ.get("DEPLOY_OSS_MIN_PRESETS", "500"))
-    bucket = os.environ.get("ALIYUN_OSS_BUCKET", "idea-party-uploads")
-    # aliyun CLI 的 --region 只接受 RegionId (cn-shenzhen),不接受 oss-cn-shenzhen
-    region = os.environ.get("ALIYUN_OSS_REGION", "oss-cn-shenzhen")
-    if region.startswith("oss-"):
-        region = region[len("oss-"):]
-
-    # 先测 aliyun CLI 是否装了(没装就 warn+skip,不阻断 deploy)
-    cli_check = ssh_cmd("command -v aliyun >/dev/null 2>&1 && echo OK || echo MISSING", capture=True, check=False)
-    if "OK" not in (cli_check.stdout or ""):
-        log("⚠️  服务器没装 aliyun CLI,跳过 OSS 预设图检查。装: ssh tenxunyun '... install ...'")
-        return
-
+    # manifest 在本地,跟服务器 .oss-manifest.json 同步(rsync 走 RSYNC_EXCLUDES
+    # 排除了这个文件,所以服务器端这份是上次 deploy 留下来的)
+    # 看服务器上的 manifest 数 uploads/avatars/presets/ 前缀
+    remote_manifest = f"{REMOTE_DIR}/server/uploads/avatars/.cos-manifest.json"
     cmd = (
-        f"export ALIYUN_PROFILE=default && "
-        f"COUNT=$(aliyun oss ls oss://{bucket}/uploads/avatars/presets/ "
-        f"  --region {region} 2>/dev/null | wc -l) && "
-        f"echo \"oss_preset_count=$COUNT threshold=$threshold\" && "
+        f"COUNT=$(test -f {remote_manifest} && "
+        f"  python3 -c \"import json; m=json.load(open('{remote_manifest}')); "
+        f"print(sum(1 for k in m if k.startswith('uploads/avatars/presets/')))\" || echo 0) && "
+        f"echo \"cos_preset_count=$COUNT threshold=$threshold\" && "
         f"if [ \"$COUNT\" -lt \"$threshold\" ]; then "
-        f"  echo \"❌ OSS 上 presets 数量 $COUNT < $threshold,部署后会全 404。\" >&2; "
+        f"  echo \"❌ COS 上 presets 数量 $COUNT < $threshold,部署后会全 404。\" >&2; "
         f"  echo \"   解决: python3 deploy.py --force-upload\" >&2; "
         f"  echo \"   跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py\" >&2; "
         f"  exit 1; "
@@ -662,7 +654,7 @@ def _check_oss_preset_count() -> None:
     proc = ssh_cmd(cmd, check=False)
     if proc.returncode != 0:
         die(
-            "OSS 上 presets 数量不足,deploy 已阻断(避免上线后客户端图片全 404)。\n"
+            "COS 上 presets 数量不足,deploy 已阻断(避免上线后客户端图片全 404)。\n"
             "  解决: python3 deploy.py --force-upload\n"
             "  跳过: DEPLOY_SKIP_OSS_CHECK=1 python3 deploy.py"
         )
@@ -842,7 +834,7 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
     # 不进 SSH 命令行 / 本机 log / shell history。
     # subdirs 列表用 repr() 安全注入到生成的 Python 脚本里。
     subdirs_repr = repr(subdirs)
-    # manifest 路径用 OSS_MANIFEST_PATH 常量,deploy 时 rsync 同步到服务器,
+    # manifest 路径用 COS_MANIFEST_PATH 常量,deploy 时 rsync 同步到服务器,
     # 路径在两端完全一致。
     # force 模式: 把 manifest 看作空 dict,所有文件都重新 PUT (不走 skip 逻辑),
     # 走完后写回新 manifest (覆盖旧记录,md5 重算)。
@@ -852,11 +844,12 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from pathlib import Path
 
-        import alibabacloud_oss_v2 as oss
+        from qcloud_cos import CosConfig, CosS3Client
+        from qcloud_cos import ThreadPool
 
         MANIFEST_PATH = __MANIFEST__
         subdirs = __SUBDIRS__
-        PARALLEL_FILES = 4       # 并发上传的文件数(避免 OSS 端限流)
+        PARALLEL_FILES = 4       # 并发上传的文件数(避免 COS 端限流)
         PART_SIZE = 5 * 1024 * 1024  # 5 MiB per part
         PUT_TIMEOUT = 30         # 单文件 PUT timeout (秒)
 
@@ -880,50 +873,34 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
                 json.dump(m, f, ensure_ascii=False, sort_keys=True, indent=2)
             os.replace(tmp, MANIFEST_PATH)
 
-        # aliyun-oss-python-sdk-v2 配置:
-        #   - credentials: STS AssumeRole 短期凭证(从 .env.production source 进来)
-        #   - region + endpoint: region 给 SDK 做签名 (v4),endpoint 给 HTTP 实际请求
-        #     不显式设 endpoint 会让 SDK 走 region 拼 default endpoint,可能不准确
-        #   - connect_timeout / readwrite_timeout: 避免单文件卡死
-        #   - retry_max_attempts: 失败自动重试
-        creds = oss.credentials.StaticCredentialsProvider(
-            access_key_id=os.environ['ALIYUN_STS_ACCESS_KEY_ID'],
-            access_key_secret=os.environ['ALIYUN_STS_ACCESS_KEY_SECRET'],
+        # cos-python-sdk-v5 (腾讯云 COS) 配置:
+        #   - SecretId/SecretKey: CAM 子账号永久 AK(从 .env.production source 进来)
+        #   - Region: 跟 COS 桶同地域,ap-seoul
+        #   - Scheme: 'https'
+        #   - 头像永久静态资源: CacheControl=immutable, Content-Type 走 mimetypes
+        config = CosConfig(
+            Region=os.environ['TENCENT_COS_REGION'],
+            SecretId=os.environ['TENCENT_COS_SECRET_ID'],
+            SecretKey=os.environ['TENCENT_COS_SECRET_KEY'],
+            Scheme='https',
+            Timeout=PUT_TIMEOUT,
         )
-        cfg = oss.config.load_default()
-        cfg.credentials_provider = creds
-        cfg.region = os.environ['ALIYUN_OSS_REGION'].replace('oss-', '')
-        # endpoint 走 endpoint host (不要带 https://, SDK 自己加)
-        cfg.endpoint = os.environ['ALIYUN_OSS_ENDPOINT'].replace('https://', '').replace('http://', '')
-        cfg.connect_timeout = PUT_TIMEOUT
-        cfg.readwrite_timeout = PUT_TIMEOUT
-        cfg.retry_max_attempts = 2
-        # 头像增量小,关闭 CRC64 校验省 CPU
-        cfg.disable_upload_crc64_check = True
-        client = oss.Client(cfg)
-        uploader = oss.Uploader(client)
+        client = CosS3Client(config)
 
         def put_one(p, key):
-            '''上传一个文件,multipart + 4 线程并发分片'''
-            # v2 SDK 的 PutObjectRequest 直接支持 cache_control / content_type 参数,
-            # 不需要 RequestHeader。avatar 永久静态资源设 immutable cache。
+            '''上传一个文件,COS Python SDK 简单 PUT(适合小文件头像)'''
             ct = mimetypes.guess_type(p.name)[0]
-            req = oss.PutObjectRequest(
-                bucket=os.environ['ALIYUN_OSS_BUCKET'],
-                key=key,
-                cache_control='public, max-age=31536000, immutable',
-            )
+            kwargs = {
+                'Bucket': os.environ['TENCENT_COS_BUCKET'],
+                'Key': key,
+                'Body': str(p),
+                'CacheControl': 'public, max-age=31536000, immutable',
+            }
             if ct:
-                req.content_type = ct
-            # v2 SDK: upload_file 自动 multipart (>part_size 触发),
-            # parallel_num 4 内部并发,part_size 5 MiB,
-            return uploader.upload_file(
-                req,
-                filepath=str(p),
-                part_size=PART_SIZE,
-                parallel_num=4,
-                enable_checkpoint=False,  # 临时目录每次都清,不需要断点续传
-            )
+                kwargs['ContentType'] = ct
+            # 简单 PUT, COS Python SDK 的简单上传走单 PUT
+            # (大文件可以用 upload_file + PartSize,这里头像增量小,简单够用)
+            return client.put_object(**kwargs)
 
         manifest = load_manifest()
         new_manifest = dict(manifest)
