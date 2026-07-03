@@ -845,7 +845,6 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
         from pathlib import Path
 
         from qcloud_cos import CosConfig, CosS3Client
-        from qcloud_cos import ThreadPool
 
         MANIFEST_PATH = __MANIFEST__
         subdirs = __SUBDIRS__
