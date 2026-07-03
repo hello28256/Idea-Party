@@ -64,11 +64,15 @@ def main():
     load_env()
 
     # OSS client (v1 SDK)
-    oss_auth = oss2.Auth(
-        os.environ.get("ALIYUN_OSS_ACCESS_KEY_ID", ""),
-        os.environ.get("ALIYUN_OSS_ACCESS_KEY_SECRET", ""),
-    )
-    # STS 临时凭证或 RAM 长期 AK 都行 (都用 AccessKeyId/Secret)
+    # .env.production 里只有 ALIYUN_STS_ACCESS_KEY_ID/SECRET (没有单独的 OSS_*),
+    # 同一对 AK 既用于 STS 也用于 OSS API。fallback 兼容。
+    oss_ak = (os.environ.get("ALIYUN_OSS_ACCESS_KEY_ID")
+              or os.environ.get("ALIYUN_STS_ACCESS_KEY_ID", ""))
+    oss_sk = (os.environ.get("ALIYUN_OSS_ACCESS_KEY_SECRET")
+              or os.environ.get("ALIYUN_STS_ACCESS_KEY_SECRET", ""))
+    if not (oss_ak and oss_sk):
+        sys.exit("❌ ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_STS_ACCESS_KEY_ID 都未设置")
+    oss_auth = oss2.Auth(oss_ak, oss_sk)
     oss_bucket = oss2.Bucket(
         oss_auth,
         os.environ.get("ALIYUN_OSS_ENDPOINT", ""),
