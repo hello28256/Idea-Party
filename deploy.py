@@ -889,10 +889,11 @@ def action_upload_uploads(*, dry_run: bool = False, force: bool = False) -> None
         def put_one(p, key):
             '''上传一个文件,COS Python SDK 简单 PUT(适合小文件头像)'''
             ct = mimetypes.guess_type(p.name)[0]
+            # Body 必须是 file-like 或 bytes, 不能是 str(Path) (会传路径字符串)
             kwargs = {
                 'Bucket': os.environ['TENCENT_COS_BUCKET'],
                 'Key': key,
-                'Body': str(p),
+                'Body': open(p, 'rb'),
                 'CacheControl': 'public, max-age=31536000, immutable',
             }
             if ct:
