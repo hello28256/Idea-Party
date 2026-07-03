@@ -1,13 +1,13 @@
 package com.ideaparty.service;
 
 import com.ideaparty.config.TencentCosProperties;
-import com.tencentcloudapi.cam.v20190116.CamClient;
-import com.tencentcloudapi.cam.v20190116.models.AssumeRoleRequest;
-import com.tencentcloudapi.cam.v20190116.models.AssumeRoleResponse;
 import com.tencentcloudapi.common.Credential;
 import com.tencentcloudapi.common.exception.TencentCloudSDKException;
 import com.tencentcloudapi.common.profile.ClientProfile;
 import com.tencentcloudapi.common.profile.HttpProfile;
+import com.tencentcloudapi.sts.v20180813.StsClient;
+import com.tencentcloudapi.sts.v20180813.models.AssumeRoleRequest;
+import com.tencentcloudapi.sts.v20180813.models.AssumeRoleResponse;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,13 +20,15 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 签发腾讯云 CAM STS 临时凭证,给前端浏览器直传 COS 用。
+ * 签发腾讯云 STS 临时凭证,给前端浏览器直传 COS 用。
  *
- * 凭证缓存:AssumeRole 每次调用都要花钱(虽然很便宜),且有 QPS 限制。
- * 简单做法是拿到凭证后缓存,Expiration - 5min 内主动续。
+ * PR2 改写: 用 tencentcloud-sdk-java STS SDK 调 AssumeRole API。
+ * 注意: AssumeRole API 走 sts.tencentcloudapi.com (不是 cam.tencentcloudapi.com),
+ * 正确包路径: com.tencentcloudapi.sts.v20180813.models.AssumeRoleRequest。
  *
- * 安全:SecretKey 不进日志(DEBUG 级别只打 ID 前 4 位 + 过期时间)。
- * 缓存里的 Secret 不写磁盘、Spring 也不序列化它,只在内存里活到过期。
+ * 凭证缓存: STS 凭证 ExpiresAt - 5min 主动续,避免前端拿到快过期的凭证。
+ *
+ * 安全: SecretKey 不进日志(DEBUG 级别只打 ID 前 4 位 + 过期时间)。
  */
 @Slf4j
 @Service
@@ -51,7 +53,6 @@ public class StsTokenService {
         if (current != null && current.getExpireAtMillis() - now > RENEW_BEFORE_EXPIRY_MS) {
             return current;
         }
-        // 凭证快过期或没缓存,加锁避免并发续期
         renewLock.lock();
         try {
             current = cache;
@@ -78,14 +79,14 @@ public class StsTokenService {
                             + "TENCENT_COS_SECRET_KEY / TENCENT_COS_ROLE_ARN 是否设置");
         }
         try {
-            // CAM API endpoint 是固定的,与 COS 桶无关;但 endpoint 域名要
-            // 用 cam.tencentcloudapi.com, region 用 ap-seoul (跟 COS 同地域)
+            // STS AssumeRole API endpoint 是固定的 sts.tencentcloudapi.com
+            // region 用 COS 桶同地域 (ap-seoul), 签名要 region 参数
             Credential cred = new Credential(cfg.getSecretId(), cfg.getSecretKey());
             HttpProfile httpProfile = new HttpProfile();
-            httpProfile.setEndpoint("cam.tencentcloudapi.com");
+            httpProfile.setEndpoint("sts.tencentcloudapi.com");
             ClientProfile clientProfile = new ClientProfile();
             clientProfile.setHttpProfile(httpProfile);
-            CamClient client = new CamClient(cred, props.getCos().getRegion(), clientProfile);
+            StsClient client = new StsClient(cred, props.getCos().getRegion(), clientProfile);
 
             AssumeRoleRequest request = new AssumeRoleRequest();
             request.setRoleArn(cfg.getRoleArn());
@@ -105,8 +106,7 @@ public class StsTokenService {
             out.setExpireAtMillis(expireAt);
             return out;
         } catch (TencentCloudSDKException e) {
-            // 错误信息可能含 AK 残留,只打错误码
-            log.error("[DEBUG] CAM AssumeRole 失败: code={}, requestId={}",
+            log.error("[DEBUG] STS AssumeRole 失败: code={}, requestId={}",
                     e.getErrorCode(), e.getRequestId());
             throw new RuntimeException("STS 签发失败: " + e.getErrorCode(), e);
         }
