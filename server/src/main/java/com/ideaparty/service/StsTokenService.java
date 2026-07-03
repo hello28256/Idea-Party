@@ -8,6 +8,7 @@ import com.tencentcloudapi.common.profile.HttpProfile;
 import com.tencentcloudapi.sts.v20180813.StsClient;
 import com.tencentcloudapi.sts.v20180813.models.AssumeRoleRequest;
 import com.tencentcloudapi.sts.v20180813.models.AssumeRoleResponse;
+import com.tencentcloudapi.sts.v20180813.models.Credentials;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,10 +96,10 @@ public class StsTokenService {
             request.setDurationSeconds((long) Math.min(7200, Math.max(900, cfg.getDurationSeconds())));
 
             AssumeRoleResponse response = client.AssumeRole(request);
-            AssumeRoleResponse.Credentials c = response.getCredentials();
+            Credentials c = response.getCredentials();
 
-            // 腾讯云 STS 返回的 Expiration 形如 "2026-07-03T15:00:00Z"
-            long expireAt = parseExpiryMillis(c.getExpiration());
+            // 腾讯云 STS 返回的 Expiration 形如 "2026-07-03T15:00:00Z", 在 response 上
+            long expireAt = parseExpiryMillis(response.getExpiration());
             CachedCredentials out = new CachedCredentials();
             out.setAccessKeyId(c.getTmpSecretId());
             out.setAccessKeySecret(c.getTmpSecretKey());
