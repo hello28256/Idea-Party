@@ -169,6 +169,11 @@ RSYNC_EXCLUDES = [
     # 本地不入仓,deploy 时不要 rsync 删/覆盖 — 否则 --delete 会清空 server 端 manifest,
     # 下一跑只能全量 PUT。
     "server/uploads/avatars/.oss-manifest.json",
+    # PR2 切到腾讯云后,manifest 重命名 .oss-manifest.json → .cos-manifest.json,
+    # 旧的 exclude 名字不匹配,rsync --delete 会把服务端这份删掉 → 下次 deploy
+    # 没有 manifest 缓存 → 走全量 PUT,资源浪费。
+    # 加新名字 exclude 保持兼容 (即使老 manifest 还在,多写一行也没坏处)。
+    "server/uploads/avatars/.cos-manifest.json",
 ]
 
 
