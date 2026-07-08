@@ -12,7 +12,7 @@
 - **合规**: 不能让 AI 角色声称自己是真人
 - **技术**: 前后端接口必须真实打通，不允许只写 mock
 - **Fallback**: 暂时无法接入 Firecrawl 或 DeepSeek 时，需封装接口并提供 mock fallback
-- **图片存储**: 生产环境图片统一走阿里云 OSS（华南1，桶 `idea-party-uploads`，公共读）。前端拿 STS 临时凭证浏览器直传 OSS，**不再写入 server/uploads 卷**。后端代码里所有 OSS 配置走 `${ALIYUN_*}` 环境变量，**禁止字面量**（含桶名 `idea-party-uploads` 带横杠，不要写成 `ideaparty-uploads`）
+- **图片存储**: 生产环境图片统一走腾讯云 COS（首尔 `ap-seoul`，桶 `idea-party-uploads-1361890600`，公共读）。前端拿 STS 临时凭证浏览器直传 COS，**不再写入 server/uploads 卷**。后端代码里所有 COS 配置走 `${TENCENT_COS_*}` 环境变量，**禁止字面量**（含桶名 `idea-party-uploads-1361890600` 带横杠 + APPID 后缀，不要写成 `idea-party-uploads` 或 `ideaparty-uploads`）。完整 URL 由后端 `ImageUrlResolver` 在 DTO 序列化前拼，浏览器 `<img>` 直连 COS，不经过 nginx。
 
 ## Technology Stack
 

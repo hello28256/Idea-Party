@@ -806,6 +806,13 @@ public class CharacterService {
      * 调用方：聊天室详情页解析角色信息。
      */
     public Optional<CharacterResponse> findById(UUID id) {
+        // 2026-07: preset 角色只存在内存缓存（PresetCharacterCache），DB 里没有；
+        // 之前只查 DB 导致 getById 对 preset 永远 404,前端 clone preset 拿不到 prompt
+        // 触发后端 8s LLM 生成。先查 cache 走 O(1),miss 再 fallback DB。
+        CharacterResponse fromCache = presetCache.getById(id);
+        if (fromCache != null) {
+            return Optional.of(fromCache.resolveImageUrls(imageUrlResolver));
+        }
         return characterRepository.findById(id)
                 .map(r -> CharacterResponse.fromEntity(r).resolveImageUrls(imageUrlResolver));
     }

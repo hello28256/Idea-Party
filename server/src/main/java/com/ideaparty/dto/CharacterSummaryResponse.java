@@ -59,10 +59,8 @@ public class CharacterSummaryResponse {
         if (character.getOwner() != null) {
             response.setOwnerId(character.getOwner().getId());
         }
-        // preset 角色带 prompt,前端 clone 时用得上,避免后端空 prompt 联网+AI 生成(8s+)
-        if (character.isPreset()) {
-            response.setPrompt(character.getPrompt());
-        }
+        // 列表 Summary 一律不带 prompt (2026-07 优化,1.5MB → 50KB)。
+        // preset 角色的 prompt 由 clone 流程按需调 GET /characters/{id} 拿完整 CharacterResponse。
         return response;
     }
 
@@ -71,7 +69,11 @@ public class CharacterSummaryResponse {
      * 用于 Controller 列表端点:Service 已返回 CharacterResponse 流(走内存缓存),
      * 没必要为了 Summary 再查一次 entity。
      *
-     * <p>preset 角色例外:复制 prompt 给前端 clone 用,见 fromEntity 注释。
+     * <p>2026-07 优化:列表 Summary 一律不带 prompt,无论 preset 还是用户角色。
+     * 此前 preset 例外保留 prompt,导致 585 × 2-3KB = 1.5MB JSON,gzip 后仍 630KB,
+     * nginx 缓存命中后出 1.5MB 也要 1+ 秒,前端没有 featuredCharacters 就不渲染 <img>,
+     * 用户感知"头像过很久才显示"。改为 clone 时前端按需调 GET /characters/{id}
+     * 拿完整 CharacterResponse(单角色 ~2KB,nginx 1d 缓存,首次 30ms,后续 0ms)。
      */
     public static CharacterSummaryResponse fromResponse(CharacterResponse source) {
         CharacterSummaryResponse response = new CharacterSummaryResponse();
@@ -84,9 +86,6 @@ public class CharacterSummaryResponse {
         response.setCreatedAt(source.getCreatedAt());
         response.setUpdatedAt(source.getUpdatedAt());
         response.setOwnerId(source.getOwnerId());
-        if (source.isPreset()) {
-            response.setPrompt(source.getPrompt());
-        }
         return response;
     }
 

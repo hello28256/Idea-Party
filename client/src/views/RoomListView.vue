@@ -944,7 +944,8 @@ async function startChat(character: any) {
             name: dup.name,
             description: dup.description || '',
             avatarUrl: character.avatarUrl,
-            prompt: dup.prompt || character.prompt || ''
+            // 2026-07: Summary 列表不带 prompt,character.prompt 现在是 undefined;dup.prompt 来自后端 create 返回,已经填好
+            prompt: dup.prompt || ''
           }).catch(e => console.warn('[DEBUG] async patch avatar failed', e))
         }
       } else {
@@ -958,11 +959,23 @@ async function startChat(character: any) {
           }
           cloningCharacterNames.value.add(character.name)
           try {
+            // 2026-07: Summary 列表不再带 prompt(1.5MB → 50KB 优化);
+            // clone 时按需调 getById 拿完整 CharacterResponse。preset 走 nginx 1d 缓存,
+            // 首次 <30ms(单角色 ~2KB),不影响主流程。
+            let presetPrompt = character.prompt
+            if (!presetPrompt) {
+              try {
+                const full = await charactersApi.getById(character.id)
+                presetPrompt = full.data?.prompt
+              } catch (e) {
+                console.warn('[DEBUG] getById for prompt failed', e)
+              }
+            }
             const cloned = await characterStore.createCharacter({
               name: character.name,
               description: character.description || '',
               avatarUrl: character.avatarUrl || '',
-              prompt: character.prompt || ''
+              prompt: presetPrompt || ''
             })
             if (cloned) {
               // 后端按 owner+name 去重,可能返回已存在记录的 id。
@@ -1175,7 +1188,8 @@ async function fetchFeaturedCharacters(category?: string) {
       avatar: char.avatarUrl || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(char.name)}&backgroundColor=c0aede`,
       online: false,
       // 把后端原始字段也保留下来，让 startChat 在 clone 时能拿到完整数据：
-      // 不带这些字段会导致加入角色库后头像/描述/prompt 全为空，触发前端首字母占位符 fallback。
+      // 不带这些字段会导致加入角色库后头像/描述全为空，触发前端首字母占位符 fallback。
+      // 2026-07: prompt 由 clone 路径按需调 getById 拿,这里不再从 Summary 列表带过来。
       avatarUrl: char.avatarUrl || '',
       description: char.description || '',
       prompt: char.prompt || ''
@@ -1423,7 +1437,8 @@ async function cloneParticipantsToMyLibrary(
             name: existing.name,
             description: existing.description || '',
             avatarUrl: preset.avatarUrl,
-            prompt: existing.prompt || preset.prompt || ''
+            // 2026-07: Summary 列表不带 prompt,preset.prompt 现在是 undefined;用 existing.prompt 兜底
+            prompt: existing.prompt || ''
           })
         }
       }
@@ -1455,11 +1470,21 @@ async function cloneParticipantsToMyLibrary(
     }
     cloningCharacterNames.value.add(name)
     try {
+      // 2026-07: Summary 列表不带 prompt,clone 时按需 getById 拿完整 prompt
+      let presetPrompt = preset.prompt
+      if (!presetPrompt) {
+        try {
+          const full = await charactersApi.getById(preset.id)
+          presetPrompt = full.data?.prompt
+        } catch (e) {
+          console.warn('[DEBUG] getById for prompt failed in cloneParticipants', e)
+        }
+      }
       const cloned = await characterStore.createCharacter({
         name,
         description: preset.description || '',
         avatarUrl: preset.avatarUrl || '',
-        prompt: preset.prompt || ''
+        prompt: presetPrompt || ''
       })
       if (!cloned) {
         throw new Error(`加入「${name}」失败：${characterStore.error || '未知错误'}`)
