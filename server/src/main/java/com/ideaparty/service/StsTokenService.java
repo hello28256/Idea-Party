@@ -94,6 +94,24 @@ public class StsTokenService {
             request.setRoleSessionName(cfg.getRoleSessionName());
             // DurationSeconds 范围 [900, 7200],腾讯云用秒
             request.setDurationSeconds((long) Math.min(7200, Math.max(900, cfg.getDurationSeconds())));
+            // 内嵌 session policy: 限定到具体桶 + uploads/* 前缀的读写权限。
+            // ⚠️ 注意:腾讯云 STS 的 Policy 字段是"再限制"语义,不是"赋权"语义。
+            // 如果 CAM 角色本身没有任何 COS 权限,内嵌 policy 不会让 STS 凭证凭空获得权限。
+            // 角色必须先绑 QcloudCOSFullAccess 或自定义策略(含 cos:PutObject + 资源 = 当前桶 prefix),
+            // 内嵌 policy 才能在此基础上做更细的 resource 限定。
+            String bucket = props.getCos().getBucket(); // idea-party-uploads-1361890600
+            String region = props.getCos().getRegion(); // ap-seoul
+            String appId = bucket.substring(bucket.lastIndexOf('-') + 1); // 1361890600
+            String prefix = props.getCos().getKeyPrefix(); // "uploads/"
+            String resource = String.format("qcs::cos:%s:uid/%s:%s/%s*",
+                    region, appId, bucket, prefix);
+            String inlinePolicy = String.format(
+                "{\"version\":\"2.0\",\"statement\":[{\"effect\":\"allow\","
+                + "\"action\":[\"cos:PutObject\",\"cos:PostObject\","
+                + "\"cos:GetObject\",\"cos:HeadObject\",\"cos:DeleteObject\"],"
+                + "\"resource\":\"%s\"}]}", resource);
+            request.setPolicy(inlinePolicy);
+            log.info("[DEBUG] STS policy resource={}", resource);
 
             AssumeRoleResponse response = client.AssumeRole(request);
             Credentials c = response.getCredentials();
