@@ -63,25 +63,20 @@ async function getClient(): Promise<CachedClient> {
   return inflight
 }
 
-/** 生成上传 key:uploads/2026-07-08/{uuid}.{ext}
- *  按天分目录,平衡"单目录文件数"和"目录数"两难:
- *    - 每天一个目录,删某天的全部头像 = 删一个目录
- *    - 单目录文件数 ≪ ListBucket 1000 条上限
- *    - 月底审计:列出当月所有日期目录即可
+/** 生成上传 key:uploads/202607/{uuid}.{ext}
+ *  按月分目录,用户量小时最简单(单月攒几十个文件,人眼/ls 都好看)。
+ *  若用户量大到单月过千文件,再考虑改成按天 / 按用户 ID 哈希。
  *  注意:服务端 ImageUrlResolver 读 DB 里的 URL,目录格式改了不影响旧数据。
  */
 function buildCosKey(prefix: string, file: File): string {
   const now = new Date()
-  const yyyy = now.getFullYear()
-  const mm = String(now.getMonth() + 1).padStart(2, '0')
-  const dd = String(now.getDate()).padStart(2, '0')
-  const dateDir = `${yyyy}-${mm}-${dd}`
+  const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)
   const uuid = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
     : Math.random().toString(36).slice(2, 18)
   const cleanPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`
-  return `${cleanPrefix}${dateDir}/${uuid}.${ext}`
+  return `${cleanPrefix}${yyyymm}/${uuid}.${ext}`
 }
 
 /**
