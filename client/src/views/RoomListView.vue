@@ -925,78 +925,73 @@ async function startChat(character: any) {
     let characterIdForRoom = character.id
 
     if (isPreset) {
-      // 关键: clone 改成后台异步,不再阻塞跳转到聊天。
-      // 之前 await characterStore.createCharacter 会等 8s (LLM 生成 prompt),
-      // 用户每次点推荐角色都体验 8s 空白。优化: 立即用 preset.id 建房间
-      // (RoomService.create 不校验所有权,preset id 也能进房间),clone 在
-      // 后台 fire-and-forget,失败也无影响 (用户已经在聊天里,clone 只是把
-      // preset 复制到我的角色库用于以后编辑/收藏,辅助功能)。
-      // dedup 逻辑: 立即查 store 找已 clone 的同名副本(本地无 LLM 调用,瞬间),
-      // 有就用副本 id,没有就用 preset id。后台 clone 完成后下次进来就走副本。
+      // 必须先 clone 再建房间。
+      // 旧实现尝试"用 preset.id 立即建房间、clone 在后台 fire-and-forget",但
+      // 后端 RoomService.create 用 characterRepository.findById 查 DB,而 preset
+      // 只在 PresetCharacterCache 内存里——findById 必然抛 IllegalArgumentException,
+      // 表现为"创建对话失败,请重试" alert。后台 clone 完成后第二次点击才走 dedup 成功路径。
+      // 修复:沿用 enterRoom 路径的写法,先 await clone,再用副本 id 建房间。
       const dup = characterStore.characters.find(c =>
         c.ownerId === myUserId && c.name === character.name
       )
       if (dup) {
         characterIdForRoom = dup.id
-        // 老库 clone 出来头像可能为空,后台补一次(不阻塞主流程)
+        // 老库 clone 出来头像可能为空,补一次
         if (!dup.avatarUrl && character.avatarUrl) {
-          void characterStore.updateCharacter(dup.id, {
-            name: dup.name,
-            description: dup.description || '',
-            avatarUrl: character.avatarUrl,
-            // 2026-07: Summary 列表不带 prompt,character.prompt 现在是 undefined;dup.prompt 来自后端 create 返回,已经填好
-            prompt: dup.prompt || ''
-          }).catch(e => console.warn('[DEBUG] async patch avatar failed', e))
+          try {
+            await characterStore.updateCharacter(dup.id, {
+              name: dup.name,
+              description: dup.description || '',
+              avatarUrl: character.avatarUrl,
+              prompt: dup.prompt || ''
+            })
+          } catch (e) {
+            console.warn('[DEBUG] patch avatar failed', e)
+          }
         }
       } else {
-        // 用 preset id 跳转到聊天,先让用户进对话
-        characterIdForRoom = character.id
-
-        // 后台异步 clone 到我的角色库,不 await 不 throw
-        void (async () => {
-          if (cloningCharacterNames.value.has(character.name)) {
-            return  // 已经在 clone 另一个同名,跳过
-          }
-          cloningCharacterNames.value.add(character.name)
-          try {
-            // 2026-07: Summary 列表不再带 prompt(1.5MB → 50KB 优化);
-            // clone 时按需调 getById 拿完整 CharacterResponse。preset 走 nginx 1d 缓存,
-            // 首次 <30ms(单角色 ~2KB),不影响主流程。
-            let presetPrompt = character.prompt
-            if (!presetPrompt) {
-              try {
-                const full = await charactersApi.getById(character.id)
-                presetPrompt = full.data?.prompt
-              } catch (e) {
-                console.warn('[DEBUG] getById for prompt failed', e)
-              }
+        // 必须先 await clone;preset.id 不会落 DB,直接用它建房间会 400。
+        if (cloningCharacterNames.value.has(character.name)) {
+          alert('该角色正在创建中,请稍候再试')
+          return
+        }
+        cloningCharacterNames.value.add(character.name)
+        try {
+          // Summary 列表不带 prompt(1.5MB → 50KB 优化),按需 getById 拿完整
+          let presetPrompt = character.prompt
+          if (!presetPrompt) {
+            try {
+              const full = await charactersApi.getById(character.id)
+              presetPrompt = full.data?.prompt
+            } catch (e) {
+              console.warn('[DEBUG] getById for prompt failed', e)
             }
-            const cloned = await characterStore.createCharacter({
-              name: character.name,
-              description: character.description || '',
-              avatarUrl: character.avatarUrl || '',
-              prompt: presetPrompt || ''
-            })
-            if (cloned) {
-              // 后端按 owner+name 去重,可能返回已存在记录的 id。
-              // 合并 store:若返回的不是新副本,删 store 里多余的(没有就不删)
-              const serverId = cloned.id
-              const localExisting = characterStore.characters.find(c =>
-                c.ownerId === myUserId && c.name === character.name && c.id !== serverId
-              )
-              if (localExisting) {
-                const staleIdx = characterStore.characters.findIndex(c => c.id === serverId)
-                if (staleIdx !== -1) characterStore.characters.splice(staleIdx, 1)
-              } else {
-                characterStore.characters.push(cloned)
-              }
-            }
-          } catch (e) {
-            console.warn('[DEBUG] background clone failed for', character.name, e)
-          } finally {
-            cloningCharacterNames.value.delete(character.name)
           }
-        })()
+          const cloned = await characterStore.createCharacter({
+            name: character.name,
+            description: character.description || '',
+            avatarUrl: character.avatarUrl || '',
+            prompt: presetPrompt || ''
+          })
+          if (cloned) {
+            characterIdForRoom = cloned.id
+            // 后端按 owner+name 去重,可能返回已存在记录的 id。合并 store。
+            const serverId = cloned.id
+            const localExisting = characterStore.characters.find(c =>
+              c.ownerId === myUserId && c.name === character.name && c.id !== serverId
+            )
+            if (localExisting) {
+              const staleIdx = characterStore.characters.findIndex(c => c.id === serverId)
+              if (staleIdx !== -1) characterStore.characters.splice(staleIdx, 1)
+            } else {
+              characterStore.characters.push(cloned)
+            }
+          } else {
+            throw new Error('角色创建失败:后端未返回角色数据')
+          }
+        } finally {
+          cloningCharacterNames.value.delete(character.name)
+        }
       }
     } else if (!isMine) {
       // 属于别的用户：不能 clone 到我的库（避免越权），只能尝试复用既有房间
@@ -1039,9 +1034,11 @@ async function startChat(character: any) {
         }
       })
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error('[DEBUG] Failed to start chat:', e)
-    alert('创建对话失败，请重试')
+    // 透传后端错误(若有),让用户知道具体原因而不是抽象的"请重试"
+    const detail = e?.response?.data?.message || e?.message
+    alert(detail ? `创建对话失败:${detail}` : '创建对话失败,请重试。')
   } finally {
     isStartingChat.value = false
   }
