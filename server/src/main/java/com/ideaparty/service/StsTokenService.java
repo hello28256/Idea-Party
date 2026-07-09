@@ -81,7 +81,7 @@ public class StsTokenService {
         }
         try {
             // STS AssumeRole API endpoint 是固定的 sts.tencentcloudapi.com
-            // region 用 COS 桶同地域 (ap-seoul), 签名要 region 参数
+            // region 用 COS 桶同地域 (ap-guangzhou), 签名要 region 参数
             Credential cred = new Credential(cfg.getSecretId(), cfg.getSecretKey());
             HttpProfile httpProfile = new HttpProfile();
             httpProfile.setEndpoint("sts.tencentcloudapi.com");
@@ -99,8 +99,8 @@ public class StsTokenService {
             // 如果 CAM 角色本身没有任何 COS 权限,内嵌 policy 不会让 STS 凭证凭空获得权限。
             // 角色必须先绑 QcloudCOSFullAccess 或自定义策略(含 cos:PutObject + 资源 = 当前桶 prefix),
             // 内嵌 policy 才能在此基础上做更细的 resource 限定。
-            String bucket = props.getCos().getBucket(); // idea-party-uploads-1361890600
-            String region = props.getCos().getRegion(); // ap-seoul
+            String bucket = props.getCos().getBucket(); // idea-party-uploads-gz-1361890600
+            String region = props.getCos().getRegion(); // ap-guangzhou
             String appId = bucket.substring(bucket.lastIndexOf('-') + 1); // 1361890600
             String prefix = props.getCos().getKeyPrefix(); // "uploads/"
             String resource = String.format("qcs::cos:%s:uid/%s:%s/%s*",

@@ -72,15 +72,15 @@ upload:
 # 腾讯云 COS + CAM 配置 (主存储)
 # 全部从环境变量读,代码里不允许出现 Secret 字面量。
 # 生产部署: 在 .env.production 设置 TENCENT_COS_*。
-# 桶名: idea-party-uploads-1361890600 (首尔 ap-seoul,跟 ECS 同地域,零跨境)
+# 桶名: idea-party-uploads-gz-1361890600 (广州 ap-guangzhou,跟华南 ECS 同地域,零跨境)
 # PR3 完成迁移: 删除了 aliyun 块, 后端 StsTokenService 走 CAM AssumeRole。
 # =============================================================================
 tencent:
   cos:
-    bucket: ${TENCENT_COS_BUCKET:idea-party-uploads-1361890600}
-    region: ${TENCENT_COS_REGION:ap-seoul}
-    endpoint: ${TENCENT_COS_ENDPOINT:https://idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com}
-    bucket-domain: ${TENCENT_COS_BUCKET_DOMAIN:https://idea-party-uploads-1361890600.cos.ap-seoul.myqcloud.com}
+    bucket: ${TENCENT_COS_BUCKET:idea-party-uploads-gz-1361890600}
+    region: ${TENCENT_COS_REGION:ap-guangzhou}
+    endpoint: ${TENCENT_COS_ENDPOINT:https://idea-party-uploads-gz-1361890600.cos.ap-guangzhou.myqcloud.com}
+    bucket-domain: ${TENCENT_COS_BUCKET_DOMAIN:https://idea-party-uploads-gz-1361890600.cos.ap-guangzhou.myqcloud.com}
     key-prefix: ${TENCENT_COS_KEY_PREFIX:uploads/}
   cam:
     secret-id: ${TENCENT_COS_SECRET_ID:}

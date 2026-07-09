@@ -29,7 +29,7 @@ public class TencentCosProperties {
     public static class Cos {
         /** 桶名带 APPID, idea-party-uploads-1361890600 */
         private String bucket;
-        /** COS region, ap-seoul */
+        /** COS region, ap-guangzhou */
         private String region;
         /** COS endpoint (bucket 默认访问域名),SDK 用 */
         private String endpoint;
