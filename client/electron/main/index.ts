@@ -21,6 +21,8 @@ const APP_ROOT = app.getAppPath()
 const SERVER_URL_ENV = process.env['VITE_DEV_SERVER_URL']
 // dev 模式:!app.isPackaged(没打包的版本就是 dev)
 const isDev = !app.isPackaged
+// 模块顶层,createWindow 和 buildMenu 共用
+const isMac = process.platform === 'darwin'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -30,7 +32,9 @@ function createWindow(): void {
     minHeight: 600,
     // 先 show:false,等 ready-to-show 触发后再显示,避免白屏闪一下
     show: false,
-    titleBarStyle: 'hiddenInset', // macOS:标题栏融入内容区,视觉更干净
+    // macOS:标题栏融入内容区,视觉更干净
+    // Windows/Linux:不设(默认有标准标题栏)
+    ...(isMac && { titleBarStyle: 'hiddenInset' as const }),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f172a' : '#ffffff',
     webPreferences: {
       preload: join(APP_ROOT, 'dist-electron/preload/index.js'),
@@ -77,7 +81,7 @@ function createWindow(): void {
 }
 
 function buildMenu(): void {
-  const isMac = process.platform === 'darwin'
+  // isMac 已在 createWindow 里声明过,直接用
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [

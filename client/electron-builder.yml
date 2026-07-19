@@ -2,8 +2,7 @@ appId: com.ideaparty.client
 productName: Idea Party
 copyright: Copyright © 2026 Idea Party
 
-# 主入口指向 vite-plugin-electron 编译产物
-main: dist-electron/main/index.js
+# main 字段从 package.json 读,不在这里写
 
 # 渲染产物作为打包资源
 files:
@@ -40,6 +39,43 @@ mac:
     NSHumanReadableCopyright: Copyright © 2026 Idea Party
     LSApplicationCategoryType: public.app-category.social-networking
 
+# ============================================
+# Windows 配置 —— 方案 1:不签名,本地 build 用
+# ============================================
+# SmartScreen 会拦未签名的 .exe,首次双击会弹"Windows 已保护你的电脑"→ 更多信息 → 仍要运行
+# 正式分发需要买 EV 代码签名证书($300-500/年,需企业资质)
+# 或者普通 OV 证书($200/年),仍会有 SmartScreen 警告但能装
+win:
+  target:
+    - target: nsis          # NSIS 安装器(下一步下一步式,推荐)
+      arch:
+        - x64               # 主流架构
+        # - arm64           # Windows on ARM(Surface Pro X 等),需要时再开
+  # certificateFile / certificatePassword 不设 = 不签名
+  # 后续要签名:
+  #   certificateFile: "${WIN_CERT_PATH}"
+  #   certificatePassword: "${WIN_CERT_PASSWORD}"
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# NSIS 安装器专属配置(win 段的子配置)
+nsis:
+  oneClick: false                          # false = 显示安装向导,允许用户选路径
+  perMachine: false                        # per-user 安装(普通用户场景,无需管理员权限)
+  allowToChangeInstallationDirectory: true # 允许改安装目录
+  allowElevation: true                     # 必要时可申请 UAC 提权
+  createDesktopShortcut: true              # 桌面图标
+  createStartMenuShortcut: true            # 开始菜单
+  shortcutName: Idea Party
+  deleteAppDataOnUninstall: false          # 卸载时保留用户数据(避免误删)
+
+# ============================================
+# Linux(预留,看你需不需要)
+# ============================================
+# linux:
+#   target:
+#     - AppImage
+#     - deb
+#   category: Network
+
 # 通用打包细节
 compression: maximum
-removeComments: true
