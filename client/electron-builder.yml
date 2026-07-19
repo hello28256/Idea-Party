@@ -1,0 +1,45 @@
+appId: com.ideaparty.client
+productName: Idea Party
+copyright: Copyright © 2026 Idea Party
+
+# 主入口指向 vite-plugin-electron 编译产物
+main: dist-electron/main/index.js
+
+# 渲染产物作为打包资源
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# 这些目录不进 .app,体积太大,而且用不到
+asarUnpack:
+  - resources/**
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+# ============================================
+# macOS 配置 —— 方案 1:不签名,免费跑起来
+# ============================================
+mac:
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch:
+        - arm64   # Apple Silicon (M1/M2/M3/M4)
+        - x64     # Intel Mac
+  # identity: null 表示不签名,用户首次需"右键 → 打开"
+  # 后续要正式发版,把 identity 换成 "Developer ID Application: Your Name (TEAMID)"
+  # 并加 notarize 配置(需要 Apple Developer 账号,$99/年)
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  darkModeSupport: true
+  extendInfo:
+    NSHumanReadableCopyright: Copyright © 2026 Idea Party
+    LSApplicationCategoryType: public.app-category.social-networking
+
+# 通用打包细节
+compression: maximum
+removeComments: true
