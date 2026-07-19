@@ -17,6 +17,16 @@ client/playwright-report/
 client/test-results/
 client/.eslintcache
 
+# Electron desktop build artifacts & dev-only files
+# dist-electron/  : vite-plugin-electron 编译产物(主进程/preload)
+# .vite-cache/    : 自定义 cacheDir,绕开 root-owned .vite 目录
+# release/        : electron-builder 打包输出(.dmg/.app)
+# .dev-db-env.sh  : dev 模式临时脚本,source 生产 env 取 DB 密码,不能入库
+client/dist-electron/
+client/.vite-cache/
+client/release/
+client/.dev-db-env.sh
+
 # Backend
 server/target/
 server/*.jar
