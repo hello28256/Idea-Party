@@ -85,6 +85,11 @@ const isGlobalSidebarCollapsed = ref(false)
 const isRoomListCollapsed = ref(true)
 const isRolePanelCollapsed = ref(true)
 
+// 桌面端检测：仅在 Electron / Tauri 这类有自定义标题栏的容器里，
+// 才给 .page-layout 顶部留出 28px inset；浏览器里保持 0。
+// window.electronAPI 由 client/electron/preload/index.ts 暴露（isDesktop: true）。
+const isDesktopApp = typeof window !== 'undefined' && !!(window as any).electronAPI?.isDesktop
+
 // Members panel state
 const showMembersTab = ref(false)
 const showInviteModal = ref(false)
@@ -1596,6 +1601,7 @@ async function handleInviteMember() {
     class="page-layout"
     :class="{
       mounted,
+      'is-desktop': isDesktopApp,
       'global-collapsed': isGlobalSidebarCollapsed,
       'room-list-collapsed': isRoomListCollapsed,
       'role-panel-collapsed': isRolePanelCollapsed
@@ -2780,9 +2786,15 @@ async function handleInviteMember() {
   overflow: hidden;
   /* 桌面端 macOS hiddenInset / Windows 标准标题栏都吃掉顶部 ~28px。
      不留空会让红绿黄点或系统标题栏直接压在 Idea Party logo 上。
-     浏览器访问时这 28px 是空 padding，无副作用。 */
-  padding-top: 28px;
+     只在 is-desktop（Electron preload 注入的 window.electronAPI）下加 inset，
+     浏览器访问保持原状。 */
+  padding-top: 0;
   transition: opacity 0.4s ease, background-color 0.25s ease, grid-template-columns 0.22s ease;
+}
+
+/* 桌面端专属：让位 macOS 交通灯 / Windows 系统标题栏 */
+.page-layout.is-desktop {
+  padding-top: 28px;
 }
 
 .page-layout.mounted {
