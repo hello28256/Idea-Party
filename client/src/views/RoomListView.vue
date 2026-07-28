@@ -3225,9 +3225,14 @@ async function handleInviteMember() {
 
 /* 发现页 header：让搜索框紧贴标题右边，并压缩下方的留白（原 .content-header 的 2rem 太大） */
 .content-header.discover-header {
+  position: sticky;
+  top: -1.5rem;
+  z-index: 20;
   justify-content: flex-start;
   gap: 1rem;
-  margin-bottom: 1rem; /* 从 2rem 压缩到 1rem，缩短搜索框到"推荐角色"标题之间的空白 */
+  margin: -1.5rem -2rem 1rem;
+  padding: 0.75rem 2rem;
+  background: var(--app-bg);
 }
 
 .page-title {
@@ -3809,8 +3814,10 @@ async function handleInviteMember() {
     padding: 1rem;
   }
 
-  .search-bar {
-    width: 100%;
+  .content-header.discover-header {
+    top: -1rem;
+    margin: -1rem -1rem 1rem;
+    padding: 0.75rem 1rem;
   }
 
   .content-header {
