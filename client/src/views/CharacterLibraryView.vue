@@ -7,7 +7,7 @@
 //   - authStore：当前用户标识，用于过滤"我创建的角色"
 //   - CreateCharacterModal：复用弹窗组件，通过 mode='create' | 'edit' 区分行为（编辑模式已带「对话」按钮）
 //   - AppSidebar / ALL_NAV_ITEMS：通用左侧导航（activeId='characters' 高亮当前页）
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, reactive } from 'vue'
 import { charactersApi } from '@/api/characters'
 import { useCharacterStore } from '@/stores/character'
 import { useAuthStore } from '@/stores/auth'
@@ -25,6 +25,9 @@ const mounted = ref(false)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const editingCharacter = ref<Character | null>(null)
+// 头像加载失败记录（按 character.id），避免 avatarUrl 失效时整张卡留空。
+// patchMissingAvatarUrls 已经把"avatarUrl 为空"补成预设路径,这里只处理 URL 失效场景。
+const avatarLoadFailed = reactive<Record<string, boolean>>({})
 
 onMounted(async () => {
   // 进入页面立即拉取一次角色列表，保证 Tab 切换回来时数据是最新的。
@@ -214,9 +217,10 @@ function formatDate(dateStr: string): string {
             <div class="character-meta">
               <div class="character-avatar">
                 <img
-                  v-if="character.avatarUrl"
+                  v-if="character.avatarUrl && !avatarLoadFailed[character.id]"
                   :src="character.avatarUrl"
                   :alt="character.name"
+                  @error="avatarLoadFailed[character.id] = true"
                 />
                 <span v-else class="avatar-placeholder">{{ character.name.charAt(0) }}</span>
               </div>

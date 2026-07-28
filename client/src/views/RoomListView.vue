@@ -1195,6 +1195,9 @@ async function fetchFeaturedCharacters(category?: string) {
     currentFeaturedBatch.value = 0
     // 同时收起"显示全部"——切换分类后新分类从收起态开始，避免上一个分类的展开态被带过来
     showAllFeatured.value = false
+    // 清掉旧分类的失败记录：featuredCharacters.value 是新数组,旧 id 不会再出现,
+    // 但保留旧 key 会让 map 持续增长,这里统一清理避免内存泄漏。
+    Object.keys(avatarLoadFailed).forEach(k => delete avatarLoadFailed[k])
   } catch (e) {
     console.error('[DEBUG] Failed to fetch featured characters:', e)
     featuredCharacters.value = []
@@ -1706,10 +1709,10 @@ async function handleInviteMember() {
                 class="chat-avatar-cell"
               >
                 <img
-                  v-if="c.avatarUrl"
+                  v-if="c.avatarUrl && !avatarLoadFailed[c.id]"
                   :src="c.avatarUrl"
                   :alt="c.name || chat.name"
-                  @error="(e) => ((e.target as HTMLImageElement).style.display = 'none')"
+                  @error="avatarLoadFailed[c.id] = true"
                 />
                 <span v-else class="chat-avatar-fallback">{{ (c.name || '?').charAt(0) }}</span>
               </div>
@@ -2228,10 +2231,10 @@ async function handleInviteMember() {
                       class="room-list-avatar-cell"
                     >
                       <img
-                        v-if="c.avatarUrl"
+                        v-if="c.avatarUrl && !avatarLoadFailed[c.id]"
                         :src="c.avatarUrl"
                         :alt="c.name || room.name"
-                        @error="(e) => ((e.target as HTMLImageElement).style.display = 'none')"
+                        @error="avatarLoadFailed[c.id] = true"
                       />
                       <span v-else class="room-list-avatar-fallback">{{ (c.name || '?').charAt(0) }}</span>
                       <!-- 仅显示在最后一格：溢出指示，让用户知道该房间还有更多角色 -->
@@ -2328,7 +2331,7 @@ async function handleInviteMember() {
               </div>
               <div class="characters-list">
                 <div class="character-chip-card">
-                  <img v-if="currentRoomCharacters[0].avatarUrl" :src="currentRoomCharacters[0].avatarUrl" :alt="currentRoomCharacters[0].name" />
+                  <img v-if="currentRoomCharacters[0].avatarUrl && !avatarLoadFailed[currentRoomCharacters[0].id]" :src="currentRoomCharacters[0].avatarUrl" :alt="currentRoomCharacters[0].name" @error="avatarLoadFailed[currentRoomCharacters[0].id] = true" />
                   <div v-else class="char-avatar-placeholder">{{ currentRoomCharacters[0].name?.charAt(0) }}</div>
                   <div class="character-info-row">
                     <div class="character-info">
@@ -2396,7 +2399,7 @@ async function handleInviteMember() {
 
                 <div v-else class="characters-list">
                   <div v-for="char in currentRoomCharacters" :key="char.id" class="character-chip-card">
-                    <img v-if="char.avatarUrl" :src="char.avatarUrl" :alt="char.name" />
+                    <img v-if="char.avatarUrl && !avatarLoadFailed[char.id]" :src="char.avatarUrl" :alt="char.name" @error="avatarLoadFailed[char.id] = true" />
                     <div v-else class="char-avatar-placeholder">{{ char.name?.charAt(0) }}</div>
                     <div class="character-info-row">
                       <strong>{{ char.name }}</strong>
@@ -2438,10 +2441,11 @@ async function handleInviteMember() {
                   <div v-else v-for="member in roomStore.roomMembers" :key="member.userId" class="member-item">
                     <div class="member-avatar-wrapper">
                       <img
-                        v-if="member.avatarUrl"
+                        v-if="member.avatarUrl && !avatarLoadFailed[member.userId]"
                         :src="member.avatarUrl"
                         :alt="member.displayName"
                         class="member-avatar"
+                        @error="avatarLoadFailed[member.userId] = true"
                       />
                       <img
                         v-else

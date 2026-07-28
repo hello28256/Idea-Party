@@ -56,8 +56,11 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
      * ORDER BY 中 COALESCE(lastEnterTime, updatedAt) 优先使用房主最近进入时间,
      * 未进入过则回退到更新时间,确保"最近访问"排序稳定。
      * status='active' 过滤掉已退出/被踢的成员记录。
+     * LEFT JOIN FETCH r.characters 一次性加载嵌套角色：列表页要直接用 room.characters 渲染头像,
+     * 不 FETCH 会触发懒加载 N+1 或 LazyInitializationException,导致前端拿到空集合看不到头像。
+     * DISTINCT 防止 characters/members 多对多 join 出重复 Room 行。
      */
-    @Query("SELECT r FROM Room r JOIN FETCH r.owner JOIN FETCH r.members m JOIN FETCH m.user WHERE m.user.id = :userId AND m.status = 'active' ORDER BY COALESCE(r.lastEnterTime, r.updatedAt) DESC")
+    @Query("SELECT DISTINCT r FROM Room r JOIN FETCH r.owner LEFT JOIN FETCH r.characters JOIN FETCH r.members m JOIN FETCH m.user WHERE m.user.id = :userId AND m.status = 'active' ORDER BY COALESCE(r.lastEnterTime, r.updatedAt) DESC")
     List<Room> findRoomsByMemberUserId(@Param("userId") UUID userId);
 
     /**
