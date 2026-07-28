@@ -2778,6 +2778,10 @@ async function handleInviteMember() {
   background: var(--app-bg);
   opacity: 0;
   overflow: hidden;
+  /* 桌面端 macOS hiddenInset / Windows 标准标题栏都吃掉顶部 ~28px。
+     不留空会让红绿黄点或系统标题栏直接压在 Idea Party logo 上。
+     浏览器访问时这 28px 是空 padding，无副作用。 */
+  padding-top: 28px;
   transition: opacity 0.4s ease, background-color 0.25s ease, grid-template-columns 0.22s ease;
 }
 
